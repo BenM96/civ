@@ -1,0 +1,365 @@
+class_name CentralHub
+extends Building
+## The player's main building. Every unit belongs to a hub: it waits here in
+## the garrison until given a mission, and returns here when it's done.
+
+## Emitted whenever any unit changes state (joins, departs, returns...).
+signal units_changed
+## Human-readable message for the event log.
+signal unit_event(message: String)
+
+## Emitted when the stockpile changes.
+signal inventory_changed
+## Emitted when the training queue changes.
+signal training_changed
+## Emitted when the set of extractors linked to the hub changes.
+signal network_changed
+
+
+## A unit being trained. Its cost has already been paid.
+class TrainingOrder:
+	var blueprint: UnitBlueprint
+	var turns_left: int
+
+	func _init(p_blueprint: UnitBlueprint) -> void:
+		blueprint = p_blueprint
+		turns_left = p_blueprint.train_turns
+
+
+## Resources each connected extractor delivers per turn.
+const EXTRACTOR_OUTPUT := 1
+
+var units: Array[Unit] = []
+## Stockpiled resources: ResourceDeposit.Type -> int.
+var inventory: Dictionary = {}
+## Units this hub knows how to train.
+var blueprints: Array[UnitBlueprint] = []
+## Only the first order progresses; the rest wait their turn.
+var training_queue: Array[TrainingOrder] = []
+## Structures this hub's builders can construct.
+var buildables: Array[Buildable] = []
+## Supply network: hex -> next hex towards the hub, for every tile linked
+## to the hub through conveyors/extractors (the hub maps to itself).
+var _network: Dictionary = {}
+## Extractor hexes that were producing last time the network was checked.
+var _producing: Dictionary = {}
+
+
+func _init() -> void:
+	building_name = "Central Hub"
+	max_health = 100
+	blueprints.append(UnitBlueprint.new("Worker", Worker, {ResourceDeposit.Type.BIOMASS: 3}, 2))
+	blueprints.append(UnitBlueprint.new("Builder", Builder,
+		{ResourceDeposit.Type.BIOMASS: 2, ResourceDeposit.Type.TITANIUM: 1}, 3))
+	blueprints.append(UnitBlueprint.new("Infantry", Infantry,
+		{ResourceDeposit.Type.BIOMASS: 2, ResourceDeposit.Type.TITANIUM: 2}, 3))
+	buildables.append(RoadBuildable.new())
+	buildables.append(BridgeBuildable.new())
+	buildables.append(ExtractorBuildable.new())
+	buildables.append(ConveyorBuildable.new())
+
+
+func get_buildable(id: String) -> Buildable:
+	for b in buildables:
+		if b.id == id:
+			return b
+	return null
+
+
+func add_unit(unit: Unit) -> void:
+	add_child(unit)
+	unit.display_name = "%s %d" % [unit.unit_name, _count_of_type(unit.unit_name) + 1]
+	units.append(unit)
+	unit.setup(self, map)
+	unit.state_changed.connect(_on_unit_state_changed)
+	unit.mission_completed.connect(_on_unit_mission_completed)
+	unit.mission_failed.connect(_on_unit_mission_failed)
+	unit.returned_to_hub.connect(_on_unit_returned)
+	units_changed.emit()
+	queue_redraw()
+
+
+func get_garrison() -> Array[Unit]:
+	var result: Array[Unit] = []
+	for u in units:
+		if u.state == Unit.State.IN_HUB:
+			result.append(u)
+	return result
+
+
+## Units at home that haven't been given orders or told to wait.
+func get_units_needing_orders() -> Array[Unit]:
+	var result: Array[Unit] = []
+	for u in units:
+		if u.needs_orders():
+			result.append(u)
+	return result
+
+
+## Tells a unit at home to wait (or wakes it).
+func set_unit_waiting(unit: Unit, value: bool) -> bool:
+	if unit.hub != self or not unit.set_waiting(value):
+		return false
+	if value:
+		unit_event.emit("%s is waiting at the hub" % unit.display_name)
+	else:
+		unit_event.emit("%s is ready for orders" % unit.display_name)
+	return true
+
+
+func get_field_units() -> Array[Unit]:
+	var result: Array[Unit] = []
+	for u in units:
+		if u.state != Unit.State.IN_HUB:
+			result.append(u)
+	return result
+
+
+## Gives `mission` to a garrisoned unit and pays its cost. The unit departs
+## when the turn ends.
+func assign_mission(unit: Unit, mission: Mission) -> bool:
+	if unit.hub != self or not unit.can_accept_mission(mission):
+		return false
+	if not can_afford(mission.get_cost()):
+		return false
+	_change_resources(mission.get_cost(), -1)
+	unit.assign_mission(mission)
+	unit_event.emit("%s ordered: %s" % [unit.display_name, mission.get_description()])
+	return true
+
+
+## Withdraws an order from a unit that hasn't left yet, refunding its cost.
+func cancel_mission(unit: Unit) -> bool:
+	if unit.hub != self:
+		return false
+	var mission := unit.mission
+	if not unit.cancel_deployment():
+		return false
+	_change_resources(mission.get_cost(), 1)
+	return true
+
+
+func add_resource(type: ResourceDeposit.Type, amount: int) -> void:
+	inventory[type] = get_resource(type) + amount
+	inventory_changed.emit()
+
+
+func get_resource(type: ResourceDeposit.Type) -> int:
+	return inventory.get(type, 0)
+
+
+func can_afford(cost: Dictionary) -> bool:
+	for type in cost:
+		if get_resource(type) < cost[type]:
+			return false
+	return true
+
+
+func _change_resources(cost: Dictionary, direction: int) -> void:
+	if cost.is_empty():
+		return
+	for type in cost:
+		inventory[type] = get_resource(type) + cost[type] * direction
+	inventory_changed.emit()
+
+
+# --- Training --------------------------------------------------------------
+
+## Pays for and queues a new unit. Returns false if we can't afford it.
+func queue_training(blueprint: UnitBlueprint) -> bool:
+	if not can_afford(blueprint.cost):
+		return false
+	_change_resources(blueprint.cost, -1)
+	training_queue.append(TrainingOrder.new(blueprint))
+	unit_event.emit("Started training a %s (%s)" % [blueprint.unit_name, blueprint.get_cost_text()])
+	training_changed.emit()
+	return true
+
+
+## Removes an order from the queue and refunds its full cost.
+func cancel_training(index: int) -> bool:
+	if index < 0 or index >= training_queue.size():
+		return false
+	var order := training_queue[index]
+	training_queue.remove_at(index)
+	_change_resources(order.blueprint.cost, 1)
+	unit_event.emit("Cancelled %s training (refunded %s)" % [order.blueprint.unit_name, order.blueprint.get_cost_text()])
+	training_changed.emit()
+	return true
+
+
+func _process_training() -> void:
+	if training_queue.is_empty():
+		return
+	var order := training_queue[0]
+	order.turns_left -= 1
+	if order.turns_left <= 0:
+		training_queue.remove_at(0)
+		var unit := order.blueprint.create_unit()
+		add_unit(unit)
+		unit_event.emit("%s has finished training and is ready for orders" % unit.display_name)
+	training_changed.emit()
+
+
+# --- Supply network --------------------------------------------------------
+
+func place(p_map: HexMap, p_hex: Vector2i) -> void:
+	super.place(p_map, p_hex)
+	if not map.tile_changed.is_connected(_on_tile_changed):
+		map.tile_changed.connect(_on_tile_changed)
+	update_network()
+
+
+func _on_tile_changed(_h: Vector2i) -> void:
+	update_network()
+
+
+## Flood-fills out from the hub through conveyors and extractors. Called
+## whenever a tile changes.
+func update_network() -> void:
+	var network := {hex: hex}
+	var frontier: Array[Vector2i] = [hex]
+	while not frontier.is_empty():
+		var current: Vector2i = frontier.pop_front()
+		for n in Hex.neighbors(current):
+			if network.has(n):
+				continue
+			var tile := map.get_tile(n)
+			if tile and Structure.carries_resources(tile.structure):
+				network[n] = current
+				frontier.append(n)
+	_network = network
+	map.set_supply_network(network)
+
+	var producing := {}
+	for h in get_producing_extractors():
+		producing[h] = true
+		if not _producing.has(h):
+			var deposit := map.get_tile(h).deposit
+			unit_event.emit("Extractor at (%d, %d) is connected: +1 %s per turn"
+				% [h.x, h.y, deposit.get_display_name()])
+	for h in _producing:
+		if not producing.has(h) and map.get_tile(h).has_deposit():
+			unit_event.emit("Extractor at (%d, %d) lost its connection to the hub" % [h.x, h.y])
+	_producing = producing
+	network_changed.emit()
+
+
+## Whether `h` is linked to the hub by conveyor belts.
+func is_supply_connected(h: Vector2i) -> bool:
+	return _network.has(h)
+
+
+## Extractors linked to the hub that still have something to mine.
+func get_producing_extractors() -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	for h in _network:
+		var tile := map.get_tile(h)
+		if tile.structure == Structure.Type.EXTRACTOR and tile.has_deposit():
+			result.append(h)
+	return result
+
+
+## Resources delivered per turn by the supply network: Type -> int.
+func get_income() -> Dictionary:
+	var income := {}
+	for h in get_producing_extractors():
+		var type := map.get_tile(h).deposit.type
+		income[type] = income.get(type, 0) + EXTRACTOR_OUTPUT
+	return income
+
+
+func _process_extractors() -> void:
+	for h in get_producing_extractors():
+		var deposit := map.get_tile(h).deposit
+		add_resource(deposit.type, deposit.extract(EXTRACTOR_OUTPUT))
+		if deposit.is_depleted():
+			unit_event.emit("Extractor at (%d, %d) has exhausted its %s deposit"
+				% [h.x, h.y, deposit.get_display_name()])
+
+
+func process_turn() -> void:
+	for unit in units:
+		if unit.state != Unit.State.IN_HUB:
+			unit.process_turn()
+	# After units move, so a freshly trained unit just waits in the garrison.
+	_process_training()
+	_process_extractors()
+	# Deposits may have run dry (extractors or harvesters) - refresh status.
+	update_network()
+	queue_redraw()
+
+
+func get_info_text() -> String:
+	return "%s - %d/%d units home" % [building_name, get_garrison().size(), units.size()]
+
+
+func _count_of_type(type_name: String) -> int:
+	var count := 0
+	for u in units:
+		if u.unit_name == type_name:
+			count += 1
+	return count
+
+
+func _on_unit_state_changed(_unit: Unit) -> void:
+	queue_redraw()
+	units_changed.emit()
+
+
+func _on_unit_mission_completed(unit: Unit, mission: Mission) -> void:
+	unit_event.emit("%s %s" % [unit.display_name, mission.get_completion_text()])
+
+
+func _on_unit_mission_failed(unit: Unit, mission: Mission, reason: String) -> void:
+	var cost := mission.get_cost()
+	if cost.is_empty():
+		unit_event.emit("%s failed: %s" % [unit.display_name, reason])
+		return
+	_change_resources(cost, 1)
+	unit_event.emit("%s failed: %s (refunded %s)" % [unit.display_name, reason, ResourceDeposit.format_cost(cost)])
+
+
+func _on_unit_returned(unit: Unit) -> void:
+	if not unit.has_cargo():
+		unit_event.emit("%s returned to the hub" % unit.display_name)
+		return
+	var cargo_text := unit.get_cargo_text()
+	var cargo := unit.take_cargo()
+	for type in cargo:
+		add_resource(type, cargo[type])
+	unit_event.emit("%s returned and delivered %s" % [unit.display_name, cargo_text])
+
+
+func _draw() -> void:
+	var size := map.hex_size if map else 36.0
+	var outer := Hex.corners(Vector2.ZERO, size * 0.82)
+	# Landing pad.
+	draw_colored_polygon(outer, Color(0.32, 0.34, 0.38))
+	var outline := outer.duplicate()
+	outline.append(outer[0])
+	draw_polyline(outline, Color(0.4, 0.85, 1.0), 2.5, true)
+	# Habitat dome with an antenna.
+	var base_y := size * 0.25
+	var r := size * 0.42
+	draw_line(Vector2(r * 0.3, base_y - r * 0.8), Vector2(r * 0.55, base_y - r * 1.35), Color(0.8, 0.82, 0.85), 2.0)
+	draw_circle(Vector2(r * 0.55, base_y - r * 1.35), size * 0.05, Color(1.0, 0.3, 0.25))
+	var dome := PackedVector2Array()
+	for i in 13:
+		var a := PI + PI * i / 12.0
+		dome.append(Vector2(cos(a), sin(a)) * r + Vector2(0, base_y))
+	draw_colored_polygon(dome, Color(0.75, 0.9, 1.0, 0.85))
+	draw_polyline(dome, Color(0.95, 0.98, 1.0), 2.0, true)
+	draw_arc(Vector2(0, base_y), r * 0.6, PI * 1.15, PI * 1.45, 6, Color(1, 1, 1, 0.8), 2.0)
+	draw_rect(Rect2(-r * 1.1, base_y, r * 2.2, size * 0.1), Color(0.6, 0.62, 0.66))
+	draw_rect(Rect2(-size * 0.07, base_y - size * 0.18, size * 0.14, size * 0.18), Color(0.2, 0.25, 0.32))
+	# Badge: units at home.
+	var badge := Vector2(size * 0.55, -size * 0.55)
+	draw_circle(badge, size * 0.24, Color(0.1, 0.1, 0.1))
+	var font := ThemeDB.fallback_font
+	var font_size := 14
+	var text := str(get_garrison().size())
+	var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var baseline := (font.get_ascent(font_size) - font.get_descent(font_size)) / 2.0
+	draw_string(font, badge + Vector2(-tw / 2.0, baseline), text,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
