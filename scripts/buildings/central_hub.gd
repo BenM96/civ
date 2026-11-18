@@ -14,6 +14,8 @@ signal inventory_changed
 signal training_changed
 ## Emitted when the set of extractors linked to the hub changes.
 signal network_changed
+## A newly linked extractor started delivering (lets the game report rivals).
+signal extractor_connected(h: Vector2i, type: ResourceDeposit.Type)
 
 
 ## A unit being trained. Its cost has already been paid.
@@ -25,6 +27,9 @@ class TrainingOrder:
 		blueprint = p_blueprint
 		turns_left = p_blueprint.train_turns
 
+
+## Who owns this hub (Faction.PLAYER or Faction.RIVAL). Set before place().
+var faction := Faction.PLAYER
 
 ## Resources each connected extractor delivers per turn.
 const EXTRACTOR_OUTPUT := 1
@@ -205,6 +210,7 @@ func _process_training() -> void:
 
 func place(p_map: HexMap, p_hex: Vector2i) -> void:
 	super.place(p_map, p_hex)
+	map.register_hub(self)
 	if not map.tile_changed.is_connected(_on_tile_changed):
 		map.tile_changed.connect(_on_tile_changed)
 	update_network()
@@ -214,7 +220,8 @@ func _on_tile_changed(_h: Vector2i) -> void:
 	update_network()
 
 
-## Flood-fills out from the hub through conveyors and extractors. Called
+## Flood-fills out from the hub through this faction's own conveyors and
+## extractors (a rival's belts never carry our resources). Called
 ## whenever a tile changes.
 func update_network() -> void:
 	var network := {hex: hex}
@@ -225,17 +232,18 @@ func update_network() -> void:
 			if network.has(n):
 				continue
 			var tile := map.get_tile(n)
-			if tile and Structure.carries_resources(tile.structure):
+			if tile and Structure.carries_resources(tile.structure) and tile.structure_owner == faction:
 				network[n] = current
 				frontier.append(n)
 	_network = network
-	map.set_supply_network(network)
+	map.queue_redraw()
 
 	var producing := {}
 	for h in get_producing_extractors():
 		producing[h] = true
 		if not _producing.has(h):
 			var deposit := map.get_tile(h).deposit
+			extractor_connected.emit(h, deposit.type)
 			unit_event.emit("Extractor at (%d, %d) is connected: +1 %s per turn"
 				% [h.x, h.y, deposit.get_display_name()])
 	for h in _producing:
@@ -243,6 +251,11 @@ func update_network() -> void:
 			unit_event.emit("Extractor at (%d, %d) lost its connection to the hub" % [h.x, h.y])
 	_producing = producing
 	network_changed.emit()
+
+
+## Whether `h` is linked to the hub by conveyor belts.
+func get_network_parent(h: Vector2i) -> Vector2i:
+	return _network.get(h, h)
 
 
 ## Whether `h` is linked to the hub by conveyor belts.
@@ -291,7 +304,15 @@ func process_turn() -> void:
 
 
 func get_info_text() -> String:
-	return "%s - %d/%d units home" % [building_name, get_garrison().size(), units.size()]
+	var text := "%s (%s) - %d/%d units home" % [
+		building_name, Faction.get_display_name(faction), get_garrison().size(), units.size()]
+	if faction != Faction.PLAYER:
+		# Scouting report on a rival's stockpile.
+		text += "\nStockpile: %s" % (ResourceDeposit.format_cost(inventory) if not inventory.is_empty() else "empty")
+		var income := get_income()
+		if not income.is_empty():
+			text += "\nExtractors deliver %s per turn" % ResourceDeposit.format_cost(income)
+	return text
 
 
 func _count_of_type(type_name: String) -> int:
@@ -338,7 +359,7 @@ func _draw() -> void:
 	draw_colored_polygon(outer, Color(0.32, 0.34, 0.38))
 	var outline := outer.duplicate()
 	outline.append(outer[0])
-	draw_polyline(outline, Color(0.4, 0.85, 1.0), 2.5, true)
+	draw_polyline(outline, Faction.get_color(faction), 3.0, true)
 	# Habitat dome with an antenna.
 	var base_y := size * 0.25
 	var r := size * 0.42

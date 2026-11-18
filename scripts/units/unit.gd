@@ -305,7 +305,10 @@ func _refresh_visibility() -> void:
 
 
 func _draw() -> void:
-	draw_circle(Vector2.ZERO, RADIUS + 2.0, Color(0, 0, 0, 0.7))
+	# Ring in the owner's colour so rival units are easy to tell apart.
+	var faction_color := Faction.get_color(hub.faction) if hub else Color.BLACK
+	draw_circle(Vector2.ZERO, RADIUS + 3.5, faction_color)
+	draw_circle(Vector2.ZERO, RADIUS + 1.5, Color(0, 0, 0, 0.8))
 	draw_circle(Vector2.ZERO, RADIUS, body_color)
 	var font := ThemeDB.fallback_font
 	var font_size := 15

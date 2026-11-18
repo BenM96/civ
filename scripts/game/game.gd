@@ -14,6 +14,11 @@ extends Node2D
 ## Skip straight past turns where every unit is already busy when the turn
 ## starts (nobody needs orders). Turns where the player acts are never skipped.
 @export var auto_skip_turns := true
+## Adds a computer-controlled rival colony (see AiController).
+@export var enable_rival := true
+## How far apart (in tiles) the two hubs should ideally be, and at least.
+@export var rival_distance := 16
+@export var rival_min_distance := 10
 
 ## Brief beat after units finish moving before the next skipped turn runs.
 const SKIP_PAUSE := 0.15
@@ -25,6 +30,9 @@ const SKIP_PAUSE := 0.15
 @onready var hud: Hud = $Hud
 
 var hub: CentralHub
+## The computer-controlled opponent's hub and brain (null if disabled).
+var rival_hub: CentralHub
+var ai: AiController
 var turn := 1
 
 var _hover_hex := Vector2i.ZERO
@@ -39,20 +47,13 @@ func _ready() -> void:
 	overlay.map = map
 	_generate_world()
 
-	hub = CentralHub.new()
-	buildings_root.add_child(hub)
-	hub.place(map, _hub_spot)
-	map.remove_deposit(_hub_spot)
-	map.add_road_anchor(_hub_spot)
-	for i in starting_workers:
-		hub.add_unit(Worker.new())
-	for i in starting_builders:
-		hub.add_unit(Builder.new())
-	# TESTING ONLY: start with a stockpile of every resource so new features
-	# (training, roads, extractors, conveyors...) can be tried straight away
-	# without harvesting first. Set starting_resources to 0 for real games.
-	for type in ResourceDeposit.Type.values():
-		hub.add_resource(type, starting_resources)
+	hub = _create_hub(Faction.PLAYER, _hub_spot)
+	if enable_rival and _rival_spot != null:
+		rival_hub = _create_hub(Faction.RIVAL, _rival_spot)
+		ai = AiController.new(rival_hub, map)
+		rival_hub.extractor_connected.connect(func(h: Vector2i, type: ResourceDeposit.Type) -> void:
+			hud.log_event("The rival colony connected a %s extractor at (%d, %d)"
+				% [ResourceDeposit.get_type_name(type), h.x, h.y]))
 
 	hub.unit_event.connect(hud.log_event)
 	hub.units_changed.connect(_refresh_markers)
@@ -89,17 +90,65 @@ func _ready() -> void:
 # --- World -----------------------------------------------------------------
 
 var _hub_spot := Vector2i.ZERO
+var _rival_spot: Variant = null
 
 
 func _generate_world() -> void:
 	for attempt in 20:
 		map.generate()
 		var spot: Variant = _find_hub_spot()
-		if spot != null:
-			_hub_spot = spot
+		if spot == null:
+			continue
+		_hub_spot = spot
+		_rival_spot = _find_rival_spot(spot)
+		if _rival_spot != null or not enable_rival:
 			return
-	push_warning("Couldn't find a good hub location; using map centre.")
-	_hub_spot = Hex.offset_to_axial(map.width >> 1, map.height >> 1)
+	push_warning("Couldn't find good hub locations; using what we have.")
+	if _rival_spot == null:
+		_hub_spot = Hex.offset_to_axial(map.width >> 1, map.height >> 1)
+
+
+## Builds a hub for `faction` at `spot` with the starting units and stockpile.
+func _create_hub(faction: int, spot: Vector2i) -> CentralHub:
+	var new_hub := CentralHub.new()
+	new_hub.faction = faction
+	buildings_root.add_child(new_hub)
+	new_hub.place(map, spot)
+	map.remove_deposit(spot)
+	for i in starting_workers:
+		new_hub.add_unit(Worker.new())
+	for i in starting_builders:
+		new_hub.add_unit(Builder.new())
+	# TESTING ONLY: start with a stockpile of every resource so new features
+	# (training, roads, extractors, conveyors...) can be tried straight away
+	# without harvesting first. Set starting_resources to 0 for real games.
+	# The rival gets the same so the contest stays fair.
+	for type in ResourceDeposit.Type.values():
+		new_hub.add_resource(type, starting_resources)
+	return new_hub
+
+
+## A spot for the rival's hub: open ground the player can walk to, as close
+## as possible to rival_distance tiles away (so neither side is crowded).
+func _find_rival_spot(player_spot: Vector2i) -> Variant:
+	var best: Variant = null
+	var best_score := 0
+	for h in map.tiles:
+		var d := Hex.distance(h, player_spot)
+		if d < rival_min_distance or not map.is_passable(h):
+			continue
+		var open := 0
+		for n in Hex.neighbors(h):
+			if map.is_passable(n):
+				open += 1
+		if open < 5:
+			continue
+		var score := absi(d - rival_distance)
+		if best == null or score < best_score:
+			if not map.find_path(player_spot, h).is_empty():
+				best = h
+				best_score = score
+	return best
 
 
 ## The passable tile nearest the map centre that has open neighbours and
@@ -129,7 +178,12 @@ func _find_hub_spot() -> Variant:
 
 func end_turn() -> void:
 	_cancel_targeting()
+	# The rival decides first so its orders depart at the same time as ours.
+	if ai:
+		ai.take_turn()
 	hub.process_turn()
+	if rival_hub:
+		rival_hub.process_turn()
 	turn += 1
 	hud.set_turn(turn)
 	_refresh_markers()
@@ -168,7 +222,10 @@ func _update_auto_skip(delta: float) -> void:
 		_skip_this_turn = false
 		return
 	# Let this turn's movement play out before moving on.
-	for unit in hub.units:
+	var all_units: Array[Unit] = hub.units.duplicate()
+	if rival_hub:
+		all_units.append_array(rival_hub.units)
+	for unit in all_units:
 		if unit.is_animating():
 			_skip_wait = 0.0
 			return
@@ -297,8 +354,9 @@ func _update_hover_info() -> void:
 		info += "\n" + tile.deposit.get_info_text()
 	if tile.structure != Structure.Type.NONE:
 		info += "\n" + _structure_info(tile)
-	if _hover_hex == hub.hex:
-		info += "\n" + hub.get_info_text()
+	var hub_here := map.get_hub_at(_hover_hex)
+	if hub_here:
+		info += "\n" + hub_here.get_info_text()
 
 	if _targeting_unit:
 		var unit := _targeting_unit
@@ -331,7 +389,10 @@ func _update_hover_info() -> void:
 
 func _structure_info(tile: HexTile) -> String:
 	var text := Structure.get_display_name(tile.structure)
-	var connected := hub.is_supply_connected(tile.coord)
+	if tile.structure_owner != Faction.PLAYER:
+		text = "%s's %s" % [Faction.get_display_name(tile.structure_owner), text]
+	var owner_hub: CentralHub = map.hubs.get(tile.structure_owner)
+	var connected := owner_hub != null and owner_hub.is_supply_connected(tile.coord)
 	if tile.structure == Structure.Type.EXTRACTOR:
 		if not tile.has_deposit():
 			return text + " - deposit exhausted"

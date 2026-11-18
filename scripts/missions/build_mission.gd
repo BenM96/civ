@@ -92,8 +92,8 @@ func get_invalid_reason(u: Unit) -> String:
 	var unit_reason := buildable.get_unit_reason(u)
 	if unit_reason != "":
 		return unit_reason
-	if target == u.hub.hex:
-		return "not on the hub"
+	if u.map.get_hub_at(target) != null:
+		return "not on a hub"
 	var reason := buildable.get_invalid_reason(u.map, target)
 	if reason != "":
 		return reason
@@ -127,5 +127,5 @@ func process_turn() -> void:
 			unit.movement_left = 0  # Building takes the whole turn.
 			_turns_worked += 1
 			if _turns_worked >= buildable.build_turns:
-				buildable.apply(unit.map, target)
+				buildable.apply(unit.map, target, unit.hub.faction)
 				complete()

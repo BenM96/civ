@@ -8,6 +8,8 @@ var terrain: Terrain.Type
 var deposit: ResourceDeposit
 ## Extractor, conveyor... built on this tile.
 var structure: Structure.Type = Structure.Type.NONE
+## Faction that built the structure (Faction.NONE if there is none).
+var structure_owner := Faction.NONE
 
 
 func _init(p_coord: Vector2i, p_terrain: Terrain.Type) -> void:

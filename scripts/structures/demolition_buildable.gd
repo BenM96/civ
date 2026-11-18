@@ -47,7 +47,7 @@ func works_from_adjacent(map: HexMap, h: Vector2i) -> bool:
 	return tile != null and tile.terrain == Terrain.Type.BRIDGE
 
 
-func apply(map: HexMap, h: Vector2i) -> void:
+func apply(map: HexMap, h: Vector2i, _owner_faction: int) -> void:
 	var was_bridge := map.get_tile(h).terrain == Terrain.Type.BRIDGE
 	# Structure first so the supply network sees the final state last.
 	map.set_structure(h, Structure.Type.NONE)

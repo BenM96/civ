@@ -21,5 +21,5 @@ func get_invalid_reason(map: HexMap, h: Vector2i) -> String:
 	return ""
 
 
-func apply(map: HexMap, h: Vector2i) -> void:
+func apply(map: HexMap, h: Vector2i, _owner_faction: int) -> void:
 	map.set_terrain(h, Terrain.Type.ROAD)

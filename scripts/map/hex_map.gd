@@ -23,8 +23,8 @@ var _astar := AStar2D.new()
 var _point_ids: Dictionary = {}  # Vector2i -> int
 var _id_to_hex: Array[Vector2i] = []
 var _road_anchors: Array[Vector2i] = []
-## Connected hex -> next hex towards the hub (see set_supply_network).
-var supply_network: Dictionary = {}
+## Faction -> CentralHub, for drawing ownership and supply networks.
+var hubs: Dictionary = {}
 
 
 func generate() -> void:
@@ -106,22 +106,32 @@ func set_terrain(h: Vector2i, terrain: Terrain.Type) -> void:
 	tile_changed.emit(h)
 
 
-## Places (or clears, with Structure.Type.NONE) a structure on a tile.
-## Structures don't affect movement.
-func set_structure(h: Vector2i, type: Structure.Type) -> void:
+## Places (or clears, with Structure.Type.NONE) a structure on a tile,
+## owned by the faction whose hub built it. Structures don't affect movement.
+func set_structure(h: Vector2i, type: Structure.Type, owner_faction := Faction.PLAYER) -> void:
 	var tile := get_tile(h)
-	if tile == null or tile.structure == type:
+	if tile == null:
+		return
+	var new_owner := Faction.NONE if type == Structure.Type.NONE else owner_faction
+	if tile.structure == type and tile.structure_owner == new_owner:
 		return
 	tile.structure = type
+	tile.structure_owner = new_owner
 	queue_redraw()
 	tile_changed.emit(h)
 
 
-## The hub's supply network, for drawing: connected hex -> the next hex
-## towards the hub (the hub itself maps to itself). Set by CentralHub.
-func set_supply_network(network: Dictionary) -> void:
-	supply_network = network
-	queue_redraw()
+## Lets the map draw each faction's hub links and supply network.
+func register_hub(hub: CentralHub) -> void:
+	hubs[hub.faction] = hub
+	add_road_anchor(hub.hex)
+
+
+func get_hub_at(h: Vector2i) -> CentralHub:
+	for faction in hubs:
+		if hubs[faction].hex == h:
+			return hubs[faction]
+	return null
 
 
 ## Tiles that roads visually connect to even though they aren't roads
@@ -263,41 +273,58 @@ func _draw() -> void:
 			_draw_deposit(tile.deposit, Hex.to_pixel(h, hex_size))
 	# Belt links, then extractor rigs on top of their deposits.
 	for h in tiles:
-		if Structure.carries_resources(tiles[h].structure) or (h in _road_anchors and _has_belt_neighbour(h)):
-			_draw_belt_links(h)
+		var owner_faction := _belt_owner(h)
+		if owner_faction != Faction.NONE and _has_belt_neighbour(h, owner_faction):
+			_draw_belt_links(h, owner_faction)
 	for h in tiles:
 		if tiles[h].structure == Structure.Type.EXTRACTOR:
 			_draw_extractor(h)
 
 
-func _connects_belt(h: Vector2i) -> bool:
+## Which faction's supply network this tile could belong to: the owner of
+## its conveyor/extractor, or the faction whose hub stands on it.
+func _belt_owner(h: Vector2i) -> int:
 	var tile := get_tile(h)
-	return (tile != null and Structure.carries_resources(tile.structure)) or h in _road_anchors
+	if tile and Structure.carries_resources(tile.structure):
+		return tile.structure_owner
+	var hub := get_hub_at(h)
+	return hub.faction if hub else Faction.NONE
 
 
-func _has_belt_neighbour(h: Vector2i) -> bool:
+## Belts only link up with the same faction's belts, extractors and hub.
+func _connects_belt(h: Vector2i, owner_faction: int) -> bool:
+	return has_tile(h) and _belt_owner(h) == owner_faction
+
+
+func _has_belt_neighbour(h: Vector2i, owner_faction: int) -> bool:
 	for n in Hex.neighbors(h):
 		var tile := get_tile(n)
-		if tile and Structure.carries_resources(tile.structure):
+		if tile and Structure.carries_resources(tile.structure) and tile.structure_owner == owner_faction:
 			return true
 	return false
 
 
+func _is_supply_connected(h: Vector2i, owner_faction: int) -> bool:
+	return hubs.has(owner_faction) and hubs[owner_faction].is_supply_connected(h)
+
+
 ## Half a belt from this tile's centre to each linked neighbour; the
-## neighbour draws the other half. Connected belts are lit and show
-## chevrons pointing the way resources flow (towards the hub).
-func _draw_belt_links(h: Vector2i) -> void:
+## neighbour draws the other half. Connected belts have rails in their
+## faction's colour and chevrons pointing the way resources flow (towards
+## the hub); disconnected ones are dull.
+func _draw_belt_links(h: Vector2i, owner_faction: int) -> void:
 	var s := hex_size
 	var c := Hex.to_pixel(h, s)
 	var tile := get_tile(h)
 	var is_belt := tile.structure == Structure.Type.CONVEYOR
-	var lit := supply_network.has(h)
+	var lit := _is_supply_connected(h, owner_faction)
+	var faction_color := Faction.get_color(owner_faction)
 	var frame := Color(0.16, 0.16, 0.19)
-	var surface := Color(0.36, 0.4, 0.46) if lit else Color(0.36, 0.3, 0.3)
-	var rail := Color(0.4, 0.9, 1.0, 0.9) if lit else Color(0.9, 0.35, 0.25, 0.7)
+	var surface := Color(0.36, 0.4, 0.46) if lit else Color(0.33, 0.3, 0.3)
+	var rail := Color(faction_color, 0.95) if lit else Color(faction_color.darkened(0.45), 0.7)
 	var ends: Array[Vector2] = []
 	for n in Hex.neighbors(h):
-		if _connects_belt(n):
+		if _connects_belt(n, owner_faction):
 			ends.append(c + (Hex.to_pixel(n, s) - c) * 0.5)
 	if is_belt:
 		draw_circle(c, 0.17 * s, frame)
@@ -311,15 +338,16 @@ func _draw_belt_links(h: Vector2i) -> void:
 		draw_line(c + side, e + side, rail, 1.5)
 		draw_line(c - side, e - side, rail, 1.5)
 	# Flow chevrons on the segment towards the hub.
-	if lit and supply_network[h] != h:
-		var target := c + (Hex.to_pixel(supply_network[h], s) - c) * 0.5
+	var next_hex: Vector2i = hubs[owner_faction].get_network_parent(h) if lit else h
+	if lit and next_hex != h:
+		var target := c + (Hex.to_pixel(next_hex, s) - c) * 0.5
 		var dir := (target - c).normalized()
 		var perp := dir.orthogonal()
 		for t in [0.3, 0.75]:
 			var tip := c.lerp(target, t) + dir * 0.05 * s
 			draw_polyline(PackedVector2Array([
 				tip - dir * 0.08 * s + perp * 0.07 * s, tip, tip - dir * 0.08 * s - perp * 0.07 * s,
-			]), Color(0.85, 1.0, 1.0), 2.0)
+			]), faction_color.lightened(0.6), 2.0)
 
 
 ## A small drilling derrick over the deposit, with a status light:
@@ -333,9 +361,10 @@ func _draw_extractor(h: Vector2i) -> void:
 	var top := c + Vector2(0, -0.42) * s
 	var left := c + Vector2(-0.26, 0.24) * s
 	var right := c + Vector2(0.26, 0.24) * s
-	# Base platform.
+	# Base platform, edged in the owner's colour.
 	draw_rect(Rect2(c + Vector2(-0.34, 0.2) * s, Vector2(0.68, 0.13) * s), dark)
-	draw_rect(Rect2(c + Vector2(-0.34, 0.2) * s, Vector2(0.68, 0.13) * s), metal, false, 1.5)
+	draw_rect(Rect2(c + Vector2(-0.34, 0.2) * s, Vector2(0.68, 0.13) * s),
+		Faction.get_color(tile.structure_owner), false, 2.5)
 	# Tower legs and cross braces.
 	for leg in [left, right]:
 		draw_line(leg, top, dark, 4.0)
@@ -351,7 +380,7 @@ func _draw_extractor(h: Vector2i) -> void:
 	# Status light.
 	var light := Color(0.55, 0.55, 0.55)
 	if tile.has_deposit():
-		light = Color(0.35, 1.0, 0.4) if supply_network.has(h) else Color(1.0, 0.3, 0.25)
+		light = Color(0.35, 1.0, 0.4) if _is_supply_connected(h, tile.structure_owner) else Color(1.0, 0.3, 0.25)
 	draw_circle(top, 0.09 * s, dark)
 	draw_circle(top, 0.065 * s, light)
 

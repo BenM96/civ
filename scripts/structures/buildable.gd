@@ -28,7 +28,7 @@ func can_build_at(map: HexMap, h: Vector2i) -> bool:
 
 
 ## Changes the world once construction finishes.
-func apply(_map: HexMap, _h: Vector2i) -> void:
+func apply(_map: HexMap, _h: Vector2i, _owner_faction: int) -> void:
 	pass
 
 

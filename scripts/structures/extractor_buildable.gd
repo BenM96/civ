@@ -22,5 +22,5 @@ func get_invalid_reason(map: HexMap, h: Vector2i) -> String:
 	return ""
 
 
-func apply(map: HexMap, h: Vector2i) -> void:
-	map.set_structure(h, Structure.Type.EXTRACTOR)
+func apply(map: HexMap, h: Vector2i, owner_faction: int) -> void:
+	map.set_structure(h, Structure.Type.EXTRACTOR, owner_faction)
