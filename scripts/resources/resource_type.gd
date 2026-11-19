@@ -20,8 +20,16 @@ var max_amount := 50
 var spawn_chance := 0.05
 ## Terrain types (Terrain.Type) deposits can appear on.
 var terrains: Array = []
+## If above 0, deposits aren't scattered at random: they're placed only on
+## tiles MORE than this many tiles from every hub, and more than
+## min_spacing from each other (see HexMap.place_remote_deposits()). Nor
+## does every hub get one nearby.
+var min_distance_from_hubs := 0
+var min_spacing := 0
 
 # --- What it yields ---------------------------------------------------------
+## Whether Workers can harvest it by hand. If not, only extractors get it.
+var can_harvest := true
 ## Taken from the deposit per Harvest trip by a Worker (whole units).
 var harvest_amount := 1
 ## Delivered to the hub per turn by a connected Extractor. Can be a fraction:
@@ -38,6 +46,11 @@ func extractor_output_hundredths() -> int:
 
 func can_spawn_on(terrain: Terrain.Type) -> bool:
 	return terrain in terrains
+
+
+## Placed by distance rules rather than scattered (see min_distance_from_hubs).
+func is_remote() -> bool:
+	return min_distance_from_hubs > 0
 
 
 ## Draws the deposit's icon (inside the ring the map draws around it) at `c`

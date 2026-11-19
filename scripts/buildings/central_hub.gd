@@ -370,7 +370,9 @@ func get_income() -> Dictionary:
 
 
 ## Each producing extractor adds its output to its progress (in hundredths);
-## every full 100 delivers 1 unit from its deposit.
+## every full 100 delivers 1 unit from its deposit. An extractor whose
+## deposit runs dry is dismantled, leaving the conveyor belt it was built on
+## (so a line running through it stays connected).
 func _process_extractors() -> void:
 	# Forget progress on tiles that are no longer our extractors.
 	for h in _extractor_progress.keys():
@@ -386,8 +388,15 @@ func _process_extractors() -> void:
 		if whole > 0:
 			add_resource(deposit.type, deposit.extract(whole))
 		if deposit.is_depleted():
-			unit_event.emit("Extractor at (%d, %d) has exhausted its %s deposit"
+			map.set_structure(h, Structure.Type.CONVEYOR, faction)
+			_extractor_progress.erase(h)
+			unit_event.emit("Extractor at (%d, %d) has exhausted its %s deposit and was removed (the belt stays)"
 				% [h.x, h.y, deposit.get_display_name()])
+	# Older saves may still have extractors on deposits that ran dry.
+	for h in _network.keys():  # A copy: changing a tile rebuilds _network.
+		var tile := map.get_tile(h)
+		if tile.structure == Structure.Type.EXTRACTOR and tile.structure_owner == faction and not tile.has_deposit():
+			map.set_structure(h, Structure.Type.CONVEYOR, faction)
 
 
 # --- Turn steps (run by TurnManager, in this order) ------------------------

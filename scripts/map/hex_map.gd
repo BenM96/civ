@@ -141,11 +141,59 @@ func _scatter_deposits(rng: RandomNumberGenerator) -> void:
 		if not tile.is_passable():
 			continue
 		for info in infos:
-			if not info.can_spawn_on(tile.terrain):
+			if info.is_remote() or not info.can_spawn_on(tile.terrain):
 				continue
 			if rng.randf() < info.spawn_chance * deposit_density:
 				tile.deposit = ResourceDeposit.create_random(info.type, h, rng)
 				break
+
+
+## Places the "remote" resources (e.g. Unobtainium - see
+## ResourceType.min_distance_from_hubs): as many deposits as fit on tiles
+## more than min_distance_from_hubs from every hub and more than min_spacing
+## from each other, on their usual terrain, reachable from a hub. Tiles are
+## tried in a random order from the map's seed, so the same map always gets
+## the same deposits. Returns how many were placed.
+func place_remote_deposits(hub_spots: Array[Vector2i]) -> int:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = last_seed + 5
+	var placed := 0
+	for info in ResourceDeposit.all_infos():
+		if not info.is_remote():
+			continue
+		var candidates: Array[Vector2i] = []
+		for h in tiles:
+			var tile: HexTile = tiles[h]
+			if tile.is_passable() and tile.deposit == null and info.can_spawn_on(tile.terrain) \
+					and _farther_than(h, hub_spots, info.min_distance_from_hubs):
+				candidates.append(h)
+		# Fisher-Yates with our own rng (Array.shuffle() would use the global one).
+		for i in range(candidates.size() - 1, 0, -1):
+			var j := rng.randi_range(0, i)
+			var tmp := candidates[i]
+			candidates[i] = candidates[j]
+			candidates[j] = tmp
+		var mine: Array[Vector2i] = []
+		for h in candidates:
+			if not _farther_than(h, mine, info.min_spacing):
+				continue
+			if not hub_spots.any(func(spot: Vector2i) -> bool: return not find_path(spot, h).is_empty()):
+				continue
+			tiles[h].deposit = ResourceDeposit.create_random(info.type, h, rng)
+			mine.append(h)
+		if mine.is_empty():
+			push_warning("No room for any %s deposit on this map" % info.display_name)
+		placed += mine.size()
+	queue_redraw()
+	return placed
+
+
+## Whether `h` is more than `distance` tiles from every one of `spots`.
+func _farther_than(h: Vector2i, spots: Array[Vector2i], distance: int) -> bool:
+	for spot in spots:
+		if Hex.distance(h, spot) <= distance:
+			return false
+	return true
 
 
 ## Makes sure every colony starts with one deposit of every resource type
@@ -158,6 +206,8 @@ func guarantee_deposits_near(hub_spots: Array[Vector2i], radius: int) -> void:
 	rng.seed = last_seed + 3
 	for spot in hub_spots:
 		for type in ResourceDeposit.Type.values():
+			if ResourceDeposit.get_info(type).is_remote():
+				continue  # Only ever far from hubs (see place_remote_deposits()).
 			if _has_deposit_near(spot, type, radius):
 				continue
 			var preferred: Array[Vector2i] = []
@@ -408,7 +458,11 @@ func _draw() -> void:
 	# Belt links, then extractor rigs on top of their deposits.
 	for h in tiles:
 		var owner_faction := _belt_owner(h)
-		if owner_faction != Faction.NONE and _has_belt_neighbour(h, owner_faction):
+		if owner_faction == Faction.NONE:
+			continue
+		# Belts and extractors always draw (linking to whatever's next to them,
+		# hub included); a hub tile only draws its half of links to belts.
+		if Structure.carries_resources(tiles[h].structure) or _has_belt_neighbour(h, owner_faction):
 			_draw_belt_links(h, owner_faction)
 	for h in tiles:
 		if tiles[h].structure == Structure.Type.EXTRACTOR:

@@ -3,7 +3,7 @@
 A turn-based colony strategy game on Mars, played on a hex map. You run one
 colony against four computer-controlled rivals: gather resources, build a
 supply network, grow your workforce and race to be the first to stockpile
-**50 Gold**.
+**50 Unobtainium**.
 
 Made with [Godot 4.7](https://godotengine.org/).
 
@@ -16,8 +16,8 @@ come home on their own.
 
 ### Winning and losing
 
-- **Win:** be the first colony to hold 50 Gold at the end of a turn. You can
-  keep playing afterwards.
+- **Win:** be the first colony to hold 50 Unobtainium at the end of a turn.
+  You can keep playing afterwards.
 - **Lose:** your Biomass drops below zero. Every unit eats 1 Biomass a turn and
   your hub grows 3, so more units need more food.
 - A rival that starves collapses. Outlast every rival and you also win.
@@ -27,12 +27,15 @@ come home on their own.
 | Resource | Used for |
 |---|---|
 | Biomass | Feeding your units |
-| Gold | Training units; winning |
+| Gold | Training units |
 | Titanium | Training units, conveyor belts, extractors, bridges |
 | Sediment | Foundations, extractors, bridges |
+| Unobtainium | Winning (50 wins the game) |
 
 Every hub has at least one deposit of each resource within 4 tiles (but none
-right next to it).
+right next to it), except Unobtainium: its deposits are only found more than
+10 tiles from every hub and from each other, and it can only be mined with an
+extractor connected by belts - Workers can't harvest it by hand.
 
 ### Units
 
@@ -66,8 +69,8 @@ Harvesting by hand brings back 1 resource per trip. For a steady income:
 1. Lay **foundations** from your hub out to a deposit, and on the deposit.
 2. Build **conveyor belts** on the foundations, including on the deposit.
 3. Build an **extractor** on top of the belt on the deposit. A Biomass
-   extractor delivers 1 per turn; Titanium, Sediment and Gold extractors
-   deliver 0.2 per turn (1 every 5 turns).
+   or Unobtainium extractor delivers 1 per turn; Titanium, Sediment and Gold
+   extractors deliver 0.2 per turn (1 every 5 turns).
 
 Each resource's numbers (deposit sizes, where it appears, what a Worker
 harvests per trip, what an extractor delivers) and its map icon live in its

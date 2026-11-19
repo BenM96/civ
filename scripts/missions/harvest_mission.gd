@@ -76,6 +76,10 @@ func get_invalid_reason(u: Unit) -> String:
 		return "impassable"
 	if not tile.has_deposit():
 		return "no deposit here"
+	if not ResourceDeposit.get_info(tile.deposit.type).can_harvest:
+		return "%s can only be mined by an extractor" % tile.deposit.get_display_name()
+	if tile.structure == Structure.Type.EXTRACTOR:
+		return "an extractor is already mining this deposit"
 	if u.map.find_path(u.hex, target).is_empty():
 		return "unreachable"
 	return ""
@@ -111,6 +115,9 @@ func _check_deposit() -> bool:
 		fail("the %s deposit at (%d, %d) was used up" % [_resource_name, target.x, target.y])
 		return false
 	_resource_name = deposit.get_display_name()
+	if unit.map.get_tile(target).structure == Structure.Type.EXTRACTOR:
+		fail("an extractor was built on the %s deposit at (%d, %d)" % [_resource_name, target.x, target.y])
+		return false
 	return true
 
 

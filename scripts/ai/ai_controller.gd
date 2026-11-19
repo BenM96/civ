@@ -272,6 +272,8 @@ func _can_gather_all(types: Dictionary) -> bool:
 	for type in types:
 		if income.get(type, 0) > 0:
 			continue
+		if not ResourceDeposit.get_info(type).can_harvest:
+			return false
 		var found := false
 		for h in map.tiles:
 			var tile: HexTile = map.tiles[h]
@@ -351,6 +353,8 @@ func _harvestable_deposits_by_walk(wanted: Dictionary) -> Array[Vector2i]:
 		var tile: HexTile = map.tiles[h]
 		if not tile.has_deposit() or not wanted.has(tile.deposit.type):
 			continue
+		if not ResourceDeposit.get_info(tile.deposit.type).can_harvest:
+			continue  # Extractors only.
 		if tile.structure == Structure.Type.EXTRACTOR:
 			continue  # Already being mined.
 		if Hex.distance(hub.hex, h) > MAX_HARVEST_DISTANCE:

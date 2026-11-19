@@ -1,7 +1,6 @@
 class_name GoldResource
 extends ResourceType
-## Rare and valuable: units cost it, and the first colony to stockpile
-## TurnManager.GOLD_TO_WIN wins.
+## Rare and valuable: every unit costs it.
 
 
 func _init() -> void:

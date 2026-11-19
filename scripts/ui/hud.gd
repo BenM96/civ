@@ -580,12 +580,13 @@ func _build_top_bar(root: Control) -> void:
 	_turn_label.add_theme_font_size_override("font_size", 20)
 	top_row.add_child(_turn_label)
 	# One coloured label per resource, in a fixed order.
-	for type in [ResourceDeposit.Type.BIOMASS, ResourceDeposit.Type.TITANIUM, ResourceDeposit.Type.SEDIMENT, ResourceDeposit.Type.GOLD]:
+	for type in [ResourceDeposit.Type.BIOMASS, ResourceDeposit.Type.TITANIUM, ResourceDeposit.Type.SEDIMENT,
+			ResourceDeposit.Type.GOLD, ResourceDeposit.Type.UNOBTAINIUM]:
 		var gap := Control.new()
-		gap.custom_minimum_size.x = 18
+		gap.custom_minimum_size.x = 10
 		top_row.add_child(gap)
 		var label := Label.new()
-		label.add_theme_font_size_override("font_size", 18)
+		label.add_theme_font_size_override("font_size", 16)
 		label.add_theme_color_override("font_color", ResourceDeposit.get_type_color(type))
 		top_row.add_child(label)
 		_inventory_labels[type] = label
@@ -617,7 +618,7 @@ func _build_top_bar(root: Control) -> void:
 	debug_give.tooltip_text = "Testing only: give your colony %d of every resource." % Orders.DEBUG_RESOURCE_AMOUNT
 	top_row.add_child(debug_give)
 	_end_turn_button = _make_button(END_TURN_TEXT, func() -> void: end_turn_requested.emit())
-	_end_turn_button.custom_minimum_size.x = 170
+	_end_turn_button.custom_minimum_size.x = 140
 	top_row.add_child(_end_turn_button)
 
 
