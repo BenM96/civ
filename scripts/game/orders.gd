@@ -99,8 +99,9 @@ func submit(faction: int, order: Dictionary) -> String:
 			var bp := hub.get_blueprint(str(order.get("unit_type", "")))
 			if bp == null:
 				return "unknown unit type"
-			if not hub.can_afford(bp.cost):
-				return "need %s" % bp.get_cost_text()
+			var cost := hub.get_training_cost(bp)
+			if not hub.can_afford(cost):
+				return "need %s" % ResourceDeposit.format_cost(cost)
 			return "" if hub.queue_training(bp) else "can't train that"
 		"cancel_training":
 			return "" if hub.cancel_training(int(order.get("index", -1))) else "nothing to cancel"

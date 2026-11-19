@@ -147,6 +147,48 @@ func _scatter_deposits(rng: RandomNumberGenerator) -> void:
 				break
 
 
+## Makes sure every colony starts with one deposit of every resource type
+## within `radius` tiles of its hub. Wherever one is missing, it's added on a
+## free tile 2..radius away that the hub can reach - on the resource's usual
+## terrain if there is any, otherwise on any open ground. Uses the map's
+## seed, so the same map always gets the same deposits.
+func guarantee_deposits_near(hub_spots: Array[Vector2i], radius: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = last_seed + 3
+	for spot in hub_spots:
+		for type in ResourceDeposit.Type.values():
+			if _has_deposit_near(spot, type, radius):
+				continue
+			var preferred: Array[Vector2i] = []
+			var fallback: Array[Vector2i] = []
+			for h in tiles:
+				var tile: HexTile = tiles[h]
+				var d := Hex.distance(h, spot)
+				if d < 2 or d > radius or tile.deposit != null or not tile.is_passable() or h in hub_spots:
+					continue
+				if find_path(spot, h).is_empty():
+					continue
+				if ResourceDeposit.can_spawn_on(type, tile.terrain):
+					preferred.append(h)
+				else:
+					fallback.append(h)
+			var choices := preferred if not preferred.is_empty() else fallback
+			if choices.is_empty():
+				push_warning("No room for a %s deposit near %s" % [ResourceDeposit.get_type_name(type), spot])
+				continue
+			var h: Vector2i = choices[rng.randi_range(0, choices.size() - 1)]
+			tiles[h].deposit = ResourceDeposit.create_random(type, h, rng)
+	queue_redraw()
+
+
+func _has_deposit_near(center: Vector2i, type: ResourceDeposit.Type, radius: int) -> bool:
+	for h in tiles:
+		var tile: HexTile = tiles[h]
+		if tile.deposit and tile.deposit.type == type and h != center and Hex.distance(h, center) <= radius:
+			return true
+	return false
+
+
 func remove_deposit(h: Vector2i) -> void:
 	var tile := get_tile(h)
 	if tile and tile.deposit:

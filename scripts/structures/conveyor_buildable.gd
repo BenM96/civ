@@ -7,7 +7,7 @@ extends Buildable
 func _init() -> void:
 	id = "conveyor"
 	display_name = "Conveyor Belt"
-	cost = {ResourceDeposit.Type.SEDIMENT: 1}
+	cost = {ResourceDeposit.Type.TITANIUM: 1}
 	build_turns = 1
 	structure_type = Structure.Type.CONVEYOR
 	carries_resources = true

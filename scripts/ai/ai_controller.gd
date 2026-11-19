@@ -6,13 +6,16 @@ extends RefCounted
 ##
 ## Each turn (called just before the turn resolves, so its orders depart at
 ## the same time as the player's) it:
-##   1. Trains a unit if its biomass income can support one: Workers until
-##      it has WANTED_WORKERS, then Infantry (up to MAX_UNITS in total).
-##   2. Puts every idle worker it can afford to work connecting the nearest
-##      deposit: first a road to it, then a conveyor belt along the road,
-##      then an extractor on it.
-##   3. Sends remaining idle workers to harvest only what that project is
-##      short of (the next step's needs first). If nothing is short, they
+##   1. Growth: if its biomass income is at least MIN_BIOMASS_INCOME_TO_GROW,
+##      it wants another unit - Workers until it has WANTED_WORKERS, then
+##      Infantry (up to MAX_UNITS in total). It trains one if it can afford
+##      it; if not, construction pauses and every idle worker gathers what
+##      that unit costs (step 3).
+##   2. Construction (when not saving up for a unit): puts every idle worker
+##      it can afford to work connecting the nearest deposit - first a road
+##      to it, then a conveyor belt along the road, then an extractor on it.
+##   3. Sends remaining idle workers to harvest only what step 1 or 2 is
+##      short of (the most pressing needs first). If nothing is short, they
 ##      wait at home. Never Biomass, which it only gets from extractors.
 
 ## How many workers the rival tries to keep.
@@ -22,9 +25,9 @@ const MAX_UNITS := 8
 const MAX_BELT_LENGTH := 8
 ## Workers only travel this far (hex distance) to harvest.
 const MAX_HARVEST_DISTANCE := 12
-## Only trains a new unit while its biomass income (hub + extractors - unit
-## upkeep) is more than this per turn.
-const MIN_BIOMASS_SURPLUS := 1
+## Biomass income per turn (hub + extractors - unit upkeep) at which the AI
+## stops building and focuses on getting more units.
+const MIN_BIOMASS_INCOME_TO_GROW := 2
 
 var hub: CentralHub
 var map: HexMap
@@ -52,20 +55,52 @@ func _order(order: Dictionary) -> bool:
 
 
 func take_turn() -> void:
-	_plan_training()
-	_plan_construction()
+	var saving_for_unit := _plan_growth()
+	if not saving_for_unit:
+		_plan_construction()
 	_plan_harvesting()
 
 
-# --- Training --------------------------------------------------------------
+# --- Growth ----------------------------------------------------------------
 
-func _plan_training() -> void:
-	if not hub.training_queue.is_empty() or hub.units.size() >= MAX_UNITS:
-		return
-	if _biomass_income() <= MIN_BIOMASS_SURPLUS:
-		return
+## Trains the unit we want next if we can afford it. If we can't, puts its
+## shortfall in _needed so idle workers gather it, and returns true (we're
+## saving up, so don't spend on construction). Returns false when we don't
+## want a unit right now, or can't gather what it needs.
+func _plan_growth() -> bool:
+	_needed = {}
+	_urgent = {}
+	var bp := _wanted_unit()
+	if bp == null:
+		return false
+	# One at a time: wait for the current one to finish before buying another.
+	if hub.training_queue.is_empty() and _order(Orders.train(bp.unit_name)):
+		bp = _wanted_unit()  # The next one, which now costs double.
+		if bp == null:
+			return false
+	var short := _shortfall(hub.get_training_cost(bp))
+	short.erase(ResourceDeposit.Type.BIOMASS)  # Never harvested by hand.
+	if short.is_empty():
+		return false  # Can pay already; build in the meantime.
+	if not _can_gather_all(short):
+		return false  # Something it needs isn't in reach; keep building instead.
+	_needed = short
+	_urgent = short
+	return true
+
+
+## The blueprint of the unit we want next, or null if we shouldn't grow now
+## (not enough biomass income to feed it, or at MAX_UNITS).
+func _wanted_unit() -> UnitBlueprint:
+	if hub.units.size() + hub.training_queue.size() >= MAX_UNITS:
+		return null
+	if _biomass_income() < MIN_BIOMASS_INCOME_TO_GROW:
+		return null
 	var workers := _count_units(func(u: Unit) -> bool: return u is Worker)
-	_train("Worker" if workers < WANTED_WORKERS else "Infantry")
+	for order in hub.training_queue:
+		if order.blueprint.unit_name == "Worker":
+			workers += 1
+	return hub.get_blueprint("Worker" if workers < WANTED_WORKERS else "Infantry")
 
 
 ## Biomass gained per turn after every unit has eaten.
@@ -73,8 +108,25 @@ func _biomass_income() -> int:
 	return hub.get_net_income()[ResourceDeposit.Type.BIOMASS]
 
 
-func _train(unit_name: String) -> void:
-	_order(Orders.train(unit_name))  # Refused if we can't afford it.
+## Whether every one of these resource types has an unworked deposit within
+## harvesting range (or an extractor already bringing it in). Saving up is
+## pointless if even one of them can never be got.
+func _can_gather_all(types: Dictionary) -> bool:
+	var income := hub.get_income()
+	for type in types:
+		if income.get(type, 0) > 0:
+			continue
+		var found := false
+		for h in map.tiles:
+			var tile: HexTile = map.tiles[h]
+			if tile.has_deposit() and tile.deposit.type == type \
+					and tile.structure != Structure.Type.EXTRACTOR \
+					and Hex.distance(hub.hex, h) <= MAX_HARVEST_DISTANCE:
+				found = true
+				break
+		if not found:
+			return false
+	return true
 
 
 func _count_units(pred: Callable) -> int:

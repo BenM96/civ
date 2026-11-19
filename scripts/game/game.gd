@@ -14,7 +14,11 @@ extends Node2D
 ## the scene (see load_game()).
 static var pending_load: Dictionary = {}
 
-@export var starting_workers := 3
+## Workers every colony starts with.
+@export var starting_workers := 1
+## Every hub gets at least one deposit of every resource within this many
+## tiles (added at map creation if the map didn't already have one there).
+@export var starting_deposit_radius := 5
 ## Skip straight past turns where every unit is already busy when the turn
 ## starts (nobody needs orders). Turns where the player acts are never skipped.
 @export var auto_skip_turns := true
@@ -71,6 +75,7 @@ func _ready() -> void:
 		if not colony.faction in human_factions and not colony.collapsed:
 			ais.append(AiController.new(colony, map, orders))
 	_setup_turns(start_turn)
+	turns.gold_goal_reached_already = bool(save.get("gold_goal_reached", false))
 	UnitStackLayout.arrange(map)
 
 	hub.unit_event.connect(hud.log_event)
@@ -125,7 +130,7 @@ func save_game() -> void:
 	if _game_over:
 		hud.log_event("The game is over - nothing to save.")
 		return
-	var data := SaveGame.capture(map, colonies, turns.turn, human_factions)
+	var data := SaveGame.capture(map, colonies, turns.turn, human_factions, turns.gold_goal_reached_already)
 	var err := SaveGame.write_file(data)
 	hud.log_event("Game saved (turn %d)." % turns.turn if err == OK else "Couldn't save the game (error %d)." % err)
 
@@ -163,9 +168,11 @@ func _load_world(data: Dictionary) -> int:
 var _hub_spots: Array[Vector2i] = []
 
 
-## A fresh game: a new map with a hub for every colony.
+## A fresh game: a new map with a hub for every colony, each with every kind
+## of resource nearby.
 func _new_world() -> void:
 	_generate_world()
+	map.guarantee_deposits_near(_hub_spots, starting_deposit_radius)
 	for faction in _hub_spots.size():
 		colonies.append(_create_hub(faction, _hub_spots[faction]))
 
@@ -295,6 +302,37 @@ func _setup_turns(start_turn: int) -> void:
 		hud.set_turn(turn)
 		_refresh_markers())
 	turns.colonies_starved.connect(_on_colonies_starved)
+	turns.gold_goal_reached.connect(_on_gold_goal_reached)
+	hud.popup_closed.connect(func() -> void: turns.paused = false)
+
+
+## Someone reached the gold goal first: say who won. Play can carry on.
+func _on_gold_goal_reached(winners: Array[CentralHub]) -> void:
+	_cancel_targeting()
+	turns.paused = true  # Until the popup is closed.
+	var gold := TurnManager.GOLD_TO_WIN
+	var title: String
+	var message: String
+	var color: Color
+	if winners.size() > 1:
+		var names: PackedStringArray = []
+		for w in winners:
+			names.append(Faction.get_display_name(w.faction))
+		title = "It's a Tie!"
+		message = "%s reached %d Gold on the same turn and share the win." % [" and ".join(names), gold]
+		color = Color(1.0, 0.82, 0.2)
+	elif winners[0] == hub:
+		title = "You Win!"
+		message = "Your colony was the first to gather %d Gold." % gold
+		color = Faction.get_color(local_faction)
+	else:
+		var name := Faction.get_display_name(winners[0].faction)
+		title = "%s Wins" % name
+		message = "The %s was the first to gather %d Gold." % [name.to_lower(), gold]
+		color = Faction.get_color(winners[0].faction)
+	message += "\n\nYou can keep playing, or start a new game."
+	hud.log_event("%s (turn %d)" % [title, turns.turn])
+	hud.show_winner(title, message, color)
 
 
 ## The local player starving is a loss (even if others starved on the same
@@ -337,7 +375,7 @@ func _process(_delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _game_over:
+	if _game_over or hud.is_popup_open():
 		return
 	if event is InputEventMouseButton and event.pressed:
 		var mb := event as InputEventMouseButton

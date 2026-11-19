@@ -23,6 +23,8 @@ signal cancel_training_requested(index: int)
 signal auto_end_toggled(enabled: bool)
 ## TESTING ONLY - remove before release. The "+50 all" button was pressed.
 signal debug_resources_requested
+## The player closed the winner popup with Keep Playing.
+signal popup_closed
 
 enum Section { NONE, UNITS, FIELD, TRAINING }
 
@@ -70,6 +72,8 @@ var _section := Section.NONE
 
 var _hub: CentralHub
 var _game_over := false
+## The popup covering the screen, or null.
+var _popup: Control = null
 ## Unit id -> the mission kind last picked in its dropdown.
 var _chosen_mission: Dictionary = {}
 
@@ -80,7 +84,7 @@ func _ready() -> void:
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
-	if key == null or not key.pressed or key.echo or _game_over:
+	if key == null or not key.pressed or key.echo or _game_over or _popup != null:
 		return
 	if key.keycode == KEY_U:
 		toggle_section(Section.UNITS)
@@ -167,12 +171,33 @@ func set_inventory(inventory: Dictionary, income: Dictionary = {}) -> void:
 ## Covers the screen with a final message and a Play Again button.
 func show_game_over(title: String, message: String, color: Color) -> void:
 	_game_over = true
+	_end_turn_button.disabled = true
+	_show_popup(title, message, color, false)
+
+
+## Announces the winner. Unlike game over, the player can close it with
+## Keep Playing and carry on; `popup_closed` is emitted when they do.
+func show_winner(title: String, message: String, color: Color) -> void:
+	_show_popup(title, message, color, true)
+
+
+## True while a popup (winner or game over) is covering the screen.
+func is_popup_open() -> bool:
+	return _popup != null
+
+
+## A message box in the middle of the screen that blocks clicks to the map.
+## Always has Play Again; `can_continue` adds Keep Playing, which closes it.
+func _show_popup(title: String, message: String, color: Color, can_continue: bool) -> void:
 	close_section()
+	if _popup:
+		_popup.queue_free()
 	var shade := ColorRect.new()
 	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	shade.color = Color(0, 0, 0, 0.6)
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP  # Block clicks to the map.
 	add_child(shade)
+	_popup = shade
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	shade.add_child(center)
@@ -194,8 +219,16 @@ func show_game_over(title: String, message: String, color: Color) -> void:
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.custom_minimum_size.x = 420
 	box.add_child(body)
-	box.add_child(_make_button("Play Again", func() -> void: get_tree().reload_current_scene()))
-	_end_turn_button.disabled = true
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	buttons.add_theme_constant_override("separation", 12)
+	box.add_child(buttons)
+	if can_continue:
+		buttons.add_child(_make_button("Keep Playing", func() -> void:
+			_popup.queue_free()
+			_popup = null
+			popup_closed.emit()))
+	buttons.add_child(_make_button("Play Again", func() -> void: get_tree().reload_current_scene()))
 
 
 func set_tile_info(text: String) -> void:
@@ -392,11 +425,13 @@ func _fill_training() -> void:
 	_add_heading("Train a unit")
 	for blueprint in _hub.blueprints:
 		var bp := blueprint
-		var button := _make_button("Train %s  (%s, %d turns)" % [bp.unit_name, bp.get_cost_text(), bp.train_turns],
+		var cost := _hub.get_training_cost(bp)
+		var button := _make_button("Train %s  (%s, %d turns)" % [
+			bp.unit_name, ResourceDeposit.format_cost(cost), bp.train_turns],
 			func() -> void: train_requested.emit(bp))
-		button.disabled = not _hub.can_afford(bp.cost)
-		if button.disabled:
-			button.tooltip_text = "Not enough resources"
+		button.disabled = not _hub.can_afford(cost)
+		button.tooltip_text = ("Not enough resources. " if button.disabled else "") \
+			+ "Each %s you have doubles the price of the next." % bp.unit_name
 		_section_list.add_child(button)
 
 	_section_list.add_child(HSeparator.new())

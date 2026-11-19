@@ -14,7 +14,9 @@ extends Node
 ##   6. Production  - training, extractors, hub biomass.
 ##   7. Upkeep      - every unit eats 1 biomass; a colony below 0 starves
 ##                    (the player loses; a rival is eliminated).
-##   8. Next turn   - refresh supply networks, advance the turn counter and
+##   8. Victory     - the first colony to hold GOLD_TO_WIN gold wins (once
+##                    per game; play can carry on afterwards).
+##   9. Next turn   - refresh supply networks, advance the turn counter and
 ##                    decide whether the next turn can be auto-skipped.
 ##
 ## To add something that happens every turn, add it as a step in end_turn().
@@ -28,9 +30,14 @@ signal event_logged(message: String)
 ## Colonies whose biomass fell below zero. The game decides what happens
 ## (see remove_colony() and stop()).
 signal colonies_starved(starved: Array[CentralHub])
+## The first colony (or colonies, if tied) to hold GOLD_TO_WIN gold. Only
+## ever happens once per game.
+signal gold_goal_reached(winners: Array[CentralHub])
 
 ## Seconds to wait after units finish moving before the next skipped turn runs.
 const SKIP_PAUSE := 0.5
+## Gold a colony must hold at the end of a turn to win.
+const GOLD_TO_WIN := 50
 
 var turn := 1
 ## Skip straight past turns where every unit is already busy when the turn
@@ -43,6 +50,12 @@ var local_hub: CentralHub
 ## Every colony, the player's included.
 var hubs: Array[CentralHub] = []
 var ais: Array[AiController] = []
+
+## Someone has already reached GOLD_TO_WIN (so it isn't announced again).
+## Part of the saved game.
+var gold_goal_reached_already := false
+## While true (e.g. a popup is open) turns can't be ended.
+var paused := false
 
 var _stopped := false
 var _skip_this_turn := false
@@ -71,7 +84,7 @@ func remove_colony(hub: CentralHub) -> void:
 
 
 func end_turn() -> void:
-	if _stopped:
+	if _stopped or paused:
 		return
 	turn_ending.emit()
 
@@ -106,7 +119,10 @@ func end_turn() -> void:
 		if hub.feed_units():
 			starved.append(hub)
 
-	# 8. Next turn
+	# 8. Victory
+	var winners := _gold_winners()
+
+	# 9. Next turn
 	for hub in hubs:
 		hub.finish_turn()
 	turn += 1
@@ -115,8 +131,31 @@ func end_turn() -> void:
 		colonies_starved.emit(starved)  # May end the game (stop()).
 	if _stopped:
 		return
+	if not winners.is_empty():
+		gold_goal_reached_already = true
+		gold_goal_reached.emit(winners)  # The game shows who won.
+	if _stopped or paused:
+		return
 	_skip_this_turn = auto_skip and _no_units_need_orders()
 	_skip_wait = 0.0
+
+
+## The colonies that win this turn: whoever holds the most gold, if that's
+## at least GOLD_TO_WIN (several only on an exact tie). Empty if nobody has
+## reached it, or someone already did earlier in the game.
+func _gold_winners() -> Array[CentralHub]:
+	var winners: Array[CentralHub] = []
+	if gold_goal_reached_already:
+		return winners
+	var best := GOLD_TO_WIN
+	for hub in hubs:
+		var gold := hub.get_resource(ResourceDeposit.Type.GOLD)
+		if gold > best:
+			best = gold
+			winners.clear()
+		if gold >= best:
+			winners.append(hub)
+	return winners
 
 
 # --- Auto-skip -------------------------------------------------------------
@@ -141,7 +180,7 @@ func _no_units_need_orders() -> bool:
 
 
 func _process(delta: float) -> void:
-	if not _skip_this_turn:
+	if not _skip_this_turn or paused:
 		return
 	if not auto_skip or not _no_units_need_orders():
 		_skip_this_turn = false

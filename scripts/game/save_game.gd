@@ -17,13 +17,15 @@ const VERSION := 1
 
 
 ## The whole game as plain data.
-static func capture(map: HexMap, colonies: Array[CentralHub], turn: int, human_factions: Array[int]) -> Dictionary:
+static func capture(map: HexMap, colonies: Array[CentralHub], turn: int,
+		human_factions: Array[int], gold_goal_reached := false) -> Dictionary:
 	var colony_data := []
 	for hub in colonies:
 		colony_data.append(hub.to_dict())
 	return {
 		"version": VERSION,
 		"turn": turn,
+		"gold_goal_reached": gold_goal_reached,
 		"human_factions": human_factions.duplicate(),
 		"map": map.to_dict(),
 		"colonies": colony_data,

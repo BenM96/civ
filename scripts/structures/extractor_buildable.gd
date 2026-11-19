@@ -10,7 +10,7 @@ const OUTPUT_PER_TURN := 1
 func _init() -> void:
 	id = "extractor"
 	display_name = "Extractor"
-	cost = {ResourceDeposit.Type.TITANIUM: 2, ResourceDeposit.Type.SEDIMENT: 1}
+	cost = {ResourceDeposit.Type.TITANIUM: 2, ResourceDeposit.Type.SEDIMENT: 2}
 	build_turns = 1
 	structure_type = Structure.Type.EXTRACTOR
 	carries_resources = true

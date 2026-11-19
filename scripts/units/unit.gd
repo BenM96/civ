@@ -27,8 +27,13 @@ enum State {
 const RADIUS := 13.0
 
 @export var unit_name := "Unit"
-## Resources paid to train this unit: ResourceDeposit.Type -> int.
+## Resources paid to train the first of this unit: ResourceDeposit.Type -> int.
+## Each extra one costs double the last (see cost_doubling_after).
 var cost: Dictionary = {}
+## How many of this unit a colony can have before its training cost starts
+## doubling. E.g. 1: with 1 the next costs `cost`, with 2 it costs double,
+## with 3 four times... Units still in training count.
+@export var cost_doubling_after := 0
 ## Turns a hub spends training this unit.
 @export var train_turns := 1
 ## Biomass this unit eats every turn, wherever it is.

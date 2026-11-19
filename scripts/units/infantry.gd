@@ -9,7 +9,8 @@ extends Unit
 
 func _init() -> void:
 	unit_name = "Infantry"
-	cost = {ResourceDeposit.Type.BIOMASS: 2, ResourceDeposit.Type.TITANIUM: 2}
+	cost = {ResourceDeposit.Type.GOLD: 1, ResourceDeposit.Type.TITANIUM: 1}
+	cost_doubling_after = 0
 	train_turns = 3
 	upkeep = 1
 	max_movement = 3

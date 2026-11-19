@@ -22,9 +22,12 @@ signal extractor_connected(h: Vector2i, type: ResourceDeposit.Type)
 class TrainingOrder:
 	var blueprint: UnitBlueprint
 	var turns_left: int
+	## What was paid for it (refunded in full if cancelled).
+	var paid: Dictionary
 
-	func _init(p_blueprint: UnitBlueprint) -> void:
+	func _init(p_blueprint: UnitBlueprint, p_paid: Dictionary) -> void:
 		blueprint = p_blueprint
+		paid = p_paid
 		turns_left = p_blueprint.train_turns
 
 
@@ -211,25 +214,40 @@ func _change_resources(cost: Dictionary, direction: int) -> void:
 
 # --- Training --------------------------------------------------------------
 
+## What training one more of `blueprint` costs right now. The price doubles
+## with each one the colony already has, counting ones still in training
+## (see UnitBlueprint.cost_for()).
+func get_training_cost(blueprint: UnitBlueprint) -> Dictionary:
+	var owned := 0
+	for u in units:
+		if u.unit_name == blueprint.unit_name:
+			owned += 1
+	for order in training_queue:
+		if order.blueprint == blueprint:
+			owned += 1
+	return blueprint.cost_for(owned)
+
+
 ## Pays for and queues a new unit. Returns false if we can't afford it.
 func queue_training(blueprint: UnitBlueprint) -> bool:
-	if not can_afford(blueprint.cost):
+	var cost := get_training_cost(blueprint)
+	if not can_afford(cost):
 		return false
-	_change_resources(blueprint.cost, -1)
-	training_queue.append(TrainingOrder.new(blueprint))
-	unit_event.emit("Started training a %s (%s)" % [blueprint.unit_name, blueprint.get_cost_text()])
+	_change_resources(cost, -1)
+	training_queue.append(TrainingOrder.new(blueprint, cost))
+	unit_event.emit("Started training a %s (%s)" % [blueprint.unit_name, ResourceDeposit.format_cost(cost)])
 	training_changed.emit()
 	return true
 
 
-## Removes an order from the queue and refunds its full cost.
+## Removes an order from the queue and refunds what was paid for it.
 func cancel_training(index: int) -> bool:
 	if index < 0 or index >= training_queue.size():
 		return false
 	var order := training_queue[index]
 	training_queue.remove_at(index)
-	_change_resources(order.blueprint.cost, 1)
-	unit_event.emit("Cancelled %s training (refunded %s)" % [order.blueprint.unit_name, order.blueprint.get_cost_text()])
+	_change_resources(order.paid, 1)
+	unit_event.emit("Cancelled %s training (refunded %s)" % [order.blueprint.unit_name, ResourceDeposit.format_cost(order.paid)])
 	training_changed.emit()
 	return true
 
@@ -392,7 +410,7 @@ func finish_turn() -> void:
 func to_dict() -> Dictionary:
 	var training := []
 	for order in training_queue:
-		training.append([order.blueprint.unit_name, order.turns_left])
+		training.append([order.blueprint.unit_name, order.turns_left, SaveGame.resources_to_data(order.paid)])
 	var unit_data := []
 	for u in units:
 		unit_data.append(u.to_dict())
@@ -411,7 +429,10 @@ func to_dict() -> Dictionary:
 func load_dict(data: Dictionary) -> void:
 	inventory = SaveGame.resources_from_data(data["inventory"])
 	for entry in data["training"]:
-		var order := TrainingOrder.new(get_blueprint(entry[0]))
+		var bp := get_blueprint(entry[0])
+		# Older saves didn't record what was paid; assume the base price.
+		var paid := SaveGame.resources_from_data(entry[2]) if entry.size() > 2 else bp.cost_for(0)
+		var order := TrainingOrder.new(bp, paid)
 		order.turns_left = int(entry[1])
 		training_queue.append(order)
 	for unit_data: Dictionary in data["units"]:
