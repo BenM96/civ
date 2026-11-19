@@ -3,15 +3,12 @@ extends Mission
 ## Travel to a resource deposit, spend a full turn extracting from it, then
 ## carry the haul back to the hub (the unit's normal return trip).
 
-enum Phase { TRAVELLING, EXTRACTING }
-
 ## How much one trip extracts.
 const HARVEST_AMOUNT := 1
 ## Turns spent extracting once on the deposit.
 const EXTRACT_TURNS := 1
 
 var target: Vector2i
-var phase := Phase.TRAVELLING
 var _turns_extracting := 0
 var _resource_name := "resource"
 var _harvested := 0
@@ -25,6 +22,25 @@ func get_display_name() -> String:
 	return "Harvest"
 
 
+func get_kind() -> String:
+	return "harvest"
+
+
+func to_dict() -> Dictionary:
+	var data := super()
+	data["turns_extracting"] = _turns_extracting
+	data["resource_name"] = _resource_name
+	data["harvested"] = _harvested
+	return data
+
+
+func load_dict(data: Dictionary) -> void:
+	super(data)
+	_turns_extracting = int(data["turns_extracting"])
+	_resource_name = data["resource_name"]
+	_harvested = int(data["harvested"])
+
+
 func get_description() -> String:
 	var deposit := _deposit()
 	if deposit:
@@ -33,14 +49,15 @@ func get_description() -> String:
 
 
 func get_progress_text() -> String:
-	if phase == Phase.EXTRACTING:
-		return "Extracting %s at (%d, %d)" % [_resource_name, target.x, target.y]
-	return "Heading to %s at (%d, %d) (%d turn(s) to arrive)" % [
+	if is_working():
+		return "Harvesting %s at (%d, %d) (%d turn(s) left)" % [
+			_resource_name, target.x, target.y, EXTRACT_TURNS - _turns_extracting]
+	return "Heading to harvest %s at (%d, %d) (%d turn(s) to arrive)" % [
 		_resource_name, target.x, target.y, unit.estimate_turns(unit.get_remaining_path())]
 
 
 func get_completion_text() -> String:
-	return "extracted %d %s" % [_harvested, _resource_name]
+	return "harvested %d %s at (%d, %d)" % [_harvested, _resource_name, target.x, target.y]
 
 
 func get_target_hex() -> Variant:
@@ -52,8 +69,6 @@ func get_work_turns() -> int:
 
 
 func get_invalid_reason(u: Unit) -> String:
-	if not u.can_harvest:
-		return "%s can't harvest" % u.unit_name
 	if target == u.hex:
 		return "already there"
 	var tile := u.map.get_tile(target)
@@ -67,37 +82,36 @@ func get_invalid_reason(u: Unit) -> String:
 
 
 func begin() -> void:
-	if _deposit() == null:
-		fail("the %s deposit is gone" % _resource_name)
-	elif not unit.set_destination(target):
-		fail("no route to (%d, %d)" % [target.x, target.y])
+	if _check_deposit():
+		super()
 
 
-func process_turn() -> void:
+func prepare() -> void:
+	if _check_deposit():
+		super()
+
+
+func work() -> void:
+	# Another harvester or extractor may have emptied it this turn.
+	if not _check_deposit():
+		return
+	_turns_extracting += 1
+	if _turns_extracting >= EXTRACT_TURNS:
+		var deposit := _deposit()
+		_harvested = deposit.extract(HARVEST_AMOUNT)
+		unit.add_cargo(deposit.type, _harvested)
+		unit.map.queue_redraw()  # Deposit may now be depleted.
+		complete()
+
+
+## Fails the mission if the deposit has gone. Returns whether it's still there.
+func _check_deposit() -> bool:
 	var deposit := _deposit()
 	if deposit == null:
 		fail("the %s deposit at (%d, %d) was used up" % [_resource_name, target.x, target.y])
-		return
+		return false
 	_resource_name = deposit.get_display_name()
-
-	match phase:
-		Phase.TRAVELLING:
-			if not unit.has_destination() and unit.hex != target:
-				if not unit.set_destination(target):
-					fail("no route to (%d, %d)" % [target.x, target.y])
-					return
-			unit.advance_along_path()
-			if unit.hex == target:
-				phase = Phase.EXTRACTING  # Extraction starts next turn.
-		Phase.EXTRACTING:
-			# Extracting takes the unit's whole turn.
-			unit.movement_left = 0
-			_turns_extracting += 1
-			if _turns_extracting >= EXTRACT_TURNS:
-				_harvested = deposit.extract(HARVEST_AMOUNT)
-				unit.add_cargo(deposit.type, _harvested)
-				unit.map.queue_redraw()  # Deposit may now be depleted.
-				complete()
+	return true
 
 
 ## The live deposit on the target tile, or null if missing/depleted.

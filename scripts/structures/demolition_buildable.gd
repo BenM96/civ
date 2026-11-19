@@ -5,7 +5,7 @@ extends Buildable
 ## the tile (roads, extractors, conveyors) and leaves Rubble - except a
 ## bridge, which collapses back into the Chasm. Bridges are demolished from
 ## the bank so the unit isn't standing on it when it falls.
-## Used by DemolishMission; Infantry do this, not Builders.
+## Used by DemolishMission; Infantry do this, not Workers.
 
 
 func _init() -> void:
@@ -29,10 +29,6 @@ static func describe(tile: HexTile) -> String:
 	if tile.terrain == Terrain.Type.ROAD or tile.terrain == Terrain.Type.BRIDGE:
 		parts.append(Terrain.get_display_name(tile.terrain))
 	return " and ".join(parts)
-
-
-func get_unit_reason(u: Unit) -> String:
-	return "" if u.can_demolish else "%s can't demolish" % u.unit_name
 
 
 func get_invalid_reason(map: HexMap, h: Vector2i) -> String:

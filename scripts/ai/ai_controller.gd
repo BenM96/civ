@@ -6,27 +6,49 @@ extends RefCounted
 ##
 ## Each turn (called just before the turn resolves, so its orders depart at
 ## the same time as the player's) it:
-##   1. Queues training when it is short of workers/builders.
-##   2. Sends builders to grow its supply network: an extractor on the
-##      nearest free deposit plus the conveyor line linking it to the hub.
-##   3. Sends every idle worker to harvest whatever resource it has least of.
+##   1. Trains a unit if its biomass income can support one: Workers until
+##      it has WANTED_WORKERS, then Infantry (up to MAX_UNITS in total).
+##   2. Puts every idle worker it can afford to work connecting the nearest
+##      deposit: first a road to it, then a conveyor belt along the road,
+##      then an extractor on it.
+##   3. Sends remaining idle workers to harvest only what that project is
+##      short of (the next step's needs first). If nothing is short, they
+##      wait at home. Never Biomass, which it only gets from extractors.
 
-## How many of each unit the rival tries to keep.
-const WANTED_WORKERS := 3
-const WANTED_BUILDERS := 2
+## How many workers the rival tries to keep.
+const WANTED_WORKERS := 5
 const MAX_UNITS := 8
 ## Longest conveyor line it will lay to reach a deposit.
 const MAX_BELT_LENGTH := 8
 ## Workers only travel this far (hex distance) to harvest.
 const MAX_HARVEST_DISTANCE := 12
+## Only trains a new unit while its biomass income (hub + extractors - unit
+## upkeep) is more than this per turn.
+const MIN_BIOMASS_SURPLUS := 1
 
 var hub: CentralHub
 var map: HexMap
+## Resources the rest of the current project is short of (Type -> amount),
+## so idle workers know what to harvest. Empty when it can all be paid for.
+var _needed: Dictionary = {}
+## Of those, the types the very next step needs - harvested first.
+var _urgent: Dictionary = {}
 
 
-func _init(p_hub: CentralHub, p_map: HexMap) -> void:
+## Where the AI sends its orders - the same place the human players' go, so
+## it plays by exactly the same rules.
+var orders: Orders
+
+
+func _init(p_hub: CentralHub, p_map: HexMap, p_orders: Orders) -> void:
 	hub = p_hub
 	map = p_map
+	orders = p_orders
+
+
+## Sends an order for our colony. Returns true if it was carried out.
+func _order(order: Dictionary) -> bool:
+	return orders.submit(hub.faction, order) == ""
 
 
 func take_turn() -> void:
@@ -40,19 +62,19 @@ func take_turn() -> void:
 func _plan_training() -> void:
 	if not hub.training_queue.is_empty() or hub.units.size() >= MAX_UNITS:
 		return
-	var workers := _count_units(func(u: Unit) -> bool: return u.can_harvest)
-	var builders := _count_units(func(u: Unit) -> bool: return u.can_build)
-	if workers < WANTED_WORKERS:
-		_train("Worker")
-	elif builders < WANTED_BUILDERS:
-		_train("Builder")
+	if _biomass_income() <= MIN_BIOMASS_SURPLUS:
+		return
+	var workers := _count_units(func(u: Unit) -> bool: return u is Worker)
+	_train("Worker" if workers < WANTED_WORKERS else "Infantry")
+
+
+## Biomass gained per turn after every unit has eaten.
+func _biomass_income() -> int:
+	return hub.get_net_income()[ResourceDeposit.Type.BIOMASS]
 
 
 func _train(unit_name: String) -> void:
-	for bp in hub.blueprints:
-		if bp.unit_name == unit_name:
-			hub.queue_training(bp)  # Does nothing if we can't afford it.
-			return
+	_order(Orders.train(unit_name))  # Refused if we can't afford it.
 
 
 func _count_units(pred: Callable) -> int:
@@ -65,38 +87,71 @@ func _count_units(pred: Callable) -> int:
 
 # --- Construction ----------------------------------------------------------
 
+## Gives every idle worker the next step of the current project that it can
+## afford, then records in _needed / _urgent what the rest of the project is
+## short of, so other idle workers harvest it (see _plan_harvesting).
 func _plan_construction() -> void:
-	var builders: Array[Unit] = []
-	for u in hub.get_units_needing_orders():
-		if u.can_build:
-			builders.append(u)
-	if builders.is_empty():
-		return
+	_needed = {}
+	_urgent = {}
 	var tasks := _construction_tasks()
+	if tasks.is_empty():
+		return
 	var taken := _targets_in_progress()
-	for builder in builders:
-		for task in tasks:
-			var target: Vector2i = task[0]
-			if taken.has(target):
-				continue
-			var mission := BuildMission.new(target, hub.get_buildable(task[1]))
-			if hub.can_afford(mission.get_cost()) and hub.assign_mission(builder, mission):
-				taken[target] = true
-				break
+	# Jobs nobody is working on yet, in order. The first is "the next step".
+	var open_tasks := tasks.filter(func(task: Array) -> bool: return not taken.has(task[0]))
+	# Only jobs from the earliest unfinished phase may start.
+	var phase: int = tasks[0][2]
+	for u in hub.get_units_needing_orders():
+		if open_tasks.is_empty() or open_tasks[0][2] != phase:
+			break
+		if not u.can_take("build"):
+			continue
+		if not _order(Orders.mission(u, "build:" + open_tasks[0][1], open_tasks[0][0])):
+			break  # Usually: can't afford it yet.
+		open_tasks.pop_front()
+	# Look ahead over every step still to start - including ones waiting for
+	# this phase to finish - and work out what we can't yet pay for.
+	if open_tasks.is_empty():
+		return
+	var total := {}
+	for task: Array in open_tasks:
+		var cost: Dictionary = hub.get_buildable(task[1]).cost
+		for type in cost:
+			total[type] = total.get(type, 0) + cost[type]
+	_needed = _shortfall(total)
+	_urgent = _shortfall(hub.get_buildable(open_tasks[0][1]).cost)
 
 
-## The jobs needed to connect the nearest unclaimed deposit: [hex, id] pairs,
-## extractor first, then the conveyors nearest the hub first.
+## What we're missing to pay `cost`: ResourceDeposit.Type -> amount.
+func _shortfall(cost: Dictionary) -> Dictionary:
+	var missing := {}
+	for type in cost:
+		var short: int = cost[type] - hub.get_resource(type)
+		if short > 0:
+			missing[type] = short
+	return missing
+
+
+## Every job left in the current project, in order, as
+## [hex, buildable id, phase] - one phase finishes before the next starts:
+##   0. Roads along the route from our network to the deposit (and on it).
+##   1. Conveyor belts along the same route, nearest the hub first.
+##   2. The extractor on the deposit.
 func _construction_tasks() -> Array:
 	var project := _find_project()
 	if project.is_empty():
 		return []
-	var tasks := []
 	var deposit_hex: Vector2i = project["deposit"]
+	var belts: Array[Vector2i] = project["belts"]
+	var tasks := []
+	var road := hub.get_buildable("road")
+	for h: Vector2i in belts + [deposit_hex]:
+		if road.get_invalid_reason(map, h) == "":
+			tasks.append([h, "road", 0])
+	for h: Vector2i in belts:
+		tasks.append([h, "conveyor", 1])
 	if map.get_tile(deposit_hex).structure == Structure.Type.NONE:
-		tasks.append([deposit_hex, "extractor"])
-	for h: Vector2i in project["belts"]:
-		tasks.append([h, "conveyor"])
+		tasks.append([deposit_hex, "extractor", 2])
 	return tasks
 
 
@@ -166,23 +221,52 @@ func _targets_in_progress() -> Dictionary:
 
 # --- Harvesting ------------------------------------------------------------
 
+## Sends idle workers to fetch what construction is short of (_needed),
+## counting what's already on its way home. Workers with nothing needed
+## stay in the hub. Never Biomass: the rival only gets Biomass from its hub
+## and extractors.
 func _plan_harvesting() -> void:
+	var still_needed := {}
+	var incoming := _incoming_resources()
+	for type in _needed:
+		if type != ResourceDeposit.Type.BIOMASS:
+			var short: int = _needed[type] - incoming.get(type, 0)
+			if short > 0:
+				still_needed[type] = short
 	var taken := _targets_in_progress()
 	for worker in hub.get_units_needing_orders():
-		if not worker.can_harvest:
+		if still_needed.is_empty():
+			return
+		if not worker.can_take("harvest"):
 			continue
-		var target: Variant = _pick_harvest_target(worker, taken)
-		if target == null:
+		var target: Variant = _pick_harvest_target(worker, still_needed, taken)
+		if target == null or not _order(Orders.mission(worker, "harvest", target)):
 			continue
-		if hub.assign_mission(worker, HarvestMission.new(target)):
-			taken[target] = true
+		taken[target] = true
+		var type: ResourceDeposit.Type = map.get_tile(target).deposit.type
+		still_needed[type] -= HarvestMission.HARVEST_AMOUNT
+		if still_needed[type] <= 0:
+			still_needed.erase(type)
 
 
-## The nearest deposit of the resource we have least of (falling back to
-## any resource), skipping deposits already being worked.
-func _pick_harvest_target(worker: Unit, taken: Dictionary) -> Variant:
-	var types: Array = ResourceDeposit.DATA.keys()
-	types.sort_custom(func(a, b) -> bool: return hub.get_resource(a) < hub.get_resource(b))
+## Resources our units are bringing home: carried, or about to be harvested.
+func _incoming_resources() -> Dictionary:
+	var incoming := {}
+	for u in hub.units:
+		for type in u.cargo:
+			incoming[type] = incoming.get(type, 0) + u.cargo[type]
+		if u.mission is HarvestMission:
+			var tile := map.get_tile(u.mission.target)
+			if tile and tile.has_deposit():
+				incoming[tile.deposit.type] = incoming.get(tile.deposit.type, 0) + HarvestMission.HARVEST_AMOUNT
+	return incoming
+
+
+## The nearest deposit of a resource in `wanted` (the next step's needs
+## first), skipping deposits already being worked, or null.
+func _pick_harvest_target(worker: Unit, wanted: Dictionary, taken: Dictionary) -> Variant:
+	var types: Array = wanted.keys()
+	types.sort_custom(func(a, b) -> bool: return _urgent.has(a) and not _urgent.has(b))
 	for type in types:
 		var best: Variant = null
 		var best_distance := MAX_HARVEST_DISTANCE + 1

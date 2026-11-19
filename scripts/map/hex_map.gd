@@ -25,12 +25,28 @@ var _id_to_hex: Array[Vector2i] = []
 var _road_anchors: Array[Vector2i] = []
 ## Faction -> CentralHub, for drawing ownership and supply networks.
 var hubs: Dictionary = {}
+## The seed the current map was generated from (pass it back to generate()
+## to make the same map again).
+var last_seed := 0
+## The id the next new unit in this game gets (see take_unit_id()).
+var next_unit_id := 1
 
 
-func generate() -> void:
+## Hands out a unit id no other unit in this game has had.
+func take_unit_id() -> int:
+	next_unit_id += 1
+	return next_unit_id - 1
+
+
+## Builds a new map. Uses `seed_override` if given, else map_seed, else a
+## random seed.
+func generate(seed_override := 0) -> void:
 	tiles.clear()
 	_road_anchors.clear()
-	var seed_value := map_seed if map_seed != 0 else randi()
+	var seed_value := seed_override if seed_override != 0 else (map_seed if map_seed != 0 else randi())
+	if seed_value == 0:
+		seed_value = 1  # 0 means "random", so it could never be regenerated.
+	last_seed = seed_value
 
 	var elevation := FastNoiseLite.new()
 	elevation.seed = seed_value
@@ -54,6 +70,52 @@ func generate() -> void:
 	_rebuild_pathfinding()
 	queue_redraw()
 	map_generated.emit()
+
+
+# --- Saving ----------------------------------------------------------------
+
+## The map as plain data (see SaveGame): how it was generated, plus every
+## tile's current terrain, structure and deposit (which change in play).
+func to_dict() -> Dictionary:
+	var tile_data := []
+	for h in tiles:
+		var tile: HexTile = tiles[h]
+		tile_data.append([
+			h.x, h.y,
+			Terrain.Type.keys()[tile.terrain],
+			Structure.Type.keys()[tile.structure],
+			tile.structure_owner,
+			ResourceDeposit.Type.keys()[tile.deposit.type] if tile.deposit else null,
+			tile.deposit.amount if tile.deposit else 0,
+		])
+	return {
+		"seed": last_seed,
+		"next_unit_id": next_unit_id,
+		"width": width,
+		"height": height,
+		"deposit_density": deposit_density,
+		"tiles": tile_data,
+	}
+
+
+## Rebuilds the map that to_dict() saved. Do this before placing any hubs.
+func load_dict(data: Dictionary) -> void:
+	width = int(data["width"])
+	height = int(data["height"])
+	deposit_density = float(data["deposit_density"])
+	generate(int(data["seed"]))
+	next_unit_id = int(data["next_unit_id"])
+	for entry: Array in data["tiles"]:
+		var h := Vector2i(int(entry[0]), int(entry[1]))
+		var tile: HexTile = tiles[h]
+		tile.terrain = Terrain.Type[entry[2]]
+		tile.structure = Structure.Type[entry[3]]
+		tile.structure_owner = int(entry[4])
+		tile.deposit = null
+		if entry[5] != null:
+			tile.deposit = ResourceDeposit.new(ResourceDeposit.Type[entry[5]], h, int(entry[6]))
+	_rebuild_pathfinding()
+	queue_redraw()
 
 
 func _pick_terrain(e: float, d: float) -> Terrain.Type:
@@ -108,7 +170,7 @@ func set_terrain(h: Vector2i, terrain: Terrain.Type) -> void:
 
 ## Places (or clears, with Structure.Type.NONE) a structure on a tile,
 ## owned by the faction whose hub built it. Structures don't affect movement.
-func set_structure(h: Vector2i, type: Structure.Type, owner_faction := Faction.PLAYER) -> void:
+func set_structure(h: Vector2i, type: Structure.Type, owner_faction := Faction.NONE) -> void:
 	var tile := get_tile(h)
 	if tile == null:
 		return
@@ -132,6 +194,25 @@ func get_hub_at(h: Vector2i) -> CentralHub:
 		if hubs[faction].hex == h:
 			return hubs[faction]
 	return null
+
+
+## Every faction's units that are out on the map (not garrisoned).
+func get_units_in_world() -> Array[Unit]:
+	var result: Array[Unit] = []
+	for faction in hubs:
+		for u: Unit in hubs[faction].units:
+			if u.is_in_world():
+				result.append(u)
+	return result
+
+
+## Units out on the map standing on `h`, from any faction.
+func get_units_at(h: Vector2i) -> Array[Unit]:
+	var result: Array[Unit] = []
+	for u in get_units_in_world():
+		if u.hex == h:
+			result.append(u)
+	return result
 
 
 ## Tiles that roads visually connect to even though they aren't roads
@@ -533,6 +614,20 @@ func _draw_deposit(deposit: ResourceDeposit, c: Vector2) -> void:
 				draw_colored_polygon(PackedVector2Array([
 					base + Vector2(-w, 0), base + Vector2(-w, -hgt * 0.7), base + Vector2(0, -hgt), base,
 				]), color.lightened(0.3))
+		ResourceDeposit.Type.GOLD:
+			# Glinting nuggets with a sparkle.
+			for nugget: Vector3 in [Vector3(-0.13, 0.1, 0.11), Vector3(0.12, 0.08, 0.09), Vector3(0.0, -0.08, 0.13)]:
+				var p := c + Vector2(nugget.x, nugget.y) * s
+				var r := nugget.z * s
+				draw_colored_polygon(PackedVector2Array([
+					p + Vector2(-r, 0.2 * r), p + Vector2(-0.5 * r, -0.8 * r), p + Vector2(0.6 * r, -0.7 * r),
+					p + Vector2(r, 0.1 * r), p + Vector2(0.4 * r, 0.8 * r), p + Vector2(-0.6 * r, 0.7 * r),
+				]), color.darkened(0.3))
+				draw_circle(p + Vector2(-0.2, -0.25) * r, 0.45 * r, color)
+			var spark := c + Vector2(0.17, -0.2) * s
+			var k := 0.09 * s
+			draw_line(spark + Vector2(-k, 0), spark + Vector2(k, 0), Color.WHITE, 1.5, true)
+			draw_line(spark + Vector2(0, -k), spark + Vector2(0, k), Color.WHITE, 1.5, true)
 		ResourceDeposit.Type.SEDIMENT:
 			# Layered strata in a low mound.
 			var layers: Array[Color] = [color.darkened(0.3), color.darkened(0.1), color]

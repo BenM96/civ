@@ -1,14 +1,19 @@
 class_name ExtractorBuildable
 extends Buildable
 ## Mining rig placed on a resource deposit. Once linked to the hub by
-## conveyor belts it delivers 1 of that resource every turn.
+## conveyor belts it delivers OUTPUT_PER_TURN of that resource every turn.
+
+## Resources mined and sent to the hub each turn while connected.
+const OUTPUT_PER_TURN := 1
 
 
 func _init() -> void:
 	id = "extractor"
 	display_name = "Extractor"
 	cost = {ResourceDeposit.Type.TITANIUM: 2, ResourceDeposit.Type.SEDIMENT: 1}
-	build_turns = 2
+	build_turns = 1
+	structure_type = Structure.Type.EXTRACTOR
+	carries_resources = true
 
 
 func get_invalid_reason(map: HexMap, h: Vector2i) -> String:

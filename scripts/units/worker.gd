@@ -1,12 +1,15 @@
 class_name Worker
 extends Unit
-## Basic civilian unit. For now it only takes Move missions; later it will
-## build tile improvements, gather resources, etc.
+## Civilian unit. Harvests resource deposits and builds structures (roads,
+## bridges, extractors, conveyor belts).
 
 
 func _init() -> void:
 	unit_name = "Worker"
-	max_movement = 4
+	cost = {ResourceDeposit.Type.BIOMASS: 3}
+	train_turns = 2
+	upkeep = 1
+	max_movement = 3
 	max_health = 8
 	body_color = Color(0.85, 0.93, 1.0)
-	can_harvest = true
+	allowed_missions = ["move", "harvest", "build"]

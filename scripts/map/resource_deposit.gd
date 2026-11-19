@@ -5,11 +5,20 @@ extends RefCounted
 ##
 ## To add a new resource: add it to Type and give it an entry in DATA.
 
-enum Type { BIOMASS, TITANIUM, SEDIMENT }
+enum Type { BIOMASS, TITANIUM, SEDIMENT, GOLD }
 
 ## spawn_chance: chance per eligible tile; terrains: where it can appear.
 ## Deposits are placed in the order listed here, one per tile at most.
 const DATA := {
+	## Rare and small; listed first so commoner resources don't crowd it out.
+	Type.GOLD: {
+		"name": "Gold",
+		"color": Color(1.0, 0.82, 0.2),
+		"min_amount": 10,
+		"max_amount": 30,
+		"spawn_chance": 0.03,
+		"terrains": [Terrain.Type.HIGHLANDS, Terrain.Type.REGOLITH],
+	},
 	Type.TITANIUM: {
 		"name": "Titanium",
 		"color": Color(0.62, 0.78, 1.0),

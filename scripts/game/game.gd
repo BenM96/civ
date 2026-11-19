@@ -1,27 +1,29 @@
+class_name Game
 extends Node2D
-## Main game controller: builds the world, routes input and runs turns.
+## Main game controller: builds (or loads) the world, routes input and
+## connects the HUD.
 ##
-## Flow of a turn:
-##   - The player opens the hub and assigns missions to units at home.
-##   - Pressing End Turn resolves the turn: every unit out of the hub (or
-##     about to leave it) executes its mission / walks home.
+## The local player opens their hub and gives orders to units at home, then
+## presses End Turn. Every action goes through Orders; how the turn is then
+## resolved lives in TurnManager. Nothing here assumes which colony is the
+## local one, or how many colonies there are - see local_faction.
+##
+## F5 saves the game, F9 loads it (see SaveGame).
 
-@export var starting_workers := 1
-@export var starting_builders := 2
-## TESTING ONLY: amount of every resource the hub starts with, so features
-## can be tested without harvesting first. Set to 0 for normal play.
-@export var starting_resources := 100
+## A saved game to load instead of starting a new one. Set it, then reload
+## the scene (see load_game()).
+static var pending_load: Dictionary = {}
+
+@export var starting_workers := 3
 ## Skip straight past turns where every unit is already busy when the turn
 ## starts (nobody needs orders). Turns where the player acts are never skipped.
 @export var auto_skip_turns := true
-## Adds a computer-controlled rival colony (see AiController).
-@export var enable_rival := true
-## How far apart (in tiles) the two hubs should ideally be, and at least.
-@export var rival_distance := 16
-@export var rival_min_distance := 10
-
-## Brief beat after units finish moving before the next skipped turn runs.
-const SKIP_PAUSE := 0.15
+## How many computer-controlled rival colonies to add (see AiController).
+## As many as the map has room for are placed.
+@export var rival_count := 4
+## Hubs are never placed closer together than this many tiles. Rivals are
+## spread out as far from every other hub as the map allows.
+@export var rival_min_distance := 8
 
 @onready var map: HexMap = $HexMap
 @onready var buildings_root: Node2D = $Buildings
@@ -29,11 +31,19 @@ const SKIP_PAUSE := 0.15
 @onready var camera: CameraController = $Camera
 @onready var hud: Hud = $Hud
 
+## Every colony in the game, indexed by faction.
+var colonies: Array[CentralHub] = []
+## Factions played by humans; every other colony gets an AI. (One for now -
+## more for hot-seat or network play later.)
+var human_factions: Array[int] = [Faction.PLAYER]
+## The faction played from this computer.
+var local_faction := Faction.PLAYER
+## The AI playing each computer-controlled colony.
+var ais: Array[AiController] = []
+## The local player's colony (colonies[local_faction]).
 var hub: CentralHub
-## The computer-controlled opponent's hub and brain (null if disabled).
-var rival_hub: CentralHub
-var ai: AiController
-var turn := 1
+var orders: Orders
+var turns: TurnManager
 
 var _hover_hex := Vector2i.ZERO
 var _has_hover := false
@@ -41,74 +51,153 @@ var _has_hover := false
 var _targeting_unit: Unit = null
 ## Mission id being targeted ("move", "harvest").
 var _targeting_kind := "move"
+## Set once someone wins or loses; stops input.
+var _game_over := false
 
 
 func _ready() -> void:
 	overlay.map = map
-	_generate_world()
-
-	hub = _create_hub(Faction.PLAYER, _hub_spot)
-	if enable_rival and _rival_spot != null:
-		rival_hub = _create_hub(Faction.RIVAL, _rival_spot)
-		ai = AiController.new(rival_hub, map)
-		rival_hub.extractor_connected.connect(func(h: Vector2i, type: ResourceDeposit.Type) -> void:
-			hud.log_event("The rival colony connected a %s extractor at (%d, %d)"
-				% [ResourceDeposit.get_type_name(type), h.x, h.y]))
+	var save := pending_load
+	pending_load = {}
+	var start_turn := 1
+	if save.is_empty():
+		_new_world()
+	else:
+		start_turn = _load_world(save)
+	Faction.local_faction = local_faction
+	hub = colonies[local_faction]
+	orders = Orders.new(map, colonies)
+	for colony in colonies:
+		if not colony.faction in human_factions and not colony.collapsed:
+			ais.append(AiController.new(colony, map, orders))
+	_setup_turns(start_turn)
+	UnitStackLayout.arrange(map)
 
 	hub.unit_event.connect(hud.log_event)
 	hub.units_changed.connect(_refresh_markers)
-	hud.end_turn_requested.connect(end_turn)
+	hud.end_turn_requested.connect(turns.end_turn)
 	hud.mission_requested.connect(_begin_targeting)
-	hud.cancel_order_requested.connect(_on_cancel_order)
+	hud.cancel_mission_requested.connect(func(unit: Unit) -> void:
+		if _submit(Orders.cancel_mission(unit)) == "":
+			hud.log_event("%s's mission was cancelled" % unit.display_name))
 	hud.focus_requested.connect(func(unit: Unit) -> void: camera.focus_on(map.hex_to_world(unit.hex)))
 	hud.wait_requested.connect(func(unit: Unit, value: bool) -> void:
-		_on_player_action()
-		hub.set_unit_waiting(unit, value))
+		_submit(Orders.wait(unit, value)))
 	hud.hub_panel_closed.connect(_cancel_targeting)
-	hud.auto_end_toggled.connect(func(on: bool) -> void:
-		auto_skip_turns = on
-		if not on:
-			_skip_this_turn = false)
+	hud.auto_end_toggled.connect(turns.set_auto_skip)
 	hud.train_requested.connect(func(bp: UnitBlueprint) -> void:
-		_on_player_action()
-		hub.queue_training(bp))
+		_submit(Orders.train(bp.unit_name)))
 	hud.cancel_training_requested.connect(func(index: int) -> void:
-		_on_player_action()
-		hub.cancel_training(index))
+		_submit(Orders.cancel_training(index)))
+	# TESTING ONLY - remove before release.
+	hud.debug_resources_requested.connect(func() -> void:
+		if _submit(Orders.debug_resources()) == "":
+			hud.log_event("Testing: added %d of every resource." % Orders.DEBUG_RESOURCE_AMOUNT))
 	hub.inventory_changed.connect(_update_inventory)
 	hub.network_changed.connect(_update_inventory)
+	# Unit count changes biomass upkeep, so the per-turn figure must refresh.
+	hub.units_changed.connect(_update_inventory)
 
 	camera.set_bounds(map.get_world_rect())
 	camera.focus_on(hub.global_position)
 
-	hud.set_turn(turn)
+	hud.set_turn(turns.turn)
 	_update_inventory()
 	hud.set_hub(hub)
-	hud.log_event("Your colony hub has landed on Mars. Open Units (bottom bar) to give orders.")
+	_refresh_markers()
+	if save.is_empty():
+		hud.log_event("Your colony hub has landed on Mars. Open Units (bottom bar) to give orders.")
+	else:
+		hud.log_event("Game loaded (turn %d)." % turns.turn)
+
+
+## Sends one of the local player's orders. Returns "" if it was carried out,
+## otherwise why not. (Later, for network play, this is where an order would
+## be sent to the host instead.)
+func _submit(order: Dictionary) -> String:
+	turns.player_acted()
+	return orders.submit(local_faction, order)
+
+
+# --- Saving and loading ----------------------------------------------------
+
+func save_game() -> void:
+	if _game_over:
+		hud.log_event("The game is over - nothing to save.")
+		return
+	var data := SaveGame.capture(map, colonies, turns.turn, human_factions)
+	var err := SaveGame.write_file(data)
+	hud.log_event("Game saved (turn %d)." % turns.turn if err == OK else "Couldn't save the game (error %d)." % err)
+
+
+## Replaces the current game with the saved one, by reloading the scene.
+func load_game() -> void:
+	var data := SaveGame.read_file()
+	if data.is_empty():
+		hud.log_event("No saved game to load.")
+		return
+	pending_load = data
+	get_tree().reload_current_scene()
+
+
+## Rebuilds a saved game. Returns the turn it was saved on.
+func _load_world(data: Dictionary) -> int:
+	map.load_dict(data["map"])
+	human_factions.clear()
+	for f in data["human_factions"]:
+		human_factions.append(int(f))
+	local_faction = human_factions[0]
+	for colony_data: Dictionary in data["colonies"]:
+		var colony := CentralHub.new()
+		colony.faction = int(colony_data["faction"])
+		buildings_root.add_child(colony)
+		colony.place(map, SaveGame.hex_from_data(colony_data["hex"]))
+		colony.load_dict(colony_data)
+		colonies.append(colony)
+	return int(data["turn"])
 
 
 # --- World -----------------------------------------------------------------
 
-var _hub_spot := Vector2i.ZERO
-var _rival_spot: Variant = null
+## Where each colony's hub goes, indexed by faction (player first).
+var _hub_spots: Array[Vector2i] = []
 
 
+## A fresh game: a new map with a hub for every colony.
+func _new_world() -> void:
+	_generate_world()
+	for faction in _hub_spots.size():
+		colonies.append(_create_hub(faction, _hub_spots[faction]))
+
+
+## Generates maps until one has room for the player and every rival. If none
+## does, keeps the attempt that fitted the most.
 func _generate_world() -> void:
+	var best_seed := -1
+	var best_spots: Array[Vector2i] = []
 	for attempt in 20:
 		map.generate()
 		var spot: Variant = _find_hub_spot()
 		if spot == null:
 			continue
-		_hub_spot = spot
-		_rival_spot = _find_rival_spot(spot)
-		if _rival_spot != null or not enable_rival:
+		var spots := _place_hubs(spot)
+		if spots.size() == rival_count + 1:
+			_hub_spots = spots
 			return
-	push_warning("Couldn't find good hub locations; using what we have.")
-	if _rival_spot == null:
-		_hub_spot = Hex.offset_to_axial(map.width >> 1, map.height >> 1)
+		if spots.size() > best_spots.size():
+			best_spots = spots
+			best_seed = map.last_seed
+	if best_seed == -1:
+		push_error("Couldn't find anywhere to put the player's hub.")
+		_hub_spots = [Hex.offset_to_axial(map.width >> 1, map.height >> 1)]
+		return
+	push_warning("Only found room for %d of %d rivals." % [best_spots.size() - 1, rival_count])
+	map.generate(best_seed)
+	_hub_spots = best_spots
 
 
-## Builds a hub for `faction` at `spot` with the starting units and stockpile.
+## Builds a hub for `faction` at `spot` with the starting units. Colonies
+## start with an empty stockpile.
 func _create_hub(faction: int, spot: Vector2i) -> CentralHub:
 	var new_hub := CentralHub.new()
 	new_hub.faction = faction
@@ -117,38 +206,50 @@ func _create_hub(faction: int, spot: Vector2i) -> CentralHub:
 	map.remove_deposit(spot)
 	for i in starting_workers:
 		new_hub.add_unit(Worker.new())
-	for i in starting_builders:
-		new_hub.add_unit(Builder.new())
-	# TESTING ONLY: start with a stockpile of every resource so new features
-	# (training, roads, extractors, conveyors...) can be tried straight away
-	# without harvesting first. Set starting_resources to 0 for real games.
-	# The rival gets the same so the contest stays fair.
-	for type in ResourceDeposit.Type.values():
-		new_hub.add_resource(type, starting_resources)
 	return new_hub
 
 
-## A spot for the rival's hub: open ground the player can walk to, as close
-## as possible to rival_distance tiles away (so neither side is crowded).
-func _find_rival_spot(player_spot: Vector2i) -> Variant:
-	var best: Variant = null
-	var best_score := 0
-	for h in map.tiles:
-		var d := Hex.distance(h, player_spot)
-		if d < rival_min_distance or not map.is_passable(h):
-			continue
+## Hub spots for the player and up to rival_count rivals, indexed by
+## faction. Rivals are placed one at a time: each on open ground the player
+## can walk to, as far as possible from every hub placed so far (and at
+## least rival_min_distance away), so they spread out.
+func _place_hubs(player_spot: Vector2i) -> Array[Vector2i]:
+	var candidates := _open_ground_reachable_from(player_spot)
+	var placed: Array[Vector2i] = [player_spot]
+	for i in rival_count:
+		var best: Variant = null
+		var best_gap := rival_min_distance - 1
+		for h in candidates:
+			var gap := 1 << 30
+			for other in placed:
+				gap = mini(gap, Hex.distance(h, other))
+			if gap > best_gap:
+				best = h
+				best_gap = gap
+		if best == null:
+			break  # No room left.
+		placed.append(best)
+	return placed
+
+
+## Passable tiles with at least 5 passable neighbours that can be walked to
+## from `start`.
+func _open_ground_reachable_from(start: Vector2i) -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	var seen := {start: true}
+	var frontier: Array[Vector2i] = [start]
+	while not frontier.is_empty():
+		var h: Vector2i = frontier.pop_back()
 		var open := 0
 		for n in Hex.neighbors(h):
 			if map.is_passable(n):
 				open += 1
-		if open < 5:
-			continue
-		var score := absi(d - rival_distance)
-		if best == null or score < best_score:
-			if not map.find_path(player_spot, h).is_empty():
-				best = h
-				best_score = score
-	return best
+				if not seen.has(n):
+					seen[n] = true
+					frontier.append(n)
+		if open >= 5:
+			result.append(h)
+	return result
 
 
 ## The passable tile nearest the map centre that has open neighbours and
@@ -175,69 +276,57 @@ func _find_hub_spot() -> Variant:
 
 
 # --- Turns -----------------------------------------------------------------
+# The turn order itself is in TurnManager; this just connects it up.
 
-func end_turn() -> void:
+func _setup_turns(start_turn: int) -> void:
+	turns = TurnManager.new()
+	turns.name = "TurnManager"
+	add_child(turns)
+	var active: Array[CentralHub] = []
+	for colony in colonies:
+		if not colony.collapsed:
+			active.append(colony)
+	turns.setup(map, hub, active, ais.duplicate())
+	turns.turn = start_turn
+	turns.auto_skip = auto_skip_turns
+	turns.turn_ending.connect(_cancel_targeting)
+	turns.event_logged.connect(hud.log_event)
+	turns.turn_started.connect(func(turn: int) -> void:
+		hud.set_turn(turn)
+		_refresh_markers())
+	turns.colonies_starved.connect(_on_colonies_starved)
+
+
+## The local player starving is a loss (even if others starved on the same
+## turn). Any other starving colony is eliminated; once only the local
+## player's is left, they win.
+func _on_colonies_starved(starved: Array[CentralHub]) -> void:
+	if hub in starved:
+		_end_game("Colony Lost",
+			"Your biomass fell below zero on turn %d and your units could no longer be fed." % turns.turn,
+			Color(1.0, 0.4, 0.35))
+		hud.log_event("Biomass has run out - your colony has starved.")
+		return
+	for colony in starved:
+		turns.remove_colony(colony)
+		colony.collapse()
+		hud.log_event("The %s has run out of biomass and collapsed." % Faction.get_display_name(colony.faction).to_lower())
+	if turns.hubs.size() == 1 and hub in turns.hubs:
+		_end_game("Victory",
+			"Every rival colony has run out of biomass and collapsed. Mars is yours (turn %d)." % turns.turn,
+			Color(0.45, 0.95, 0.4))
+
+
+func _end_game(title: String, message: String, color: Color) -> void:
+	_game_over = true
+	turns.stop()
 	_cancel_targeting()
-	# The rival decides first so its orders depart at the same time as ours.
-	if ai:
-		ai.take_turn()
-	hub.process_turn()
-	if rival_hub:
-		rival_hub.process_turn()
-	turn += 1
-	hud.set_turn(turn)
-	_refresh_markers()
-	_start_turn()
-
-
-## Decides, once, whether the new turn needs the player at all. A turn is
-## skipped only if every unit was already busy when it began - a turn where
-## the player is giving orders is never ended for them.
-func _start_turn() -> void:
-	_skip_this_turn = auto_skip_turns and _no_units_need_orders()
-	_skip_wait = 0.0
-
-
-var _skip_this_turn := false
-var _skip_wait := 0.0
-
-
-## True when no unit needs orders (all busy or waiting) and letting time pass
-## would actually change something (units out, or training in progress).
-func _no_units_need_orders() -> bool:
-	if hub.units.is_empty() or not hub.get_units_needing_orders().is_empty():
-		return false
-	return not hub.get_field_units().is_empty() or not hub.training_queue.is_empty()
-
-
-## The player did something this turn, so it's theirs to end.
-func _on_player_action() -> void:
-	_skip_this_turn = false
-
-
-func _update_auto_skip(delta: float) -> void:
-	if not _skip_this_turn:
-		return
-	if not auto_skip_turns or not _no_units_need_orders():
-		_skip_this_turn = false
-		return
-	# Let this turn's movement play out before moving on.
-	var all_units: Array[Unit] = hub.units.duplicate()
-	if rival_hub:
-		all_units.append_array(rival_hub.units)
-	for unit in all_units:
-		if unit.is_animating():
-			_skip_wait = 0.0
-			return
-	_skip_wait += delta
-	if _skip_wait >= SKIP_PAUSE:
-		end_turn()
+	hud.show_game_over(title, message, color)
 
 
 # --- Input -----------------------------------------------------------------
 
-func _process(delta: float) -> void:
-	_update_auto_skip(delta)
+func _process(_delta: float) -> void:
 	var h := map.world_to_hex(get_global_mouse_position())
 	var has := map.has_tile(h)
 	if h != _hover_hex or has != _has_hover:
@@ -248,6 +337,8 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _game_over:
+		return
 	if event is InputEventMouseButton and event.pressed:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:
@@ -257,7 +348,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and not event.echo:
 		var key := event as InputEventKey
 		if key.keycode == KEY_ENTER or key.keycode == KEY_KP_ENTER:
-			end_turn()
+			turns.end_turn()
+		elif key.keycode == KEY_F5:
+			save_game()
+		elif key.keycode == KEY_F9:
+			load_game()
 		elif key.keycode == KEY_ESCAPE:
 			if _targeting_unit:
 				_cancel_targeting()
@@ -270,14 +365,12 @@ func _on_left_click() -> void:
 		return
 	if _targeting_unit:
 		var unit := _targeting_unit
-		var mission := _make_mission(_targeting_kind, _hover_hex)
-		mission.unit = unit  # Lets the mission plan its route (e.g. bridge work site).
-		var reason := _invalid_reason(unit, mission)
-		if reason == "" and hub.assign_mission(unit, mission):
+		var reason := _submit(Orders.mission(unit, _targeting_kind, _hover_hex))
+		if reason == "":
 			_cancel_targeting()
 		else:
 			hud.set_hint("%s: %s. Pick another tile (right-click/Esc to cancel)."
-				% [unit.display_name, reason if reason != "" else "can't do that"])
+				% [unit.display_name, reason])
 		return
 	if _hover_hex == hub.hex:
 		hud.show_hub(hub)
@@ -287,20 +380,6 @@ func _on_left_click() -> void:
 
 # --- Targeting -------------------------------------------------------------
 
-## Builds the mission for a mission id coming from the HUD:
-## "move", "harvest", "demolish" or "build:<buildable id>". Add new mission kinds here.
-func _make_mission(kind: String, target: Vector2i) -> Mission:
-	if kind.begins_with("build:"):
-		return BuildMission.new(target, hub.get_buildable(kind.trim_prefix("build:")))
-	match kind:
-		"demolish":
-			return DemolishMission.new(target)
-		"harvest":
-			return HarvestMission.new(target)
-		_:
-			return MoveToTileMission.new(target)
-
-
 func _begin_targeting(unit: Unit, kind: String) -> void:
 	_targeting_unit = unit
 	_targeting_kind = kind
@@ -309,6 +388,10 @@ func _begin_targeting(unit: Unit, kind: String) -> void:
 		what = "something man-made to demolish"
 	elif kind == "harvest":
 		what = "a deposit to harvest"
+	elif kind == "guard":
+		what = "a tile to guard"
+	elif kind == "capture":
+		what = "another colony's structure to capture"
 	elif kind.begins_with("build:"):
 		what = "where to build a %s" % hub.get_buildable(kind.trim_prefix("build:")).display_name
 	hud.set_hint("Choose %s for %s (right-click/Esc to cancel)" % [what, unit.display_name])
@@ -322,22 +405,6 @@ func _cancel_targeting() -> void:
 	overlay.clear_preview()
 	hud.set_hint("")
 	_update_hover_info()
-
-
-func _on_cancel_order(unit: Unit) -> void:
-	_on_player_action()
-	if hub.cancel_mission(unit):
-		hud.log_event("%s's order was cancelled" % unit.display_name)
-
-
-## Why `unit` can't take `mission`, or "" if it can (includes affordability).
-func _invalid_reason(unit: Unit, mission: Mission) -> String:
-	var reason := mission.get_invalid_reason(unit)
-	if reason != "":
-		return reason
-	if not hub.can_afford(mission.get_cost()):
-		return "need %s" % ResourceDeposit.format_cost(mission.get_cost())
-	return ""
 
 
 func _update_hover_info() -> void:
@@ -359,10 +426,10 @@ func _update_hover_info() -> void:
 		info += "\n" + hub_here.get_info_text()
 
 	if _targeting_unit:
+		# Preview: the same checks the order will get, without sending it.
 		var unit := _targeting_unit
-		var mission := _make_mission(_targeting_kind, _hover_hex)
-		mission.unit = unit  # Lets the mission plan its route (e.g. bridge work site).
-		var reason := _invalid_reason(unit, mission)
+		var mission := Orders.make_mission(hub, _targeting_kind, _hover_hex)
+		var reason := Orders.get_invalid_reason(hub, unit, mission) if mission else "unknown mission"
 		var valid := reason == ""
 		var preview: Array[Vector2i] = []
 		var label := ""
@@ -370,8 +437,8 @@ func _update_hover_info() -> void:
 			var path := map.find_path(hub.hex, mission.get_travel_hex())
 			preview.append(hub.hex)
 			preview.append_array(path)
-			var turns := unit.estimate_turns(path)
-			label = "%d turn%s" % [turns, "" if turns == 1 else "s"]
+			var trip_turns := unit.estimate_turns(path)
+			label = "%d turn%s" % [trip_turns, "" if trip_turns == 1 else "s"]
 			var work := mission.get_work_turns()
 			if work > 0:
 				label += " + %d working" % work
@@ -389,7 +456,7 @@ func _update_hover_info() -> void:
 
 func _structure_info(tile: HexTile) -> String:
 	var text := Structure.get_display_name(tile.structure)
-	if tile.structure_owner != Faction.PLAYER:
+	if tile.structure_owner != local_faction:
 		text = "%s's %s" % [Faction.get_display_name(tile.structure_owner), text]
 	var owner_hub: CentralHub = map.hubs.get(tile.structure_owner)
 	var connected := owner_hub != null and owner_hub.is_supply_connected(tile.coord)
@@ -398,13 +465,13 @@ func _structure_info(tile: HexTile) -> String:
 			return text + " - deposit exhausted"
 		if connected:
 			return text + " - connected, +%d %s per turn" % [
-				CentralHub.EXTRACTOR_OUTPUT, tile.deposit.get_display_name()]
+				ExtractorBuildable.OUTPUT_PER_TURN, tile.deposit.get_display_name()]
 		return text + " - NOT connected (needs conveyor belts to the hub)"
 	return text + (" - connected to the hub" if connected else " - not connected to the hub")
 
 
 func _update_inventory() -> void:
-	hud.set_inventory(hub.inventory, hub.get_income())
+	hud.set_inventory(hub.inventory, hub.get_net_income())
 
 
 func _refresh_markers() -> void:

@@ -22,10 +22,5 @@ func place(p_map: HexMap, p_hex: Vector2i) -> void:
 	queue_redraw()
 
 
-## Called once per turn during turn resolution. Override in subclasses.
-func process_turn() -> void:
-	pass
-
-
 func get_info_text() -> String:
 	return building_name

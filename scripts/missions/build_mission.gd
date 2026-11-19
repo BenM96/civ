@@ -7,11 +7,8 @@ extends Mission
 ## Buildables with build_from_adjacent (bridges) are worked on from the
 ## nearest reachable neighbouring tile instead of the target itself.
 
-enum Phase { TRAVELLING, BUILDING }
-
 var target: Vector2i
 var buildable: Buildable
-var phase := Phase.TRAVELLING
 var _turns_worked := 0
 ## Where the builder stands while working (chosen when the mission begins).
 var _site: Variant = null
@@ -26,12 +23,29 @@ func get_display_name() -> String:
 	return "Build %s" % buildable.display_name
 
 
+func get_kind() -> String:
+	return "build:" + buildable.id
+
+
+func to_dict() -> Dictionary:
+	var data := super()
+	data["turns_worked"] = _turns_worked
+	data["site"] = SaveGame.hex_to_data(_site) if _site != null else null
+	return data
+
+
+func load_dict(data: Dictionary) -> void:
+	super(data)
+	_turns_worked = int(data["turns_worked"])
+	_site = SaveGame.hex_from_data(data["site"]) if data["site"] != null else null
+
+
 func get_description() -> String:
 	return "Build %s at (%d, %d)" % [buildable.display_name, target.x, target.y]
 
 
 func get_progress_text() -> String:
-	if phase == Phase.BUILDING:
+	if is_working():
 		return "Building %s at (%d, %d) (%d turn(s) left)" % [
 			buildable.display_name, target.x, target.y, buildable.build_turns - _turns_worked]
 	return "Heading to build %s at (%d, %d) (%d turn(s) to arrive)" % [
@@ -89,9 +103,6 @@ func find_work_site(map: HexMap, from: Vector2i) -> Variant:
 
 
 func get_invalid_reason(u: Unit) -> String:
-	var unit_reason := buildable.get_unit_reason(u)
-	if unit_reason != "":
-		return unit_reason
 	if u.map.get_hub_at(target) != null:
 		return "not on a hub"
 	var reason := buildable.get_invalid_reason(u.map, target)
@@ -104,28 +115,19 @@ func get_invalid_reason(u: Unit) -> String:
 
 func begin() -> void:
 	_site = find_work_site(unit.map, unit.hex)
-	if _site == null or not unit.set_destination(_site):
+	if _site == null:
 		fail("no route to (%d, %d)" % [target.x, target.y])
+		return
+	super()
 
 
-func process_turn() -> void:
-	match phase:
-		Phase.TRAVELLING:
-			if not unit.has_destination() and unit.hex != _site:
-				if not unit.set_destination(_site):
-					fail("no route to (%d, %d)" % [target.x, target.y])
-					return
-			unit.advance_along_path()
-			if unit.hex == _site:
-				phase = Phase.BUILDING  # Work starts next turn.
-		Phase.BUILDING:
-			# Someone else may have changed the tile while we travelled.
-			var reason := buildable.get_invalid_reason(unit.map, target)
-			if reason != "":
-				fail(reason)
-				return
-			unit.movement_left = 0  # Building takes the whole turn.
-			_turns_worked += 1
-			if _turns_worked >= buildable.build_turns:
-				buildable.apply(unit.map, target, unit.hub.faction)
-				complete()
+func work() -> void:
+	# Someone else may have changed the tile while we travelled.
+	var reason := buildable.get_invalid_reason(unit.map, target)
+	if reason != "":
+		fail(reason)
+		return
+	_turns_worked += 1
+	if _turns_worked >= buildable.build_turns:
+		buildable.apply(unit.map, target, unit.hub.faction)
+		complete()

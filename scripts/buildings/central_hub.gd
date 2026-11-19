@@ -28,11 +28,13 @@ class TrainingOrder:
 		turns_left = p_blueprint.train_turns
 
 
-## Who owns this hub (Faction.PLAYER or Faction.RIVAL). Set before place().
-var faction := Faction.PLAYER
+## Who owns this hub (see Faction). Set before place().
+var faction := Faction.NONE
+## Starved and eliminated: no units, no turns, left standing as a ruin.
+var collapsed := false
 
-## Resources each connected extractor delivers per turn.
-const EXTRACTOR_OUTPUT := 1
+## Biomass the hub itself grows every turn.
+const HUB_BIOMASS_OUTPUT := 3
 
 var units: Array[Unit] = []
 ## Stockpiled resources: ResourceDeposit.Type -> int.
@@ -41,23 +43,25 @@ var inventory: Dictionary = {}
 var blueprints: Array[UnitBlueprint] = []
 ## Only the first order progresses; the rest wait their turn.
 var training_queue: Array[TrainingOrder] = []
-## Structures this hub's builders can construct.
+## Structures this hub's workers can construct.
 var buildables: Array[Buildable] = []
 ## Supply network: hex -> next hex towards the hub, for every tile linked
 ## to the hub through conveyors/extractors (the hub maps to itself).
 var _network: Dictionary = {}
 ## Extractor hexes that were producing last time the network was checked.
 var _producing: Dictionary = {}
+## unit_name -> how many of that type this hub has ever had, so names like
+## "Infantry 3" are never reused after a unit dies.
+var _units_named: Dictionary = {}
 
 
 func _init() -> void:
 	building_name = "Central Hub"
 	max_health = 100
-	blueprints.append(UnitBlueprint.new("Worker", Worker, {ResourceDeposit.Type.BIOMASS: 3}, 2))
-	blueprints.append(UnitBlueprint.new("Builder", Builder,
-		{ResourceDeposit.Type.BIOMASS: 2, ResourceDeposit.Type.TITANIUM: 1}, 3))
-	blueprints.append(UnitBlueprint.new("Infantry", Infantry,
-		{ResourceDeposit.Type.BIOMASS: 2, ResourceDeposit.Type.TITANIUM: 2}, 3))
+	# Units this hub can train. Their costs, training times and upkeep are
+	# set in each unit's own script (scripts/units/).
+	for unit_script in [Worker, Infantry]:
+		blueprints.append(UnitBlueprint.new(unit_script))
 	buildables.append(RoadBuildable.new())
 	buildables.append(BridgeBuildable.new())
 	buildables.append(ExtractorBuildable.new())
@@ -71,15 +75,52 @@ func get_buildable(id: String) -> Buildable:
 	return null
 
 
+## The blueprint for training a unit type, e.g. "Worker", or null.
+func get_blueprint(unit_name: String) -> UnitBlueprint:
+	for bp in blueprints:
+		if bp.unit_name == unit_name:
+			return bp
+	return null
+
+
+## One of this colony's units by its id, or null.
+func get_unit(id: int) -> Unit:
+	for u in units:
+		if u.id == id:
+			return u
+	return null
+
+
+## Adds a unit to the colony. A new unit gets an id and a name here; a unit
+## being restored from a save keeps the ones it already has.
 func add_unit(unit: Unit) -> void:
 	add_child(unit)
-	unit.display_name = "%s %d" % [unit.unit_name, _count_of_type(unit.unit_name) + 1]
+	if unit.id == 0:
+		unit.id = map.take_unit_id()
+	if unit.display_name == "":
+		_units_named[unit.unit_name] = _units_named.get(unit.unit_name, 0) + 1
+		unit.display_name = "%s %d" % [unit.unit_name, _units_named[unit.unit_name]]
 	units.append(unit)
 	unit.setup(self, map)
 	unit.state_changed.connect(_on_unit_state_changed)
 	unit.mission_completed.connect(_on_unit_mission_completed)
 	unit.mission_failed.connect(_on_unit_mission_failed)
 	unit.returned_to_hub.connect(_on_unit_returned)
+	units_changed.emit()
+	queue_redraw()
+
+
+## Takes a unit killed in combat out of the colony. Whatever it was carrying,
+## and anything already paid for its mission, is lost.
+func remove_unit(unit: Unit) -> void:
+	if not units.has(unit):
+		return
+	units.erase(unit)
+	unit.state_changed.disconnect(_on_unit_state_changed)
+	unit.mission_completed.disconnect(_on_unit_mission_completed)
+	unit.mission_failed.disconnect(_on_unit_mission_failed)
+	unit.returned_to_hub.disconnect(_on_unit_returned)
+	unit.die()
 	units_changed.emit()
 	queue_redraw()
 
@@ -138,7 +179,7 @@ func cancel_mission(unit: Unit) -> bool:
 	if unit.hub != self:
 		return false
 	var mission := unit.mission
-	if not unit.cancel_deployment():
+	if not unit.cancel_mission():
 		return false
 	_change_resources(mission.get_cost(), 1)
 	return true
@@ -273,54 +314,144 @@ func get_producing_extractors() -> Array[Vector2i]:
 	return result
 
 
+## Biomass eaten per turn by all of this hub's units.
+func get_upkeep() -> int:
+	var total := 0
+	for u in units:
+		total += u.upkeep
+	return total
+
+
+## Overall change per turn: extractors + hub production - unit upkeep.
+## Type -> int (values may be negative).
+func get_net_income() -> Dictionary:
+	var net := get_income()
+	var biomass := ResourceDeposit.Type.BIOMASS
+	net[biomass] = net.get(biomass, 0) + HUB_BIOMASS_OUTPUT - get_upkeep()
+	return net
+
+
 ## Resources delivered per turn by the supply network: Type -> int.
 func get_income() -> Dictionary:
 	var income := {}
 	for h in get_producing_extractors():
 		var type := map.get_tile(h).deposit.type
-		income[type] = income.get(type, 0) + EXTRACTOR_OUTPUT
+		income[type] = income.get(type, 0) + ExtractorBuildable.OUTPUT_PER_TURN
 	return income
 
 
 func _process_extractors() -> void:
 	for h in get_producing_extractors():
 		var deposit := map.get_tile(h).deposit
-		add_resource(deposit.type, deposit.extract(EXTRACTOR_OUTPUT))
+		add_resource(deposit.type, deposit.extract(ExtractorBuildable.OUTPUT_PER_TURN))
 		if deposit.is_depleted():
 			unit_event.emit("Extractor at (%d, %d) has exhausted its %s deposit"
 				% [h.x, h.y, deposit.get_display_name()])
 
 
-func process_turn() -> void:
-	for unit in units:
+# --- Turn steps (run by TurnManager, in this order) ------------------------
+
+## "Set out" step: deployed units leave, units out in the world get ready.
+func start_units_turn() -> void:
+	for unit in units.duplicate():
 		if unit.state != Unit.State.IN_HUB:
-			unit.process_turn()
-	# After units move, so a freshly trained unit just waits in the garrison.
+			unit.start_turn()
+
+
+## "Work" step: units at their work sites build, harvest or demolish.
+func units_work() -> void:
+	for unit in units.duplicate():
+		unit.do_work()
+
+
+## "Production" step: training progresses, extractors deliver, the hub
+## grows its biomass. (After movement, so a freshly trained unit just
+## waits in the garrison.)
+func produce() -> void:
 	_process_training()
 	_process_extractors()
-	# Deposits may have run dry (extractors or harvesters) - refresh status.
+	add_resource(ResourceDeposit.Type.BIOMASS, HUB_BIOMASS_OUTPUT)
+
+
+## "Upkeep" step: every unit eats. Returns true if biomass went below zero.
+func feed_units() -> bool:
+	add_resource(ResourceDeposit.Type.BIOMASS, -get_upkeep())
+	return get_resource(ResourceDeposit.Type.BIOMASS) < 0
+
+
+## End of turn: deposits may have run dry or structures changed, so refresh
+## the supply network and redraw.
+func finish_turn() -> void:
 	update_network()
 	queue_redraw()
 
 
+# --- Saving ----------------------------------------------------------------
+
+## Everything about this colony, as plain data (see SaveGame).
+func to_dict() -> Dictionary:
+	var training := []
+	for order in training_queue:
+		training.append([order.blueprint.unit_name, order.turns_left])
+	var unit_data := []
+	for u in units:
+		unit_data.append(u.to_dict())
+	return {
+		"faction": faction,
+		"hex": SaveGame.hex_to_data(hex),
+		"collapsed": collapsed,
+		"inventory": SaveGame.resources_to_data(inventory),
+		"units_named": _units_named.duplicate(),
+		"training": training,
+		"units": unit_data,
+	}
+
+
+## Restores what to_dict() saved. The hub must already be placed.
+func load_dict(data: Dictionary) -> void:
+	inventory = SaveGame.resources_from_data(data["inventory"])
+	for entry in data["training"]:
+		var order := TrainingOrder.new(get_blueprint(entry[0]))
+		order.turns_left = int(entry[1])
+		training_queue.append(order)
+	for unit_data: Dictionary in data["units"]:
+		var unit := get_blueprint(unit_data["type"]).create_unit()
+		unit.id = int(unit_data["id"])
+		unit.display_name = unit_data["name"]
+		add_unit(unit)
+		unit.load_dict(unit_data)
+	# After adding units (which would otherwise count towards the names).
+	_units_named = {}
+	for unit_name in data["units_named"]:
+		_units_named[unit_name] = int(data["units_named"][unit_name])
+	if data["collapsed"]:
+		collapse()
+
+
+## Eliminated (starved): every unit dies and the hub stops working. The
+## TurnManager stops running its turns separately.
+func collapse() -> void:
+	collapsed = true
+	for unit in units.duplicate():
+		remove_unit(unit)
+	training_queue.clear()
+	training_changed.emit()
+	modulate = Color(0.55, 0.5, 0.5, 0.7)  # Faded out, as a ruin.
+
+
 func get_info_text() -> String:
+	if collapsed:
+		return "%s (%s) - collapsed, abandoned" % [building_name, Faction.get_display_name(faction)]
 	var text := "%s (%s) - %d/%d units home" % [
 		building_name, Faction.get_display_name(faction), get_garrison().size(), units.size()]
-	if faction != Faction.PLAYER:
+	if faction != Faction.local_faction:
 		# Scouting report on a rival's stockpile.
 		text += "\nStockpile: %s" % (ResourceDeposit.format_cost(inventory) if not inventory.is_empty() else "empty")
 		var income := get_income()
 		if not income.is_empty():
 			text += "\nExtractors deliver %s per turn" % ResourceDeposit.format_cost(income)
+		text += "\nBiomass: %+d per turn" % get_net_income()[ResourceDeposit.Type.BIOMASS]
 	return text
-
-
-func _count_of_type(type_name: String) -> int:
-	var count := 0
-	for u in units:
-		if u.unit_name == type_name:
-			count += 1
-	return count
 
 
 func _on_unit_state_changed(_unit: Unit) -> void:

@@ -6,8 +6,11 @@ extends Node2D
 ## handed a Mission. During turn resolution they execute the mission, then
 ## walk back to the hub on their own, where they wait for the next order.
 ##
-## Subclasses (Worker, Scout, ...) set their stats in _init() and can override
+## Subclasses (Worker, Scout, ...) set ALL their data in _init() - stats,
+## training cost, training time and upkeep - and can override
 ## get_short_label() / _draw() for visuals or add new abilities for missions.
+## To make a hub able to train a unit, add its class to the hub's list in
+## CentralHub._init().
 
 signal state_changed(unit: Unit)
 signal mission_completed(unit: Unit, mission: Mission)
@@ -24,19 +27,29 @@ enum State {
 const RADIUS := 13.0
 
 @export var unit_name := "Unit"
-## Movement points per turn (open ground costs 2, rough 4, road 1).
-@export var max_movement := 4
+## Resources paid to train this unit: ResourceDeposit.Type -> int.
+var cost: Dictionary = {}
+## Turns a hub spends training this unit.
+@export var train_turns := 1
+## Biomass this unit eats every turn, wherever it is.
+@export var upkeep := 1
+## Movement points per turn (open ground costs 3, roads and bridges 1).
+@export var max_movement := 3
 @export var max_health := 10
 @export var body_color := Color.WHITE
-## Whether this unit can take Harvest missions.
-@export var can_harvest := false
-## Whether this unit can take Build missions.
-@export var can_build := false
-## Whether this unit can take Demolish missions.
-@export var can_demolish := false
+## The kinds of mission this unit may be given: "move", "harvest", "build"
+## (any structure) and/or "demolish" - the same names orders use (see
+## Orders.make_mission). The HUD only offers these, and Orders refuses others.
+@export var allowed_missions: Array[String] = ["move"]
+## Whether this unit fights (see Combat). Fighters stop when they run into
+## enemy fighters, and kill enemy non-fighters sharing their tile.
+@export var can_fight := false
 ## Seconds the move animation spends on each tile.
 @export var move_anim_time := 0.18
 
+## Permanent number identifying this unit in orders and saves; the same on
+## every computer. Given out by the map when the unit joins (0 = not yet).
+var id := 0
 ## Unique name given by the hub, e.g. "Worker 2".
 var display_name := ""
 var hex: Vector2i
@@ -52,6 +65,14 @@ var waiting := false
 ## Resources being carried home: ResourceDeposit.Type -> int.
 ## The hub unloads this when the unit returns.
 var cargo: Dictionary = {}
+## Ran into enemy fighters this turn: can't move again until next turn.
+var engaged := false
+## Took at least one step this turn (so it can't also work this turn).
+var moved_this_turn := false
+
+## Icon placement within the tile (see set_icon_layout).
+var _icon_offset := Vector2.ZERO
+var _icon_scale := 1.0
 
 var _path: Array[Vector2i] = []
 var _anim_steps: Array[Vector2] = []
@@ -76,8 +97,19 @@ func get_short_label() -> String:
 	return unit_name.left(1)
 
 
+## Whether this unit may take a mission of `kind`. "build:road" counts as
+## "build", so a unit that can build can build any structure.
+func can_take(kind: String) -> bool:
+	return kind.get_slice(":", 0) in allowed_missions
+
+
 func is_available() -> bool:
 	return state == State.IN_HUB
+
+
+## Out on the map (not garrisoned), so it can fight or be attacked.
+func is_in_world() -> bool:
+	return state == State.ON_MISSION or state == State.RETURNING
 
 
 ## At home and not told to wait - the player should give it something to do.
@@ -92,6 +124,47 @@ func set_waiting(value: bool) -> bool:
 	waiting = value
 	state_changed.emit(self)
 	return true
+
+
+# --- Saving ----------------------------------------------------------------
+
+## Everything about this unit's current situation, as plain data (see
+## SaveGame). Its stats come from its script, so only "type" is saved.
+func to_dict() -> Dictionary:
+	var path := []
+	for h in _path:
+		path.append(SaveGame.hex_to_data(h))
+	return {
+		"id": id,
+		"type": unit_name,
+		"name": display_name,
+		"hex": SaveGame.hex_to_data(hex),
+		"state": State.keys()[state],
+		"waiting": waiting,
+		"health": health,
+		"cargo": SaveGame.resources_to_data(cargo),
+		"path": path,
+		"mission": mission.to_dict() if mission else null,
+	}
+
+
+## Restores what to_dict() saved. The unit must already be in its hub.
+func load_dict(data: Dictionary) -> void:
+	hex = SaveGame.hex_from_data(data["hex"])
+	state = State[data["state"]]
+	waiting = data["waiting"]
+	health = int(data["health"])
+	cargo = SaveGame.resources_from_data(data["cargo"])
+	_path.clear()
+	for h in data["path"]:
+		_path.append(SaveGame.hex_from_data(h))
+	if data["mission"] != null:
+		var m_data: Dictionary = data["mission"]
+		mission = Orders.make_mission(hub, m_data["kind"], SaveGame.hex_from_data(m_data["target"]))
+		mission.unit = self
+		mission.load_dict(m_data)
+	global_position = map.hex_to_world(hex)
+	_refresh_visibility()
 
 
 # --- Cargo -----------------------------------------------------------------
@@ -133,8 +206,10 @@ func assign_mission(m: Mission) -> void:
 	_set_state(State.DEPLOYING)
 
 
-## A unit that hasn't left yet can have its order withdrawn.
-func cancel_deployment() -> bool:
+## Withdraws the mission from a unit that hasn't left yet. Use
+## CentralHub.cancel_mission() (which also refunds the cost) rather than
+## calling this directly.
+func cancel_mission() -> bool:
 	if state != State.DEPLOYING:
 		return false
 	mission = null
@@ -142,28 +217,40 @@ func cancel_deployment() -> bool:
 	return true
 
 
-## Runs this unit's turn. Called by the hub during turn resolution.
-func process_turn() -> void:
-	movement_left = max_movement
+# --- Turn steps (run by TurnManager, in this order) ------------------------
 
+## "Set out" step, before anyone moves: refresh movement, leave the hub if
+## deployed, and let the mission re-plan its route.
+func start_turn() -> void:
+	movement_left = max_movement
+	engaged = false
+	moved_this_turn = false
 	if state == State.DEPLOYING:
 		_set_state(State.ON_MISSION)
 		mission.begin()
+	elif state == State.ON_MISSION:
+		mission.prepare()
+	_check_mission_end()
+	if state == State.RETURNING and not has_destination():
+		set_destination(hub.hex)  # If cut off from home, try again next turn.
 
-	if state == State.ON_MISSION:
-		if not mission.is_failed():
-			mission.process_turn()
-		if mission.is_failed():
-			_end_mission(false)
-		elif mission.is_complete():
-			_end_mission(true)
 
-	# Not elif: a unit that finished its mission this turn uses any
-	# movement it has left to start heading home.
-	if state == State.RETURNING:
-		_process_return()
+## "Work" step, after movement and combat: a unit that spent the whole turn
+## at its work site does a turn's work there.
+func do_work() -> void:
+	if state != State.ON_MISSION or moved_this_turn or not mission.is_working():
+		return
+	mission.work()
+	_check_mission_end()  # Done: heads home next turn.
 
-	_play_movement()
+
+func _check_mission_end() -> void:
+	if state != State.ON_MISSION:
+		return
+	if mission.is_failed():
+		_end_mission(false)
+	elif mission.is_complete():
+		_end_mission(true)
 
 
 func _end_mission(success: bool) -> void:
@@ -185,14 +272,6 @@ func _begin_return() -> void:
 		return
 	_set_state(State.RETURNING)
 	set_destination(hub.hex)
-
-
-func _process_return() -> void:
-	if not has_destination() and not set_destination(hub.hex):
-		return  # Cut off from home; try again next turn.
-	advance_along_path()
-	if hex == hub.hex:
-		_arrive_home()
 
 
 func _arrive_home() -> void:
@@ -223,19 +302,68 @@ func get_remaining_path() -> Array[Vector2i]:
 	return _path.duplicate()
 
 
-## Moves along the planned path using the movement points left this turn.
-## Civ-style: a unit with any movement left may always enter the next tile.
-func advance_along_path() -> void:
-	while movement_left > 0 and not _path.is_empty():
-		var next: Vector2i = _path[0]
-		var tile := map.get_tile(next)
-		if tile == null or not tile.is_passable():
-			_path.clear()  # Blocked; the mission will re-plan.
-			return
-		_path.pop_front()
-		hex = next
-		movement_left = maxi(movement_left - tile.get_move_cost(), 0)
-		_anim_steps.append(map.hex_to_world(hex))
+## The movement tick on which this unit's next step would land, or -1 if it
+## isn't moving any further this turn. Movement points double as time: a
+## road step (cost 1) lands one tick after the last, open ground (cost 3)
+## three ticks after. A unit counts as on its old tile until it lands.
+##
+## A unit may only enter a tile it has enough movement left for - except
+## that a unit with full movement can always take one step, so nothing ever
+## gets stuck in front of a tile that costs more than its whole allowance.
+func get_next_step_tick() -> int:
+	if engaged or _path.is_empty() or not is_in_world():
+		return -1
+	var tile := map.get_tile(_path[0])
+	if tile == null or not tile.is_passable():
+		_path.clear()  # Blocked; the mission re-plans next turn.
+		return -1
+	var cost := tile.get_move_cost()
+	if not _can_enter(cost, movement_left):
+		return -1  # Not enough movement left; carry on next turn.
+	var spent := max_movement - movement_left
+	return mini(spent + cost, max_movement)
+
+
+## The tile this unit's next step goes to. Only valid while it has a path.
+func get_next_step_hex() -> Vector2i:
+	return _path[0]
+
+
+## Takes the step get_next_step_tick() planned. Called by Movement.
+func take_step() -> void:
+	var next: Vector2i = _path.pop_front()
+	movement_left = maxi(movement_left - map.get_tile(next).get_move_cost(), 0)
+	hex = next
+	moved_this_turn = true
+	_anim_steps.append(map.hex_to_world(hex))
+	if _path.is_empty():
+		_reached_destination()
+
+
+## Met enemy fighters: stop moving for the rest of this turn.
+func engage() -> void:
+	engaged = true
+	movement_left = 0
+
+
+func _reached_destination() -> void:
+	if state == State.ON_MISSION and hex == mission.get_travel_hex():
+		mission.on_arrived()
+		# A finished mission (e.g. Move) starts the walk home straight away,
+		# using whatever movement is left this turn.
+		_check_mission_end()
+	elif state == State.RETURNING and hex == hub.hex:
+		_arrive_home()
+
+
+## Killed in combat. The hub has already removed it from the colony; this
+## lets its last move finish playing, then fades it out.
+func die() -> void:
+	if is_animating():
+		await _move_tween.finished
+	var fade := create_tween()
+	fade.tween_property(self, "modulate:a", 0.0, 0.4)
+	fade.tween_callback(queue_free)
 
 
 ## How many turns this unit needs to walk `path` (not including the start).
@@ -245,11 +373,17 @@ func estimate_turns(path: Array[Vector2i]) -> int:
 	var turns := 1
 	var mp := max_movement
 	for h in path:
-		if mp <= 0:
+		var step := map.get_tile(h).get_move_cost()
+		if not _can_enter(step, mp):
 			turns += 1
 			mp = max_movement
-		mp -= map.get_tile(h).get_move_cost()
+		mp = maxi(mp - step, 0)
 	return turns
+
+
+## Whether a unit with `mp` movement left may enter a tile costing `step`.
+func _can_enter(step: int, mp: int) -> bool:
+	return mp > 0 and (step <= mp or mp == max_movement)
 
 
 # --- Presentation ----------------------------------------------------------
@@ -284,7 +418,8 @@ func is_animating() -> bool:
 	return _move_tween != null and _move_tween.is_running()
 
 
-func _play_movement() -> void:
+## Animates the steps taken this turn. Called once movement is resolved.
+func play_movement() -> void:
 	if _anim_steps.is_empty():
 		return
 	if _move_tween and _move_tween.is_valid():
@@ -304,16 +439,28 @@ func _refresh_visibility() -> void:
 		global_position = map.hex_to_world(hex)
 
 
+## Where on its tile this unit's icon sits, and how big it is, when it shares
+## the tile with other units. Set by UnitStackLayout.
+func set_icon_layout(offset: Vector2, icon_scale: float) -> void:
+	if offset == _icon_offset and is_equal_approx(icon_scale, _icon_scale):
+		return
+	_icon_offset = offset
+	_icon_scale = icon_scale
+	queue_redraw()
+
+
 func _draw() -> void:
+	var c := _icon_offset
+	var s := _icon_scale
 	# Ring in the owner's colour so rival units are easy to tell apart.
 	var faction_color := Faction.get_color(hub.faction) if hub else Color.BLACK
-	draw_circle(Vector2.ZERO, RADIUS + 3.5, faction_color)
-	draw_circle(Vector2.ZERO, RADIUS + 1.5, Color(0, 0, 0, 0.8))
-	draw_circle(Vector2.ZERO, RADIUS, body_color)
+	draw_circle(c, (RADIUS + 3.5) * s, faction_color)
+	draw_circle(c, (RADIUS + 1.5) * s, Color(0, 0, 0, 0.8))
+	draw_circle(c, RADIUS * s, body_color)
 	var font := ThemeDB.fallback_font
-	var font_size := 15
+	var font_size := maxi(7, roundi(15 * s))
 	var label := get_short_label()
 	var text_width := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	var baseline := (font.get_ascent(font_size) - font.get_descent(font_size)) / 2.0
-	draw_string(font, Vector2(-text_width / 2.0, baseline), label,
+	draw_string(font, c + Vector2(-text_width / 2.0, baseline), label,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.1, 0.1, 0.1))

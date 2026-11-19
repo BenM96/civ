@@ -1,20 +1,39 @@
 class_name Mission
 extends RefCounted
-## Base class for an order a hub gives to one of its units.
+## Base class for a job a unit goes out and does. A mission is given with a
+## "mission" order (see Orders); its kind ("move", "guard"...) names it in
+## orders, saves and Unit.allowed_missions.
 ##
-## Lifecycle (driven by Unit.process_turn):
+## Missions never move their unit themselves - all movement happens at once
+## for every unit (see Movement). A mission just says where to go and what
+## to do there. Lifecycle (see TurnManager for when each step runs):
 ##   1. Hub validates with is_valid_for() and assigns it -> unit is DEPLOYING.
-##   2. On the next turn resolution the unit leaves the hub and begin() runs.
-##   3. process_turn() runs every turn until complete() or fail() is called.
-##   4. The unit then walks home on its own.
+##   2. Set out: on the next turn resolution the unit leaves the hub and
+##      begin() runs. Every turn after, prepare() runs at the same point.
+##   3. Movement: the unit walks to get_travel_hex(); on_arrived() runs the
+##      moment it gets there.
+##   4. Work: on each turn the unit starts at the site (didn't move), work()
+##      runs, until complete() or fail() is called.
+##   5. The unit then walks home on its own.
 ##
-## To add a new kind of order, extend this class and override the virtuals.
+## To add a new kind of mission, extend this class, override the virtuals,
+## and add it to Orders.make_mission().
+##
+## Wording - every mission's text follows the same pattern, e.g. Harvest:
+##   get_description()     command       "Harvest Titanium at (5, 7)"
+##   get_progress_text()   on the way    "Heading to harvest Titanium at (5, 7) (2 turn(s) to arrive)"
+##                         at the site   "Harvesting Titanium at (5, 7) (1 turn(s) left)"
+##   get_completion_text() past tense    "harvested 1 Titanium at (5, 7)"
+##                         (shown after the unit's name: "Worker 2 harvested...")
 
 enum Result { IN_PROGRESS, COMPLETE, FAILED }
+## TRAVELLING: heading for get_travel_hex(). WORKING: there, doing the job.
+enum Phase { TRAVELLING, WORKING }
 
 var unit: Unit
 var result := Result.IN_PROGRESS
 var fail_reason := ""
+var phase := Phase.TRAVELLING
 
 
 # --- Virtuals --------------------------------------------------------------
@@ -29,9 +48,10 @@ func get_description() -> String:
 	return get_display_name()
 
 
-## Status line while the mission is in progress.
+## Status line while the mission is in progress (see Wording above).
 func get_progress_text() -> String:
-	return "%s (%d turn(s) left)" % [get_description(), unit.estimate_turns(unit.get_remaining_path())]
+	return "Heading out: %s (%d turn(s) to arrive)" % [
+		get_description(), unit.estimate_turns(unit.get_remaining_path())]
 
 
 ## Turns spent working at the target after arriving (used for estimates).
@@ -61,20 +81,64 @@ func get_travel_hex() -> Variant:
 	return get_target_hex()
 
 
-## Called once, on the turn the unit leaves the hub.
+## Called once, on the turn the unit leaves the hub. Plans the route.
 func begin() -> void:
-	pass
+	_plan_route()
 
 
-## Called each turn while the mission is in progress. The unit's movement
-## points have already been refreshed.
-func process_turn() -> void:
-	pass
+## Called at the start of every later turn, before anyone moves: re-plans a
+## lost route (e.g. a bridge was demolished) and starts work if the unit is
+## already at the site.
+func prepare() -> void:
+	if phase != Phase.TRAVELLING:
+		return
+	if unit.hex == get_travel_hex():
+		on_arrived()
+	elif not unit.has_destination():
+		_plan_route()
 
 
-## Message for the event log when the mission succeeds.
+## The unit has reached get_travel_hex(). By default it starts working (on
+## the next turn it doesn't move - usually the next turn).
+func on_arrived() -> void:
+	phase = Phase.WORKING
+
+
+## One turn of work at the site. Call complete() when the job is done.
+func work() -> void:
+	complete()
+
+
+## Event log message when the mission succeeds, in the past tense, shown
+## after the unit's name (see Wording above).
 func get_completion_text() -> String:
-	return "%s complete" % get_display_name()
+	return "completed %s" % get_description()
+
+
+## The order kind that creates this mission (see Orders.make_mission), e.g.
+## "move" or "build:road".
+func get_kind() -> String:
+	return ""
+
+
+## This mission's progress as plain data (see SaveGame). Subclasses with
+## more progress to remember add to it (call super() first).
+func to_dict() -> Dictionary:
+	return {
+		"kind": get_kind(),
+		"target": SaveGame.hex_to_data(get_target_hex()),
+		"result": Result.keys()[result],
+		"fail_reason": fail_reason,
+		"phase": Phase.keys()[phase],
+	}
+
+
+## Restores what to_dict() saved, onto a mission freshly made from the same
+## kind and target.
+func load_dict(data: Dictionary) -> void:
+	result = Result[data["result"]]
+	fail_reason = data["fail_reason"]
+	phase = Phase[data["phase"]]
 
 
 # --- Helpers ---------------------------------------------------------------
@@ -82,6 +146,10 @@ func get_completion_text() -> String:
 ## Whether this mission can be given to `u` right now (unit is in its hub).
 func is_valid_for(u: Unit) -> bool:
 	return get_invalid_reason(u) == ""
+
+
+func is_working() -> bool:
+	return phase == Phase.WORKING
 
 
 func complete() -> void:
@@ -99,3 +167,13 @@ func is_complete() -> bool:
 
 func is_failed() -> bool:
 	return result == Result.FAILED
+
+
+## Sets the unit walking to get_travel_hex(), failing if there's no way.
+func _plan_route() -> void:
+	var dest: Variant = get_travel_hex()
+	if dest == null or not unit.set_destination(dest):
+		var where: Variant = get_target_hex() if get_target_hex() != null else dest
+		fail("no route to (%d, %d)" % [where.x, where.y] if where != null else "nowhere to go")
+	elif unit.hex == dest:
+		on_arrived()

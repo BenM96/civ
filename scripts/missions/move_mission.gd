@@ -1,4 +1,4 @@
-class_name MoveToTileMission
+class_name MoveMission
 extends Mission
 ## Travel to a target tile. Once there the mission is complete and the unit
 ## heads back to its hub.
@@ -14,12 +14,21 @@ func get_display_name() -> String:
 	return "Move"
 
 
+func get_kind() -> String:
+	return "move"
+
+
 func get_description() -> String:
-	return "Moving to (%d, %d)" % [target.x, target.y]
+	return "Move to (%d, %d)" % [target.x, target.y]
+
+
+func get_progress_text() -> String:
+	return "Heading to (%d, %d) (%d turn(s) to arrive)" % [
+		target.x, target.y, unit.estimate_turns(unit.get_remaining_path())]
 
 
 func get_completion_text() -> String:
-	return "reached (%d, %d)" % [target.x, target.y]
+	return "moved to (%d, %d)" % [target.x, target.y]
 
 
 func get_target_hex() -> Variant:
@@ -36,17 +45,7 @@ func get_invalid_reason(u: Unit) -> String:
 	return ""
 
 
-func begin() -> void:
-	if not unit.set_destination(target):
-		fail("no route to (%d, %d)" % [target.x, target.y])
-
-
-func process_turn() -> void:
-	if not unit.has_destination() and unit.hex != target:
-		# Path was lost (e.g. map changed) - try to re-plan.
-		if not unit.set_destination(target):
-			fail("no route to (%d, %d)" % [target.x, target.y])
-			return
-	unit.advance_along_path()
-	if unit.hex == target:
-		complete()
+## Nothing to do once there: done the moment it arrives, so the unit uses
+## any movement it has left to start heading home.
+func on_arrived() -> void:
+	complete()

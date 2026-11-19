@@ -11,7 +11,7 @@ extends CanvasLayer
 signal end_turn_requested
 ## kind is a mission id understood by the game, e.g. "move" or "harvest".
 signal mission_requested(unit: Unit, kind: String)
-signal cancel_order_requested(unit: Unit)
+signal cancel_mission_requested(unit: Unit)
 ## Asks the game to centre the camera on a unit.
 signal focus_requested(unit: Unit)
 ## Wait (true) keeps a unit home without it needing orders; false wakes it.
@@ -21,6 +21,8 @@ signal hub_panel_closed
 signal train_requested(blueprint: UnitBlueprint)
 signal cancel_training_requested(index: int)
 signal auto_end_toggled(enabled: bool)
+## TESTING ONLY - remove before release. The "+50 all" button was pressed.
+signal debug_resources_requested
 
 enum Section { NONE, UNITS, FIELD, TRAINING }
 
@@ -67,6 +69,9 @@ var _section_buttons: Dictionary = {}
 var _section := Section.NONE
 
 var _hub: CentralHub
+var _game_over := false
+## Unit id -> the mission kind last picked in its dropdown.
+var _chosen_mission: Dictionary = {}
 
 
 func _ready() -> void:
@@ -75,7 +80,7 @@ func _ready() -> void:
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
-	if key == null or not key.pressed or key.echo:
+	if key == null or not key.pressed or key.echo or _game_over:
 		return
 	if key.keycode == KEY_U:
 		toggle_section(Section.UNITS)
@@ -150,13 +155,47 @@ func set_turn(turn: int) -> void:
 
 
 ## Shows every resource type, including ones the hub has none of yet, plus
-## per-turn income from extractors, e.g. "Titanium: 5 (+1)".
+## the net change per turn, e.g. "Titanium: 5 (+1)" or "Biomass: 40 (-2)".
 func set_inventory(inventory: Dictionary, income: Dictionary = {}) -> void:
 	for type in _inventory_labels:
 		var label: Label = _inventory_labels[type]
 		label.text = "%s: %d" % [ResourceDeposit.get_type_name(type), inventory.get(type, 0)]
-		if income.get(type, 0) > 0:
-			label.text += " (+%d)" % income[type]
+		if income.get(type, 0) != 0:
+			label.text += " (%+d)" % income[type]
+
+
+## Covers the screen with a final message and a Play Again button.
+func show_game_over(title: String, message: String, color: Color) -> void:
+	_game_over = true
+	close_section()
+	var shade := ColorRect.new()
+	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.color = Color(0, 0, 0, 0.6)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP  # Block clicks to the map.
+	add_child(shade)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.add_child(center)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _box_style(Color(0.1, 0.07, 0.07, 0.97), color, 3, 10))
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 14)
+	panel.add_child(box)
+	var title_label := Label.new()
+	title_label.text = title
+	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title_label.add_theme_font_size_override("font_size", 36)
+	title_label.add_theme_color_override("font_color", color)
+	box.add_child(title_label)
+	var body := Label.new()
+	body.text = message
+	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size.x = 420
+	box.add_child(body)
+	box.add_child(_make_button("Play Again", func() -> void: get_tree().reload_current_scene()))
+	_end_turn_button.disabled = true
 
 
 func set_tile_info(text: String) -> void:
@@ -201,6 +240,60 @@ func refresh_hub_panel() -> void:
 
 # --- Section contents ------------------------------------------------------
 
+## Every mission `unit` may be given, as [kind, label, tooltip, affordable],
+## in the order the dropdown lists them. Driven by the unit's
+## allowed_missions, so a new unit type needs no HUD changes.
+func _mission_choices(unit: Unit) -> Array:
+	var choices := []
+	if unit.can_take("move"):
+		choices.append(["move", "Move", "Walk to a tile, then come home.", true])
+	if unit.can_take("guard"):
+		choices.append(["guard", "Guard (%d turns)" % GuardMission.GUARD_TURNS,
+			"Hold a tile for %d turns, stopping enemy infantry and killing enemy workers there, then come home." % GuardMission.GUARD_TURNS, true])
+	if unit.can_take("capture"):
+		choices.append(["capture", "Capture",
+			"Take over another colony's extractor or conveyor belt. Takes 1 turn on the spot.", true])
+	if unit.can_take("harvest"):
+		choices.append(["harvest", "Harvest", "Bring back 1 resource from a deposit.", true])
+	if unit.can_take("build"):
+		for b in _hub.buildables:
+			choices.append(["build:" + b.id, "Build %s (%s)" % [b.display_name, b.get_cost_text()],
+				"Costs %s." % b.get_cost_text(), _hub.can_afford(b.cost)])
+	if unit.can_take("demolish"):
+		choices.append(["demolish", "Demolish",
+			"Tear down roads, bridges, extractors or conveyors on a tile, leaving rubble.", true])
+	return choices
+
+
+## A dropdown of `unit`'s missions. Remembers the choice per unit, so it
+## survives the panel being rebuilt.
+func _make_mission_picker(unit: Unit) -> OptionButton:
+	var picker := OptionButton.new()
+	picker.focus_mode = Control.FOCUS_NONE  # Keep Enter for End Turn.
+	# Same width on every row (not sized to the longest entry), so rows line up.
+	picker.fit_to_longest_item = false
+	picker.clip_text = true
+	picker.custom_minimum_size.x = 150
+	picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_button(picker)
+	var remembered: String = _chosen_mission.get(unit.id, "")
+	for choice in _mission_choices(unit):
+		var i := picker.item_count
+		picker.add_item(choice[1])
+		picker.set_item_metadata(i, choice[0])
+		picker.set_item_tooltip(i, choice[2] if choice[3] else "Can't afford: %s" % choice[2].to_lower())
+		picker.set_item_disabled(i, not choice[3])
+	# Select the remembered mission if it's still possible, else the first one that is.
+	picker.selected = -1
+	for i in picker.item_count:
+		if not picker.is_item_disabled(i) and (picker.selected < 0 or picker.get_item_metadata(i) == remembered):
+			picker.selected = i
+	var id := unit.id
+	picker.item_selected.connect(func(i: int) -> void:
+		_chosen_mission[id] = picker.get_item_metadata(i))
+	return picker
+
+
 ## Units at home that are ready for orders. Units told to wait are listed
 ## separately underneath (just a Wake button) so they can be brought back.
 func _fill_units() -> void:
@@ -212,24 +305,17 @@ func _fill_units() -> void:
 		var row := HBoxContainer.new()
 		var name_label := Label.new()
 		name_label.text = unit.display_name
-		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_label.custom_minimum_size.x = 84
 		row.add_child(name_label)
 		var u := unit
-		row.add_child(_make_button("Move", func() -> void: mission_requested.emit(u, "move")))
-		if unit.can_harvest:
-			row.add_child(_make_button("Harvest", func() -> void: mission_requested.emit(u, "harvest")))
-		if unit.can_build:
-			for buildable in _hub.buildables:
-				var kind := "build:" + buildable.id
-				var b := _make_button("Build %s" % buildable.display_name,
-					func() -> void: mission_requested.emit(u, kind))
-				b.tooltip_text = "Costs %s" % buildable.get_cost_text()
-				b.disabled = not _hub.can_afford(buildable.cost)
-				row.add_child(b)
-		if unit.can_demolish:
-			var demolish := _make_button("Demolish", func() -> void: mission_requested.emit(u, "demolish"))
-			demolish.tooltip_text = "Tear down roads, bridges, extractors or conveyors on a tile, leaving rubble"
-			row.add_child(demolish)
+		var picker := _make_mission_picker(unit)
+		row.add_child(picker)
+		var target := _make_button("Select Target", func() -> void:
+			if picker.selected >= 0:
+				mission_requested.emit(u, picker.get_item_metadata(picker.selected)))
+		target.tooltip_text = "Then click a tile on the map to send this unit there."
+		target.disabled = picker.selected < 0
+		row.add_child(target)
 		var wait := _make_button("Wait", func() -> void: wait_requested.emit(u, true))
 		wait.tooltip_text = "Stay at the hub. Waiting units don't need orders, so idle turns can be skipped."
 		row.add_child(wait)
@@ -295,7 +381,7 @@ func _fill_field() -> void:
 				show.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 				row.add_child(show)
 			else:
-				var cancel := _make_button("Cancel", func() -> void: cancel_order_requested.emit(u))
+				var cancel := _make_button("Cancel", func() -> void: cancel_mission_requested.emit(u))
 				cancel.tooltip_text = "Withdraw the order (refunds any cost)"
 				cancel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 				row.add_child(cancel)
@@ -424,7 +510,7 @@ func _build_top_bar(root: Control) -> void:
 	_turn_label.add_theme_font_size_override("font_size", 20)
 	top_row.add_child(_turn_label)
 	# One coloured label per resource, in a fixed order.
-	for type in [ResourceDeposit.Type.BIOMASS, ResourceDeposit.Type.TITANIUM, ResourceDeposit.Type.SEDIMENT]:
+	for type in [ResourceDeposit.Type.BIOMASS, ResourceDeposit.Type.TITANIUM, ResourceDeposit.Type.SEDIMENT, ResourceDeposit.Type.GOLD]:
 		var gap := Control.new()
 		gap.custom_minimum_size.x = 18
 		top_row.add_child(gap)
@@ -455,6 +541,11 @@ func _build_top_bar(root: Control) -> void:
 	auto_end.tooltip_text = "Move straight on to the next turn when every unit is already busy at the start of a turn.\nTurns where you give orders are never ended for you."
 	auto_end.toggled.connect(func(on: bool) -> void: auto_end_toggled.emit(on))
 	top_row.add_child(auto_end)
+	# TESTING ONLY - remove before release (with Orders.debug_resources()).
+	var debug_give := _make_button("+%d all (test)" % Orders.DEBUG_RESOURCE_AMOUNT,
+		func() -> void: debug_resources_requested.emit())
+	debug_give.tooltip_text = "Testing only: give your colony %d of every resource." % Orders.DEBUG_RESOURCE_AMOUNT
+	top_row.add_child(debug_give)
 	_end_turn_button = _make_button(END_TURN_TEXT, func() -> void: end_turn_requested.emit())
 	_end_turn_button.custom_minimum_size.x = 170
 	top_row.add_child(_end_turn_button)
@@ -548,6 +639,12 @@ func _make_button(text: String, on_pressed: Callable) -> Button:
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE  # Keep Enter/arrows for the game.
 	b.pressed.connect(on_pressed)
+	_style_button(b)
+	return b
+
+
+## The HUD's rust-brown button look, for any kind of button.
+func _style_button(b: Button) -> void:
 	var normal := _box_style(Color(0.3, 0.2, 0.17), Color(0.6, 0.38, 0.28), 1, 4)
 	normal.set_content_margin_all(5)
 	normal.content_margin_left = 10
@@ -564,7 +661,6 @@ func _make_button(text: String, on_pressed: Callable) -> Button:
 	b.add_theme_stylebox_override("hover", hover)
 	b.add_theme_stylebox_override("pressed", pressed)
 	b.add_theme_stylebox_override("disabled", disabled)
-	return b
 
 
 func _add_heading(text: String) -> void:
