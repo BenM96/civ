@@ -11,8 +11,8 @@ extends RefCounted
 ## Every order says what it is under "order". Build them with the helpers
 ## below rather than by hand:
 ##   {"order": "mission", "unit": id, "kind": kind, "target": [x, y]}
-##       kind: "move", "harvest", "guard", "capture", "demolish" or
-##       "build:<buildable id>" (see make_mission())
+##       kind: "move", "harvest", "guard", "capture", "demolish",
+##       "escort:<unit id>" or "build:<buildable id>" (see make_mission())
 ##   {"order": "cancel_mission", "unit": id}
 ##   {"order": "wait", "unit": id, "value": bool}
 ##   {"order": "train", "unit_type": "Worker"}
@@ -89,7 +89,7 @@ func submit(faction: int, order: Dictionary) -> String:
 			var unit := _own_unit(hub, order)
 			if unit == null:
 				return "no such unit"
-			return "" if hub.cancel_mission(unit) else "it has already left"
+			return "" if hub.cancel_mission(unit) else "it's out on its mission and can't be called back now"
 		"wait":
 			var unit := _own_unit(hub, order)
 			if unit == null:
@@ -136,13 +136,22 @@ static func get_invalid_reason(hub: CentralHub, unit: Unit, m: Mission) -> Strin
 
 
 ## Builds the mission for a mission kind: "move", "harvest", "guard",
-## "capture", "demolish" or "build:<buildable id>". Returns null for an
+## "capture", "demolish", "escort:<unit id>" or "build:<buildable id>".
+## (An escort's target hex is ignored.) Returns null for an
 ## unknown kind. Add new mission kinds here (and give the mission a matching
 ## get_kind()).
 static func make_mission(hub: CentralHub, kind: String, target: Vector2i) -> Mission:
+	if kind == "build:road":
+		kind = "build:foundation"  # Renamed; older saves may still say road.
+	if kind.begins_with("escort:"):
+		return EscortMission.new(int(kind.trim_prefix("escort:")))
 	if kind.begins_with("build:"):
 		var buildable := hub.get_buildable(kind.trim_prefix("build:"))
-		return BuildMission.new(target, buildable) if buildable else null
+		if buildable == null:
+			return null
+		if buildable.line_of != "":
+			return LineBuildMission.new(target, buildable)
+		return BuildMission.new(target, buildable)
 	match kind:
 		"move":
 			return MoveMission.new(target)

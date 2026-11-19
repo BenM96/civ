@@ -74,7 +74,8 @@ var _hub: CentralHub
 var _game_over := false
 ## The popup covering the screen, or null.
 var _popup: Control = null
-## Unit id -> the mission kind last picked in its dropdown.
+## Unit id -> the mission kind picked in its dropdown this session. Takes
+## priority over the unit's last mission (once sent, they're the same).
 var _chosen_mission: Dictionary = {}
 
 
@@ -164,8 +165,8 @@ func set_inventory(inventory: Dictionary, income: Dictionary = {}) -> void:
 	for type in _inventory_labels:
 		var label: Label = _inventory_labels[type]
 		label.text = "%s: %d" % [ResourceDeposit.get_type_name(type), inventory.get(type, 0)]
-		if income.get(type, 0) != 0:
-			label.text += " (%+d)" % income[type]
+		if not is_zero_approx(income.get(type, 0.0)):
+			label.text += " (%s)" % ResourceDeposit.format_change(income[type])
 
 
 ## Covers the screen with a final message and a Play Again button.
@@ -283,6 +284,14 @@ func _mission_choices(unit: Unit) -> Array:
 	if unit.can_take("guard"):
 		choices.append(["guard", "Guard (%d turns)" % GuardMission.GUARD_TURNS,
 			"Hold a tile for %d turns, stopping enemy infantry and killing enemy workers there, then come home." % GuardMission.GUARD_TURNS, true])
+	if unit.can_take("escort"):
+		for other in _hub.units:
+			var m := EscortMission.new(other.id)
+			if m.get_invalid_reason(unit) == "":
+				var plans := "" if other.mission == null else " (%s)" % other.mission.get_description()
+				choices.append(["escort:%d" % other.id, "Escort %s%s" % [other.display_name, plans],
+					"Follow %s wherever it goes and fight beside it, then come home with it. Sets off as soon as %s does - no target to pick." % [
+						other.display_name, other.display_name], true])
 	if unit.can_take("capture"):
 		choices.append(["capture", "Capture",
 			"Take over another colony's extractor or conveyor belt. Takes 1 turn on the spot.", true])
@@ -290,15 +299,30 @@ func _mission_choices(unit: Unit) -> Array:
 		choices.append(["harvest", "Harvest", "Bring back 1 resource from a deposit.", true])
 	if unit.can_take("build"):
 		for b in _hub.buildables:
-			choices.append(["build:" + b.id, "Build %s (%s)" % [b.display_name, b.get_cost_text()],
-				"Costs %s." % b.get_cost_text(), _hub.can_afford(b.cost)])
+			# Line jobs pay as they go, so they're always offered; the order
+			# itself says if you can't afford to start.
+			if b.line_of == b.id:
+				var extra := "" if b.requires.is_empty() else " (and %ss where missing)" % " / ".join(
+					b.requires.map(func(r: String) -> String: return _hub.get_buildable(r).display_name))
+				choices.append(["build:" + b.id, "Build %ss (%s each)" % [b.display_name, b.get_cost_text()],
+					"Pick a tile: builds a %s%s on every tile from the hub to there, paying as it goes. Stops and comes home if you run out." % [
+						b.display_name, extra], true])
+			elif b.line_of != "":
+				var line_name := _hub.get_buildable(b.line_of).display_name
+				choices.append(["build:" + b.id, "Build %s (%s, + %ss to hub)" % [b.display_name, b.get_cost_text(), line_name],
+					"Pick a deposit: lays foundations and %ss from the hub to it where missing, then builds the %s. Pays as it goes." % [
+						line_name, b.display_name], true])
+			else:
+				choices.append(["build:" + b.id, "Build %s (%s)" % [b.display_name, b.get_cost_text()],
+					"Costs %s." % b.get_cost_text(), _hub.can_afford(b.cost)])
 	if unit.can_take("demolish"):
 		choices.append(["demolish", "Demolish",
-			"Tear down roads, bridges, extractors or conveyors on a tile, leaving rubble.", true])
+			"Tear down foundations, bridges, extractors or conveyors on a tile, leaving rubble.", true])
 	return choices
 
 
-## A dropdown of `unit`'s missions. Remembers the choice per unit, so it
+## A dropdown of `unit`'s missions. Opens on the mission the unit did last
+## (Unit.last_mission_kind), and remembers a new pick per unit so it
 ## survives the panel being rebuilt.
 func _make_mission_picker(unit: Unit) -> OptionButton:
 	var picker := OptionButton.new()
@@ -309,7 +333,8 @@ func _make_mission_picker(unit: Unit) -> OptionButton:
 	picker.custom_minimum_size.x = 150
 	picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_style_button(picker)
-	var remembered: String = _chosen_mission.get(unit.id, "")
+	# What you've picked for it just now, else the mission it did last time.
+	var remembered: String = _chosen_mission.get(unit.id, unit.last_mission_kind)
 	for choice in _mission_choices(unit):
 		var i := picker.item_count
 		picker.add_item(choice[1])
@@ -346,8 +371,15 @@ func _fill_units() -> void:
 		var target := _make_button("Select Target", func() -> void:
 			if picker.selected >= 0:
 				mission_requested.emit(u, picker.get_item_metadata(picker.selected)))
-		target.tooltip_text = "Then click a tile on the map to send this unit there."
 		target.disabled = picker.selected < 0
+		# Escorts need no tile: the button gives the order straight away.
+		var label_for := func(i: int) -> void:
+			var escort := i >= 0 and str(picker.get_item_metadata(i)).begins_with("escort:")
+			target.text = "Give Order" if escort else "Select Target"
+			target.tooltip_text = "Sends the order now (no tile to pick)." if escort \
+				else "Then click a tile on the map to send this unit there."
+		label_for.call(picker.selected)
+		picker.item_selected.connect(label_for)
 		row.add_child(target)
 		var wait := _make_button("Wait", func() -> void: wait_requested.emit(u, true))
 		wait.tooltip_text = "Stay at the hub. Waiting units don't need orders, so idle turns can be skipped."
@@ -408,16 +440,19 @@ func _fill_field() -> void:
 			status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(status)
 			var u := unit
-			if unit.state != Unit.State.DEPLOYING:
+			if unit.can_cancel_mission():
+				var cancel := _make_button("Cancel", func() -> void: cancel_mission_requested.emit(u))
+				if unit.state == Unit.State.DEPLOYING:
+					cancel.tooltip_text = "Withdraw the order (refunds any cost)"
+				else:
+					cancel.tooltip_text = "Call off the mission; the unit stays at the hub, ready for new orders. Anything already built stays."
+				cancel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+				row.add_child(cancel)
+			else:
 				var show := _make_button("Show", func() -> void: focus_requested.emit(u))
 				show.tooltip_text = "Centre the camera on this unit"
 				show.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 				row.add_child(show)
-			else:
-				var cancel := _make_button("Cancel", func() -> void: cancel_mission_requested.emit(u))
-				cancel.tooltip_text = "Withdraw the order (refunds any cost)"
-				cancel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-				row.add_child(cancel)
 			_section_list.add_child(row)
 
 
@@ -431,7 +466,7 @@ func _fill_training() -> void:
 			func() -> void: train_requested.emit(bp))
 		button.disabled = not _hub.can_afford(cost)
 		button.tooltip_text = ("Not enough resources. " if button.disabled else "") \
-			+ "Each %s you have doubles the price of the next." % bp.unit_name
+			+ "Each %s you build doubles the price of the next, even if it's later lost." % bp.unit_name
 		_section_list.add_child(button)
 
 	_section_list.add_child(HSeparator.new())

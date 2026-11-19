@@ -1,10 +1,10 @@
 class_name Infantry
 extends Unit
-## Military unit. Can guard a tile, capture other colonies' extractors and
-## conveyors, and demolish man-made structures (roads, bridges, extractors,
-## conveyors), leaving rubble behind. Can't harvest or build.
-## Fights: trades one-for-one with enemy infantry and kills enemy workers
-## on its tile (see Combat).
+## Military unit. Can guard a tile, escort another unit from its hub,
+## capture other colonies' extractors and conveyors, and demolish man-made
+## structures (foundations, bridges, extractors, conveyors), leaving rubble
+## behind. Can't harvest or build. Fights: trades one-for-one with any enemy
+## unit on its tile, dying before the Workers beside it (see Combat).
 
 
 func _init() -> void:
@@ -16,5 +16,5 @@ func _init() -> void:
 	max_movement = 3
 	max_health = 15
 	body_color = Color(0.9, 0.35, 0.3)
-	allowed_missions = ["move", "guard", "capture", "demolish"]
+	allowed_missions = ["move", "guard", "escort", "capture", "demolish"]
 	can_fight = true

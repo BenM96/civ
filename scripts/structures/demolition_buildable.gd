@@ -2,7 +2,7 @@ class_name DemolitionBuildable
 extends Buildable
 ## Not something you build, but it works exactly like a build job: travel
 ## to a tile, work a turn, change the tile. Clears every man-made thing on
-## the tile (roads, extractors, conveyors) and leaves Rubble - except a
+## the tile (foundations, extractors, conveyors) and leaves Rubble - except a
 ## bridge, which collapses back into the Chasm. Bridges are demolished from
 ## the bank so the unit isn't standing on it when it falls.
 ## Used by DemolishMission; Infantry do this, not Workers.
@@ -18,7 +18,7 @@ func _init() -> void:
 ## Whether anything on `tile` was made by people.
 static func is_man_made(tile: HexTile) -> bool:
 	return tile.structure != Structure.Type.NONE \
-		or tile.terrain == Terrain.Type.ROAD or tile.terrain == Terrain.Type.BRIDGE
+		or tile.terrain == Terrain.Type.FOUNDATION or tile.terrain == Terrain.Type.BRIDGE
 
 
 ## A short description of what demolishing `tile` would destroy.
@@ -26,7 +26,7 @@ static func describe(tile: HexTile) -> String:
 	var parts: PackedStringArray = []
 	if tile.structure != Structure.Type.NONE:
 		parts.append(Structure.get_display_name(tile.structure))
-	if tile.terrain == Terrain.Type.ROAD or tile.terrain == Terrain.Type.BRIDGE:
+	if tile.terrain == Terrain.Type.FOUNDATION or tile.terrain == Terrain.Type.BRIDGE:
 		parts.append(Terrain.get_display_name(tile.terrain))
 	return " and ".join(parts)
 

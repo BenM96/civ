@@ -29,18 +29,20 @@ come home on their own.
 | Biomass | Feeding your units |
 | Gold | Training units; winning |
 | Titanium | Training units, conveyor belts, extractors, bridges |
-| Sediment | Roads, extractors, bridges |
+| Sediment | Foundations, extractors, bridges |
 
-Every hub has at least one deposit of each resource within 5 tiles.
+Every hub has at least one deposit of each resource within 4 tiles (but none
+right next to it).
 
 ### Units
 
 Unit costs start at 1 Gold + 1 Titanium and double for each one of that type
-you already have.
+you have ever built. Losing units doesn't make the next one cheaper.
 
-- **Worker:** moves, harvests resources by hand and builds structures.
-- **Infantry:** moves, guards, captures and demolishes. Fights enemy infantry
-  1-for-1 and kills enemy workers on its tile.
+- **Worker:** harvests resources by hand and builds structures.
+- **Infantry:** moves, guards, captures and demolishes. Fights every enemy
+  unit on its tile 1-for-1, Infantry or Worker, and each side loses its
+  Infantry before its Workers. Workers never fight each other.
 
 ### Missions
 
@@ -49,23 +51,36 @@ press **Select Target** and click a tile.
 
 | Mission | Who | What it does |
 |---|---|---|
-| Move | Everyone | Walk to a tile, then come home |
+| Move | Infantry | Walk to a tile, then come home |
 | Harvest | Worker | Bring back 1 resource from a deposit |
-| Build | Worker | Road, bridge, conveyor belt or extractor |
+| Build | Worker | Foundation, bridge, conveyor belt or extractor |
 | Guard | Infantry | Hold a tile for 20 turns |
+| Escort | Infantry | Follow a unit from the hub wherever it goes, fighting beside it, and come home with it |
 | Capture | Infantry | Take over an enemy extractor or conveyor belt |
-| Demolish | Infantry | Tear down roads, bridges, belts or extractors |
+| Demolish | Infantry | Tear down foundations, bridges, belts or extractors |
 
 ### Building an economy
 
-Harvesting by hand brings back 1 resource per trip. For a steady income, build
-an **extractor** on a deposit and connect it to your hub with **conveyor
-belts**; it then delivers 1 of that resource every turn.
+Harvesting by hand brings back 1 resource per trip. For a steady income:
+
+1. Lay **foundations** from your hub out to a deposit, and on the deposit.
+2. Build **conveyor belts** on the foundations, including on the deposit.
+3. Build an **extractor** on top of the belt on the deposit. A Biomass
+   extractor delivers 1 per turn; Titanium, Sediment and Gold extractors
+   deliver 0.2 per turn (1 every 5 turns).
+
+Each resource's numbers (deposit sizes, where it appears, what a Worker
+harvests per trip, what an extractor delivers) and its map icon live in its
+own file in `scripts/resources/`.
+
+Belts can only go on foundations (or bridges), and extractors only on belts.
+Ordering a Build Extractor does all three steps for you.
 
 ### Movement
 
-Units have 3 movement points. Open ground costs 3 (one tile a turn); roads and
-bridges cost 1, so roads triple your speed. Bridges span chasms.
+Units have 3 movement points. Open ground costs 3 (one tile a turn);
+foundations and bridges cost 1, so foundations triple your speed. Bridges span
+chasms.
 
 ## Controls
 

@@ -1,10 +1,10 @@
 class_name HarvestMission
 extends Mission
 ## Travel to a resource deposit, spend a full turn extracting from it, then
-## carry the haul back to the hub (the unit's normal return trip).
+## carry the haul back to the hub (the unit's normal return trip). How much
+## one trip brings back is the resource's harvest_amount (see
+## scripts/resources/).
 
-## How much one trip extracts.
-const HARVEST_AMOUNT := 1
 ## Turns spent extracting once on the deposit.
 const EXTRACT_TURNS := 1
 
@@ -98,7 +98,7 @@ func work() -> void:
 	_turns_extracting += 1
 	if _turns_extracting >= EXTRACT_TURNS:
 		var deposit := _deposit()
-		_harvested = deposit.extract(HARVEST_AMOUNT)
+		_harvested = deposit.extract(ResourceDeposit.get_info(deposit.type).harvest_amount)
 		unit.add_cargo(deposit.type, _harvested)
 		unit.map.queue_redraw()  # Deposit may now be depleted.
 		complete()

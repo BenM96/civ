@@ -30,15 +30,16 @@ const RADIUS := 13.0
 ## Resources paid to train the first of this unit: ResourceDeposit.Type -> int.
 ## Each extra one costs double the last (see cost_doubling_after).
 var cost: Dictionary = {}
-## How many of this unit a colony can have before its training cost starts
-## doubling. E.g. 1: with 1 the next costs `cost`, with 2 it costs double,
-## with 3 four times... Units still in training count.
+## How many of this unit a colony can have built before its training cost
+## starts doubling. E.g. 1: after 1 the next costs `cost`, after 2 double,
+## after 3 four times... Every one ever had counts (starting units, ones in
+## training, and ones since lost), so losing units doesn't lower the price.
 @export var cost_doubling_after := 0
 ## Turns a hub spends training this unit.
 @export var train_turns := 1
 ## Biomass this unit eats every turn, wherever it is.
 @export var upkeep := 1
-## Movement points per turn (open ground costs 3, roads and bridges 1).
+## Movement points per turn (open ground costs 3, foundations and bridges 1).
 @export var max_movement := 3
 @export var max_health := 10
 @export var body_color := Color.WHITE
@@ -67,6 +68,9 @@ var health := 0
 ## Told to stay home: the unit doesn't count as needing orders. Cleared when
 ## it is given a mission (or woken).
 var waiting := false
+## The kind of the last mission this unit was given (e.g. "harvest",
+## "build:foundation"), so the HUD can offer it again. "" if it's never had one.
+var last_mission_kind := ""
 ## Resources being carried home: ResourceDeposit.Type -> int.
 ## The hub unloads this when the unit returns.
 var cargo: Dictionary = {}
@@ -102,7 +106,7 @@ func get_short_label() -> String:
 	return unit_name.left(1)
 
 
-## Whether this unit may take a mission of `kind`. "build:road" counts as
+## Whether this unit may take a mission of `kind`. "build:foundation" counts as
 ## "build", so a unit that can build can build any structure.
 func can_take(kind: String) -> bool:
 	return kind.get_slice(":", 0) in allowed_missions
@@ -146,6 +150,7 @@ func to_dict() -> Dictionary:
 		"hex": SaveGame.hex_to_data(hex),
 		"state": State.keys()[state],
 		"waiting": waiting,
+		"last_mission_kind": last_mission_kind,
 		"health": health,
 		"cargo": SaveGame.resources_to_data(cargo),
 		"path": path,
@@ -158,6 +163,7 @@ func load_dict(data: Dictionary) -> void:
 	hex = SaveGame.hex_from_data(data["hex"])
 	state = State[data["state"]]
 	waiting = data["waiting"]
+	last_mission_kind = data.get("last_mission_kind", "")  # Older saves lack it.
 	health = int(data["health"])
 	cargo = SaveGame.resources_from_data(data["cargo"])
 	_path.clear()
@@ -193,7 +199,7 @@ func take_cargo() -> Dictionary:
 func get_cargo_text() -> String:
 	var parts: PackedStringArray = []
 	for type in cargo:
-		parts.append("%d %s" % [cargo[type], ResourceDeposit.DATA[type]["name"]])
+		parts.append("%d %s" % [cargo[type], ResourceDeposit.get_type_name(type)])
 	return ", ".join(parts)
 
 
@@ -207,6 +213,7 @@ func can_accept_mission(m: Mission) -> bool:
 func assign_mission(m: Mission) -> void:
 	waiting = false
 	mission = m
+	last_mission_kind = m.get_kind()
 	m.unit = self
 	_set_state(State.DEPLOYING)
 
@@ -215,11 +222,21 @@ func assign_mission(m: Mission) -> void:
 ## CentralHub.cancel_mission() (which also refunds the cost) rather than
 ## calling this directly.
 func cancel_mission() -> bool:
-	if state != State.DEPLOYING:
+	if not can_cancel_mission():
 		return false
 	mission = null
+	_path.clear()
 	_set_state(State.IN_HUB)
 	return true
+
+
+## Whether this unit's mission can be called off right now: before it has
+## left, or while it's back at its hub and the mission allows it (e.g. a
+## worker waiting there for resources).
+func can_cancel_mission() -> bool:
+	if state == State.DEPLOYING:
+		return true
+	return state == State.ON_MISSION and hex == hub.hex and mission.can_cancel_at_hub()
 
 
 # --- Turn steps (run by TurnManager, in this order) ------------------------
@@ -309,7 +326,7 @@ func get_remaining_path() -> Array[Vector2i]:
 
 ## The movement tick on which this unit's next step would land, or -1 if it
 ## isn't moving any further this turn. Movement points double as time: a
-## road step (cost 1) lands one tick after the last, open ground (cost 3)
+## foundation step (cost 1) lands one tick after the last, open ground (cost 3)
 ## three ticks after. A unit counts as on its old tile until it lands.
 ##
 ## A unit may only enter a tile it has enough movement left for - except
@@ -437,9 +454,10 @@ func play_movement() -> void:
 	_anim_steps.clear()
 
 
-## Units are only drawn while out in the world.
+## Units are only drawn while out in the world (not on their own hub, e.g.
+## a worker waiting there for resources).
 func _refresh_visibility() -> void:
-	visible = state == State.ON_MISSION or state == State.RETURNING
+	visible = (state == State.ON_MISSION or state == State.RETURNING) and not (hub and hex == hub.hex)
 	if not visible and map:
 		global_position = map.hex_to_world(hex)
 

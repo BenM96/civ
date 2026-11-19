@@ -4,7 +4,7 @@ extends Node2D
 ## pathfinding / coordinate questions for the rest of the game.
 
 signal map_generated
-## A tile's terrain changed after generation (e.g. a road was built).
+## A tile's terrain changed after generation (e.g. a foundation was laid).
 signal tile_changed(h: Vector2i)
 
 @export var width := 40
@@ -13,7 +13,7 @@ signal tile_changed(h: Vector2i)
 ## 0 = pick a random seed each time.
 @export var map_seed := 0
 ## Multiplies every resource's spawn chance (per-resource chances live in
-## ResourceDeposit.DATA).
+## each resource's own file in scripts/resources/).
 @export_range(0.0, 5.0) var deposit_density := 1.0
 
 ## Vector2i (axial) -> HexTile
@@ -22,7 +22,7 @@ var tiles: Dictionary = {}
 var _astar := AStar2D.new()
 var _point_ids: Dictionary = {}  # Vector2i -> int
 var _id_to_hex: Array[Vector2i] = []
-var _road_anchors: Array[Vector2i] = []
+var _foundation_anchors: Array[Vector2i] = []
 ## Faction -> CentralHub, for drawing ownership and supply networks.
 var hubs: Dictionary = {}
 ## The seed the current map was generated from (pass it back to generate()
@@ -42,7 +42,7 @@ func take_unit_id() -> int:
 ## random seed.
 func generate(seed_override := 0) -> void:
 	tiles.clear()
-	_road_anchors.clear()
+	_foundation_anchors.clear()
 	var seed_value := seed_override if seed_override != 0 else (map_seed if map_seed != 0 else randi())
 	if seed_value == 0:
 		seed_value = 1  # 0 means "random", so it could never be regenerated.
@@ -108,7 +108,7 @@ func load_dict(data: Dictionary) -> void:
 	for entry: Array in data["tiles"]:
 		var h := Vector2i(int(entry[0]), int(entry[1]))
 		var tile: HexTile = tiles[h]
-		tile.terrain = Terrain.Type[entry[2]]
+		tile.terrain = Terrain.from_save_name(entry[2])
 		tile.structure = Structure.Type[entry[3]]
 		tile.structure_owner = int(entry[4])
 		tile.deposit = null
@@ -133,17 +133,18 @@ func _pick_terrain(e: float, d: float) -> Terrain.Type:
 
 
 ## Randomly places resource deposits. Each resource only appears on its
-## preferred terrain (see ResourceDeposit.DATA); at most one per tile.
+## preferred terrain (see scripts/resources/); at most one per tile.
 func _scatter_deposits(rng: RandomNumberGenerator) -> void:
+	var infos := ResourceDeposit.all_infos()
 	for h in tiles:
 		var tile: HexTile = tiles[h]
 		if not tile.is_passable():
 			continue
-		for type in ResourceDeposit.DATA:
-			if not ResourceDeposit.can_spawn_on(type, tile.terrain):
+		for info in infos:
+			if not info.can_spawn_on(tile.terrain):
 				continue
-			if rng.randf() < ResourceDeposit.DATA[type]["spawn_chance"] * deposit_density:
-				tile.deposit = ResourceDeposit.create_random(type, h, rng)
+			if rng.randf() < info.spawn_chance * deposit_density:
+				tile.deposit = ResourceDeposit.create_random(info.type, h, rng)
 				break
 
 
@@ -181,6 +182,16 @@ func guarantee_deposits_near(hub_spots: Array[Vector2i], radius: int) -> void:
 	queue_redraw()
 
 
+## Removes every deposit on, or right next to, each hub spot, so no colony
+## starts with resources on its doorstep. Do this before
+## guarantee_deposits_near(), which then refills anything missing further out.
+func clear_deposits_around(hub_spots: Array[Vector2i]) -> void:
+	for spot in hub_spots:
+		remove_deposit(spot)
+		for n in Hex.neighbors(spot):
+			remove_deposit(n)
+
+
 func _has_deposit_near(center: Vector2i, type: ResourceDeposit.Type, radius: int) -> bool:
 	for h in tiles:
 		var tile: HexTile = tiles[h]
@@ -196,7 +207,7 @@ func remove_deposit(h: Vector2i) -> void:
 		queue_redraw()
 
 
-## Changes a tile's terrain at runtime (e.g. a road being built) and updates
+## Changes a tile's terrain at runtime (e.g. a foundation being laid) and updates
 ## pathfinding to match.
 func set_terrain(h: Vector2i, terrain: Terrain.Type) -> void:
 	var tile := get_tile(h)
@@ -228,7 +239,7 @@ func set_structure(h: Vector2i, type: Structure.Type, owner_faction := Faction.N
 ## Lets the map draw each faction's hub links and supply network.
 func register_hub(hub: CentralHub) -> void:
 	hubs[hub.faction] = hub
-	add_road_anchor(hub.hex)
+	add_foundation_anchor(hub.hex)
 
 
 func get_hub_at(h: Vector2i) -> CentralHub:
@@ -257,19 +268,19 @@ func get_units_at(h: Vector2i) -> Array[Unit]:
 	return result
 
 
-## Tiles that roads visually connect to even though they aren't roads
+## Tiles that foundations visually connect to even though they aren't foundations
 ## themselves (e.g. the hub).
-func add_road_anchor(h: Vector2i) -> void:
-	if h not in _road_anchors:
-		_road_anchors.append(h)
+func add_foundation_anchor(h: Vector2i) -> void:
+	if h not in _foundation_anchors:
+		_foundation_anchors.append(h)
 		queue_redraw()
 
 
-func _connects_road(h: Vector2i) -> bool:
+func _connects_foundation(h: Vector2i) -> bool:
 	var tile := get_tile(h)
-	if h in _road_anchors:
+	if h in _foundation_anchors:
 		return true
-	return tile != null and (tile.terrain == Terrain.Type.ROAD or tile.terrain == Terrain.Type.BRIDGE)
+	return tile != null and (tile.terrain == Terrain.Type.FOUNDATION or tile.terrain == Terrain.Type.BRIDGE)
 
 
 # --- Queries ---------------------------------------------------------------
@@ -388,8 +399,8 @@ func _draw() -> void:
 	for h in tiles:
 		if tiles[h].terrain == Terrain.Type.BRIDGE:
 			_draw_bridge(h)
-		elif tiles[h].terrain == Terrain.Type.ROAD:
-			_draw_road(h)
+		elif tiles[h].terrain == Terrain.Type.FOUNDATION:
+			_draw_foundation(h)
 	for h in tiles:
 		var tile: HexTile = tiles[h]
 		if tile.has_deposit():
@@ -607,7 +618,7 @@ func _draw_bridge(h: Vector2i) -> void:
 
 
 ## Paved strips from the tile centre towards every connected neighbour.
-func _draw_road(h: Vector2i) -> void:
+func _draw_foundation(h: Vector2i) -> void:
 	var s := hex_size
 	var c := Hex.to_pixel(h, s)
 	var edge := Color(0.3, 0.24, 0.22)
@@ -615,7 +626,7 @@ func _draw_road(h: Vector2i) -> void:
 	var stripe := Color(0.95, 0.85, 0.5, 0.8)
 	var ends: Array[Vector2] = []
 	for n in Hex.neighbors(h):
-		if _connects_road(n):
+		if _connects_foundation(n):
 			ends.append(c + (Hex.to_pixel(n, s) - c) * 0.5)
 	draw_circle(c, 0.17 * s, edge)
 	for e in ends:
@@ -635,48 +646,5 @@ func _draw_deposit(deposit: ResourceDeposit, c: Vector2) -> void:
 	draw_circle(c, 0.44 * s, Color(0.15, 0.06, 0.03, 0.55))
 	draw_circle(c, 0.44 * s, Color(color, 0.12))
 	draw_arc(c, 0.44 * s, 0, TAU, 24, Color(color, 0.9), 2.0, true)
-	match deposit.type:
-		ResourceDeposit.Type.BIOMASS:
-			# A cluster of glowing green growths.
-			for blob: Vector3 in [Vector3(-0.15, 0.08, 0.14), Vector3(0.14, 0.1, 0.12), Vector3(0.0, -0.13, 0.15)]:
-				var p := c + Vector2(blob.x, blob.y) * s
-				draw_circle(p, blob.z * s, color.darkened(0.35))
-				draw_circle(p + Vector2(-0.03, -0.03) * s, blob.z * s * 0.6, color)
-		ResourceDeposit.Type.TITANIUM:
-			# Metallic crystal shards.
-			for shard: Vector3 in [Vector3(-0.14, 0.12, 0.8), Vector3(0.13, 0.14, 0.7), Vector3(0.0, 0.08, 1.0)]:
-				var base := c + Vector2(shard.x, shard.y) * s
-				var hgt := 0.32 * shard.z * s
-				var w := 0.08 * s
-				var crystal := PackedVector2Array([
-					base + Vector2(-w, 0), base + Vector2(-w, -hgt * 0.7),
-					base + Vector2(0, -hgt), base + Vector2(w, -hgt * 0.7), base + Vector2(w, 0),
-				])
-				draw_colored_polygon(crystal, color.darkened(0.25))
-				draw_colored_polygon(PackedVector2Array([
-					base + Vector2(-w, 0), base + Vector2(-w, -hgt * 0.7), base + Vector2(0, -hgt), base,
-				]), color.lightened(0.3))
-		ResourceDeposit.Type.GOLD:
-			# Glinting nuggets with a sparkle.
-			for nugget: Vector3 in [Vector3(-0.13, 0.1, 0.11), Vector3(0.12, 0.08, 0.09), Vector3(0.0, -0.08, 0.13)]:
-				var p := c + Vector2(nugget.x, nugget.y) * s
-				var r := nugget.z * s
-				draw_colored_polygon(PackedVector2Array([
-					p + Vector2(-r, 0.2 * r), p + Vector2(-0.5 * r, -0.8 * r), p + Vector2(0.6 * r, -0.7 * r),
-					p + Vector2(r, 0.1 * r), p + Vector2(0.4 * r, 0.8 * r), p + Vector2(-0.6 * r, 0.7 * r),
-				]), color.darkened(0.3))
-				draw_circle(p + Vector2(-0.2, -0.25) * r, 0.45 * r, color)
-			var spark := c + Vector2(0.17, -0.2) * s
-			var k := 0.09 * s
-			draw_line(spark + Vector2(-k, 0), spark + Vector2(k, 0), Color.WHITE, 1.5, true)
-			draw_line(spark + Vector2(0, -k), spark + Vector2(0, k), Color.WHITE, 1.5, true)
-		ResourceDeposit.Type.SEDIMENT:
-			# Layered strata in a low mound.
-			var layers: Array[Color] = [color.darkened(0.3), color.darkened(0.1), color]
-			for i in layers.size():
-				var y := (0.18 - i * 0.1) * s
-				var half := (0.3 - i * 0.07) * s
-				draw_colored_polygon(PackedVector2Array([
-					c + Vector2(-half, y), c + Vector2(-half * 0.8, y - 0.1 * s),
-					c + Vector2(half * 0.8, y - 0.1 * s), c + Vector2(half, y),
-				]), layers[i])
+	# The icon itself is drawn by the resource's own file (scripts/resources/).
+	ResourceDeposit.get_info(deposit.type).draw_icon(self, c, s)

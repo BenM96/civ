@@ -1,7 +1,7 @@
 class_name Structure
 extends RefCounted
 ## Kinds of structure that can stand on a tile (on top of its terrain).
-## Roads and bridges are terrain, not structures.
+## Foundations and bridges are terrain, not structures.
 ##
 ## This file is only the list of kinds a tile can hold. Everything about each
 ## one (name, cost, behaviour) lives in its own *_buildable.gd file; the

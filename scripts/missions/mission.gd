@@ -109,6 +109,20 @@ func work() -> void:
 	complete()
 
 
+## Whether the unit sets out (begin() / prepare()) after the rest of its
+## colony's units each turn - for missions that follow another unit's plans
+## (e.g. Escort).
+func sets_out_last() -> bool:
+	return false
+
+
+## Whether the player may call this mission off while the unit is back at
+## its hub partway through (e.g. waiting there for resources). Before the
+## unit leaves, any mission can be cancelled.
+func can_cancel_at_hub() -> bool:
+	return false
+
+
 ## Event log message when the mission succeeds, in the past tense, shown
 ## after the unit's name (see Wording above).
 func get_completion_text() -> String:
@@ -116,7 +130,7 @@ func get_completion_text() -> String:
 
 
 ## The order kind that creates this mission (see Orders.make_mission), e.g.
-## "move" or "build:road".
+## "move" or "build:foundation".
 func get_kind() -> String:
 	return ""
 

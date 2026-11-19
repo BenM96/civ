@@ -18,7 +18,7 @@ static var pending_load: Dictionary = {}
 @export var starting_workers := 1
 ## Every hub gets at least one deposit of every resource within this many
 ## tiles (added at map creation if the map didn't already have one there).
-@export var starting_deposit_radius := 5
+@export var starting_deposit_radius := 4
 ## Skip straight past turns where every unit is already busy when the turn
 ## starts (nobody needs orders). Turns where the player acts are never skipped.
 @export var auto_skip_turns := true
@@ -169,9 +169,10 @@ var _hub_spots: Array[Vector2i] = []
 
 
 ## A fresh game: a new map with a hub for every colony, each with every kind
-## of resource nearby.
+## of resource nearby but none right next to it.
 func _new_world() -> void:
 	_generate_world()
+	map.clear_deposits_around(_hub_spots)
 	map.guarantee_deposits_near(_hub_spots, starting_deposit_radius)
 	for faction in _hub_spots.size():
 		colonies.append(_create_hub(faction, _hub_spots[faction]))
@@ -419,6 +420,12 @@ func _on_left_click() -> void:
 # --- Targeting -------------------------------------------------------------
 
 func _begin_targeting(unit: Unit, kind: String) -> void:
+	if kind.begins_with("escort:"):
+		# Nothing to pick on the map: order it straight away.
+		_cancel_targeting()
+		var reason := _submit(Orders.mission(unit, kind, hub.hex))
+		hud.set_hint("" if reason == "" else "%s: %s" % [unit.display_name, reason])
+		return
 	_targeting_unit = unit
 	_targeting_kind = kind
 	var what := "a destination"
@@ -431,7 +438,13 @@ func _begin_targeting(unit: Unit, kind: String) -> void:
 	elif kind == "capture":
 		what = "another colony's structure to capture"
 	elif kind.begins_with("build:"):
-		what = "where to build a %s" % hub.get_buildable(kind.trim_prefix("build:")).display_name
+		var b := hub.get_buildable(kind.trim_prefix("build:"))
+		if b.line_of == b.id:
+			what = "where to build %ss to (every tile from the hub gets one)" % b.display_name
+		elif b.line_of != "":
+			what = "a deposit for the %s (it gets connected to the hub)" % b.display_name
+		else:
+			what = "where to build a %s" % b.display_name
 	hud.set_hint("Choose %s for %s (right-click/Esc to cancel)" % [what, unit.display_name])
 	_update_hover_info()
 
@@ -472,16 +485,33 @@ func _update_hover_info() -> void:
 		var preview: Array[Vector2i] = []
 		var label := ""
 		if valid:
-			var path := map.find_path(hub.hex, mission.get_travel_hex())
+			var line := mission as LineBuildMission
+			var path: Array[Vector2i] = line.plan_route(hub, map, hub.hex, _hover_hex) if line \
+				else map.find_path(hub.hex, mission.get_travel_hex())
 			preview.append(hub.hex)
 			preview.append_array(path)
-			var trip_turns := unit.estimate_turns(path)
-			label = "%d turn%s" % [trip_turns, "" if trip_turns == 1 else "s"]
-			var work := mission.get_work_turns()
-			if work > 0:
-				label += " + %d working" % work
-			info += "\nRoute: %d tiles, ~%s (then returns home)" % [path.size(), label]
-			if not mission.get_cost().is_empty():
+			if line:
+				# Line jobs: everything to build and what it all costs.
+				var total := line.get_total_cost(hub, map, hub.hex)
+				label = ResourceDeposit.format_cost(total)
+				info += "\nRoute: %d tiles. To build:" % path.size()
+				for job in line.get_job_counts(hub, map, hub.hex):
+					var b: Buildable = job[0]
+					var n: int = job[1]
+					var each := {}
+					for type in b.cost:
+						each[type] = b.cost[type] * n
+					info += "\n  %d %s%s - %s" % [n, b.display_name, "" if n == 1 else "s",
+						ResourceDeposit.format_cost(each)]
+				info += "\nTotal %s, paid job by job" % label
+			else:
+				var trip_turns := unit.estimate_turns(path)
+				label = "%d turn%s" % [trip_turns, "" if trip_turns == 1 else "s"]
+				var work := mission.get_work_turns()
+				if work > 0:
+					label += " + %d working" % work
+				info += "\nRoute: %d tiles, ~%s (then returns home)" % [path.size(), label]
+			if not line and not mission.get_cost().is_empty():
 				info += "\nCost: %s" % ResourceDeposit.format_cost(mission.get_cost())
 		else:
 			preview.append(_hover_hex)
@@ -502,8 +532,8 @@ func _structure_info(tile: HexTile) -> String:
 		if not tile.has_deposit():
 			return text + " - deposit exhausted"
 		if connected:
-			return text + " - connected, +%d %s per turn" % [
-				ExtractorBuildable.OUTPUT_PER_TURN, tile.deposit.get_display_name()]
+			return text + " - connected, %s %s per turn" % [
+				ResourceDeposit.format_change(ExtractorBuildable.output_for(tile.deposit.type)), tile.deposit.get_display_name()]
 		return text + " - NOT connected (needs conveyor belts to the hub)"
 	return text + (" - connected to the hub" if connected else " - not connected to the hub")
 

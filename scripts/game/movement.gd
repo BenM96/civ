@@ -4,7 +4,7 @@ extends RefCounted
 ##
 ## Movement is split into ticks, one per movement point (3 for every unit at
 ## the moment). A step lands on the tick given by Unit.get_next_step_tick():
-## road steps land one tick apart, an open-ground step lands on tick 3. All
+## foundation steps land one tick apart, an open-ground step lands on tick 3. All
 ## units whose step lands on the same tick move together, and a unit counts
 ## as standing on its old tile until its step lands.
 ##

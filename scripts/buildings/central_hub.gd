@@ -53,9 +53,12 @@ var buildables: Array[Buildable] = []
 var _network: Dictionary = {}
 ## Extractor hexes that were producing last time the network was checked.
 var _producing: Dictionary = {}
-## unit_name -> how many of that type this hub has ever had, so names like
-## "Infantry 3" are never reused after a unit dies.
-var _units_named: Dictionary = {}
+## Extractor hex -> hundredths of a unit mined towards its next delivery.
+var _extractor_progress: Dictionary = {}
+## unit_name -> how many of that type this colony has ever had (starting and
+## trained; never goes down when one dies). Gives units names that are never
+## reused ("Infantry 3") and sets training prices (get_training_cost()).
+var _units_ever_had: Dictionary = {}
 
 
 func _init() -> void:
@@ -65,7 +68,7 @@ func _init() -> void:
 	# set in each unit's own script (scripts/units/).
 	for unit_script in [Worker, Infantry]:
 		blueprints.append(UnitBlueprint.new(unit_script))
-	buildables.append(RoadBuildable.new())
+	buildables.append(FoundationBuildable.new())
 	buildables.append(BridgeBuildable.new())
 	buildables.append(ExtractorBuildable.new())
 	buildables.append(ConveyorBuildable.new())
@@ -101,8 +104,8 @@ func add_unit(unit: Unit) -> void:
 	if unit.id == 0:
 		unit.id = map.take_unit_id()
 	if unit.display_name == "":
-		_units_named[unit.unit_name] = _units_named.get(unit.unit_name, 0) + 1
-		unit.display_name = "%s %d" % [unit.unit_name, _units_named[unit.unit_name]]
+		_units_ever_had[unit.unit_name] = _units_ever_had.get(unit.unit_name, 0) + 1
+		unit.display_name = "%s %d" % [unit.unit_name, _units_ever_had[unit.unit_name]]
 	units.append(unit)
 	unit.setup(self, map)
 	unit.state_changed.connect(_on_unit_state_changed)
@@ -197,6 +200,15 @@ func get_resource(type: ResourceDeposit.Type) -> int:
 	return inventory.get(type, 0)
 
 
+## Takes `cost` from the stockpile if the colony can afford it. Returns
+## whether it did.
+func pay(cost: Dictionary) -> bool:
+	if not can_afford(cost):
+		return false
+	_change_resources(cost, -1)
+	return true
+
+
 func can_afford(cost: Dictionary) -> bool:
 	for type in cost:
 		if get_resource(type) < cost[type]:
@@ -215,17 +227,15 @@ func _change_resources(cost: Dictionary, direction: int) -> void:
 # --- Training --------------------------------------------------------------
 
 ## What training one more of `blueprint` costs right now. The price doubles
-## with each one the colony already has, counting ones still in training
+## with each one the colony has ever had - starting units, ones trained and
+## ones still in training - so losing units doesn't make the next cheaper
 ## (see UnitBlueprint.cost_for()).
 func get_training_cost(blueprint: UnitBlueprint) -> Dictionary:
-	var owned := 0
-	for u in units:
-		if u.unit_name == blueprint.unit_name:
-			owned += 1
+	var built: int = _units_ever_had.get(blueprint.unit_name, 0)
 	for order in training_queue:
 		if order.blueprint == blueprint:
-			owned += 1
-	return blueprint.cost_for(owned)
+			built += 1
+	return blueprint.cost_for(built)
 
 
 ## Pays for and queues a new unit. Returns false if we can't afford it.
@@ -303,8 +313,8 @@ func update_network() -> void:
 		if not _producing.has(h):
 			var deposit := map.get_tile(h).deposit
 			extractor_connected.emit(h, deposit.type)
-			unit_event.emit("Extractor at (%d, %d) is connected: +1 %s per turn"
-				% [h.x, h.y, deposit.get_display_name()])
+			unit_event.emit("Extractor at (%d, %d) is connected: %s %s per turn"
+				% [h.x, h.y, ResourceDeposit.format_change(ExtractorBuildable.output_for(deposit.type)), deposit.get_display_name()])
 	for h in _producing:
 		if not producing.has(h) and map.get_tile(h).has_deposit():
 			unit_event.emit("Extractor at (%d, %d) lost its connection to the hub" % [h.x, h.y])
@@ -340,28 +350,41 @@ func get_upkeep() -> int:
 	return total
 
 
-## Overall change per turn: extractors + hub production - unit upkeep.
-## Type -> int (values may be negative).
+## Overall change per turn, on average: extractors + hub production - unit
+## upkeep. Type -> float (may be fractional or negative).
 func get_net_income() -> Dictionary:
 	var net := get_income()
 	var biomass := ResourceDeposit.Type.BIOMASS
-	net[biomass] = net.get(biomass, 0) + HUB_BIOMASS_OUTPUT - get_upkeep()
+	net[biomass] = net.get(biomass, 0.0) + HUB_BIOMASS_OUTPUT - get_upkeep()
 	return net
 
 
-## Resources delivered per turn by the supply network: Type -> int.
+## Resources delivered per turn by the supply network, on average:
+## Type -> float.
 func get_income() -> Dictionary:
 	var income := {}
 	for h in get_producing_extractors():
 		var type := map.get_tile(h).deposit.type
-		income[type] = income.get(type, 0) + ExtractorBuildable.OUTPUT_PER_TURN
+		income[type] = income.get(type, 0.0) + ExtractorBuildable.output_for(type)
 	return income
 
 
+## Each producing extractor adds its output to its progress (in hundredths);
+## every full 100 delivers 1 unit from its deposit.
 func _process_extractors() -> void:
+	# Forget progress on tiles that are no longer our extractors.
+	for h in _extractor_progress.keys():
+		var tile := map.get_tile(h)
+		if tile.structure != Structure.Type.EXTRACTOR or tile.structure_owner != faction:
+			_extractor_progress.erase(h)
 	for h in get_producing_extractors():
 		var deposit := map.get_tile(h).deposit
-		add_resource(deposit.type, deposit.extract(ExtractorBuildable.OUTPUT_PER_TURN))
+		var rate := ResourceDeposit.get_info(deposit.type).extractor_output_hundredths()
+		var progress: int = _extractor_progress.get(h, 0) + rate
+		var whole := progress / 100
+		_extractor_progress[h] = progress % 100
+		if whole > 0:
+			add_resource(deposit.type, deposit.extract(whole))
 		if deposit.is_depleted():
 			unit_event.emit("Extractor at (%d, %d) has exhausted its %s deposit"
 				% [h.x, h.y, deposit.get_display_name()])
@@ -371,9 +394,17 @@ func _process_extractors() -> void:
 
 ## "Set out" step: deployed units leave, units out in the world get ready.
 func start_units_turn() -> void:
+	# Units following others (escorts) go last, so they see this turn's plans.
+	var last: Array[Unit] = []
 	for unit in units.duplicate():
-		if unit.state != Unit.State.IN_HUB:
+		if unit.state == Unit.State.IN_HUB:
+			continue
+		if unit.mission and unit.mission.sets_out_last():
+			last.append(unit)
+		else:
 			unit.start_turn()
+	for unit in last:
+		unit.start_turn()
 
 
 ## "Work" step: units at their work sites build, harvest or demolish.
@@ -414,12 +445,16 @@ func to_dict() -> Dictionary:
 	var unit_data := []
 	for u in units:
 		unit_data.append(u.to_dict())
+	var progress := []
+	for h in _extractor_progress:
+		progress.append([h.x, h.y, _extractor_progress[h]])
 	return {
+		"extractor_progress": progress,
 		"faction": faction,
 		"hex": SaveGame.hex_to_data(hex),
 		"collapsed": collapsed,
 		"inventory": SaveGame.resources_to_data(inventory),
-		"units_named": _units_named.duplicate(),
+		"units_named": _units_ever_had.duplicate(),
 		"training": training,
 		"units": unit_data,
 	}
@@ -428,6 +463,9 @@ func to_dict() -> Dictionary:
 ## Restores what to_dict() saved. The hub must already be placed.
 func load_dict(data: Dictionary) -> void:
 	inventory = SaveGame.resources_from_data(data["inventory"])
+	_extractor_progress = {}
+	for entry in data.get("extractor_progress", []):  # Older saves lack it.
+		_extractor_progress[Vector2i(int(entry[0]), int(entry[1]))] = int(entry[2])
 	for entry in data["training"]:
 		var bp := get_blueprint(entry[0])
 		# Older saves didn't record what was paid; assume the base price.
@@ -442,9 +480,9 @@ func load_dict(data: Dictionary) -> void:
 		add_unit(unit)
 		unit.load_dict(unit_data)
 	# After adding units (which would otherwise count towards the names).
-	_units_named = {}
+	_units_ever_had = {}
 	for unit_name in data["units_named"]:
-		_units_named[unit_name] = int(data["units_named"][unit_name])
+		_units_ever_had[unit_name] = int(data["units_named"][unit_name])
 	if data["collapsed"]:
 		collapse()
 
@@ -471,7 +509,7 @@ func get_info_text() -> String:
 		var income := get_income()
 		if not income.is_empty():
 			text += "\nExtractors deliver %s per turn" % ResourceDeposit.format_cost(income)
-		text += "\nBiomass: %+d per turn" % get_net_income()[ResourceDeposit.Type.BIOMASS]
+		text += "\nBiomass: %s per turn" % ResourceDeposit.format_change(get_net_income()[ResourceDeposit.Type.BIOMASS])
 	return text
 
 

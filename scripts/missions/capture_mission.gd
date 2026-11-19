@@ -3,7 +3,7 @@ extends Mission
 ## Travel to another colony's structure (extractor or conveyor belt), spend
 ## CAPTURE_TURNS turns on it, and it becomes ours. Supply networks update by
 ## themselves: a captured extractor feeds our hub if our belts reach it, and
-## stops feeding theirs. Roads and bridges belong to nobody, and hubs can't
+## stops feeding theirs. Foundations and bridges belong to nobody, and hubs can't
 ## be captured.
 
 ## Turns spent on the structure, once there, to take it over.
