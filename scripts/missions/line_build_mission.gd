@@ -21,11 +21,15 @@ extends Mission
 ## next, exactly as if it had been given one order at a time - a line order
 ## saves the player clicks, not time.
 ##
-## Each job is paid for when the worker starts it. If it can't afford any job
-## on the line, it waits at the hub ("waiting for resources") until it can,
-## then carries on. If a job becomes impossible
-## (e.g. another colony builds in the way) the mission fails and the worker
-## heads home; whatever was built stays.
+## Each job's materials leave the hub when the worker picks it - when the
+## order is given, then at the hub before each trip - and the worker carries
+## them (Unit.materials), so two workers can never count on the same
+## resources. If it can't afford any job on the line, it waits at the hub
+## ("waiting for resources") until it can, then carries on. Materials it
+## doesn't use (someone finished that tile first, the job became impossible)
+## go back in the stockpile when it's next at the hub. If a job becomes
+## impossible (e.g. another colony builds in the way) the mission fails and
+## the worker heads home; whatever was built stays.
 ##
 ## The route avoids tiles where a job couldn't be done (e.g. belts can't go on
 ## another colony's structure) and is the cheapest in materials, so it runs
@@ -143,20 +147,34 @@ func get_work_turns() -> int:
 ## lowest layer first (the order workers pick them in), for planners.
 func get_next_jobs(hub: CentralHub, map: HexMap, from: Vector2i) -> Array[Buildable]:
 	var jobs: Array[Buildable] = []
+	for entry in _next_jobs_by_tile(hub, map, from, {}):
+		jobs.append(entry[1])
+	return jobs
+
+
+## [tile, next job there] for every tile with work left (except tiles in
+## `skip`), lowest layer first.
+func _next_jobs_by_tile(hub: CentralHub, map: HexMap, from: Vector2i, skip: Dictionary) -> Array:
+	var jobs := []
 	for h in plan_route(hub, map, from, target):
+		if skip.has(h):
+			continue
 		var pending := _pending_layers(hub, map, h)
 		if not pending.is_empty():
-			jobs.append(pending[0])
-	jobs.sort_custom(func(a: Buildable, b: Buildable) -> bool: return _depth_in(hub, a) < _depth_in(hub, b))
+			jobs.append([h, pending[0]])
+	jobs.sort_custom(func(a: Array, b: Array) -> bool: return _depth_in(hub, a[1]) < _depth_in(hub, b[1]))
 	return jobs
 
 
 ## How many of those next jobs `budget` (Type -> int) pays for, cheapest
-## layers first - i.e. how many workers could set to work right now. Takes
-## what they'd cost out of `budget`, at most `limit` jobs' worth.
-func take_startable(hub: CentralHub, map: HexMap, from: Vector2i, budget: Dictionary, limit: int) -> int:
+## layers first - i.e. how many more workers could set to work right now.
+## Leaves out tiles in `skip` (e.g. ones builders already took materials
+## for). Takes what they'd cost out of `budget`, at most `limit` jobs' worth.
+func take_startable(hub: CentralHub, map: HexMap, from: Vector2i, budget: Dictionary, limit: int,
+		skip: Dictionary = {}) -> int:
 	var count := 0
-	for job in get_next_jobs(hub, map, from):
+	for entry in _next_jobs_by_tile(hub, map, from, skip):
+		var job: Buildable = entry[1]
 		if count >= limit:
 			break
 		var fits := true
@@ -220,9 +238,25 @@ func get_invalid_reason(u: Unit) -> String:
 	return ""  # Can't afford it yet? The worker waits at the hub until we can.
 
 
+## Ordered: pick the first job and take its materials from the hub straight
+## away, so nothing else can spend them before we set off.
+func on_assigned() -> void:
+	_route = plan_route(unit.hub, unit.map, unit.hex, target)
+	var job := _pick_job(unit.hub.inventory)
+	if not job.is_empty() and unit.hub.give_materials(unit, job[1].cost):
+		_job_tile = job[0]
+
+
 func begin() -> void:
 	_route = plan_route(unit.hub, unit.map, unit.hex, target)
-	_choose_next_job()
+	var job_still_there := _job_tile != null and _route.has(_job_tile) \
+		and not _pending_layers(unit.hub, unit.map, _job_tile).is_empty()
+	if job_still_there:
+		_turns_worked = 0
+		phase = Phase.TRAVELLING
+		_plan_route()  # Off to the job we took materials for.
+	else:
+		_choose_next_job()
 
 
 ## Each turn before moving: a worker back at the hub after a job sets off for
@@ -239,7 +273,7 @@ func prepare() -> void:
 	if not _waiting_for_resources:
 		super()
 		return
-	if not _pick_job().is_empty() or _count_jobs(unit.hub, unit.map, _route) == 0:
+	if not _pick_job(unit.hub.inventory).is_empty() or _count_jobs(unit.hub, unit.map, _route) == 0:
 		_choose_next_job()
 	elif unit.hex != unit.hub.hex and not unit.has_destination():
 		unit.set_destination(unit.hub.hex)
@@ -260,8 +294,10 @@ func work() -> void:
 	if problem != "":
 		fail("(%d, %d): %s" % [h.x, h.y, problem])
 		return
-	if _turns_worked == 0 and not unit.hub.pay(layer.cost):
-		_go_home()  # Can't pay any more; decide what's next back at the hub.
+	if _turns_worked == 0 and not unit.use_materials(layer.cost):
+		# What we brought doesn't fit what this tile needs now (someone built
+		# part of it meanwhile): back to the hub to swap it and choose again.
+		_go_home()
 		return
 	_turns_worked += 1
 	if _turns_worked < layer.build_turns:
@@ -284,17 +320,27 @@ func _go_home() -> void:
 
 
 ## Picks the next job and sets off for it - or waits at the hub if none can
-## be paid for, or finishes if there's nothing left.
+## be paid for, or finishes if there's nothing left. At the hub, unused
+## materials go back in the stockpile and the job's materials are taken out;
+## out in the field, only a job the materials we carry cover will do (else we
+## head home to swap them).
 func _choose_next_job() -> void:
-	if unit.hex == unit.hub.hex:
+	var at_hub := unit.hex == unit.hub.hex
+	if at_hub:
+		unit.hub.take_back_materials(unit)
 		var route := plan_route(unit.hub, unit.map, unit.hex, target)
 		if not route.is_empty():
 			_route = route  # Picks up foundations etc. built since we last planned.
-	var job := _pick_job()
+	var job := _pick_job(unit.hub.inventory if at_hub else unit.materials)
+	if not job.is_empty() and at_hub and not unit.hub.give_materials(unit, job[1].cost):
+		job = []
 	if job.is_empty():
 		_job_tile = null
 		if _has_unclaimed_jobs():
-			_wait_for_resources()
+			if at_hub:
+				_wait_for_resources()
+			else:
+				_go_home()
 		elif _built.is_empty() and not _others_building():
 			fail("nothing left to build")
 		else:
@@ -311,10 +357,11 @@ func _choose_next_job() -> void:
 		_plan_route()  # Sets the unit walking to get_travel_hex(), i.e. _job_tile.
 
 
-## The best job we can pay for now, as [tile, layer], or [] if none: the
-## lowest layer first (foundations before belts before the extractor), then
-## the tile nearest the hub. Skips tiles other workers on this order claimed.
-func _pick_job() -> Array:
+## The best job `budget` (Type -> int) pays for, as [tile, layer], or [] if
+## none: the lowest layer first (foundations before belts before the
+## extractor), then the tile nearest the hub. Skips tiles other workers on
+## this order claimed.
+func _pick_job(budget: Dictionary) -> Array:
 	var best: Array = []
 	var best_depth := 1 << 30
 	for h in _route:
@@ -325,10 +372,17 @@ func _pick_job() -> Array:
 			continue
 		var layer: Buildable = pending[0]
 		var depth := _depth(layer)
-		if depth < best_depth and unit.hub.can_afford(layer.cost):
+		if depth < best_depth and _covers(budget, layer.cost):
 			best = [h, layer]
 			best_depth = depth
 	return best
+
+
+static func _covers(budget: Dictionary, cost: Dictionary) -> bool:
+	for type in cost:
+		if budget.get(type, 0) < cost[type]:
+			return false
+	return true
 
 
 ## Whether any tile on the line still needs a job no other worker has claimed.

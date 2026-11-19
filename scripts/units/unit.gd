@@ -81,6 +81,11 @@ var last_mission_kind := ""
 ## Resources being carried home: ResourceDeposit.Type -> int.
 ## The hub unloads this when the unit returns.
 var cargo: Dictionary = {}
+## Resources taken out of the hub for this unit's job (Type -> int): paid
+## when it's given the job (or picks its next job at the hub), used up as it
+## builds. Anything left - the job was cancelled, failed or done by someone
+## else - goes back into the hub when the unit gets home. Lost if it dies.
+var materials: Dictionary = {}
 ## Ran into enemy fighters this turn: can't move again until next turn.
 var engaged := false
 ## Took at least one step this turn (so it can't also work this turn).
@@ -160,6 +165,7 @@ func to_dict() -> Dictionary:
 		"last_mission_kind": last_mission_kind,
 		"health": health,
 		"cargo": SaveGame.resources_to_data(cargo),
+		"materials": SaveGame.resources_to_data(materials),
 		"path": path,
 		"mission": mission.to_dict() if mission else null,
 	}
@@ -173,6 +179,7 @@ func load_dict(data: Dictionary) -> void:
 	last_mission_kind = data.get("last_mission_kind", "")  # Older saves lack it.
 	health = int(data["health"])
 	cargo = SaveGame.resources_from_data(data["cargo"])
+	materials = SaveGame.resources_from_data(data.get("materials", {}))  # Older saves lack it.
 	_path.clear()
 	for h in data["path"]:
 		_path.append(SaveGame.hex_from_data(h))
@@ -200,6 +207,38 @@ func has_cargo() -> bool:
 func take_cargo() -> Dictionary:
 	var taken := cargo
 	cargo = {}
+	return taken
+
+
+func add_materials(cost: Dictionary) -> void:
+	for type in cost:
+		if cost[type] > 0:
+			materials[type] = materials.get(type, 0) + cost[type]
+
+
+func has_materials(cost: Dictionary) -> bool:
+	for type in cost:
+		if materials.get(type, 0) < cost[type]:
+			return false
+	return true
+
+
+## Uses `cost` from the materials carried. Returns false (using nothing) if
+## they don't cover it.
+func use_materials(cost: Dictionary) -> bool:
+	if not has_materials(cost):
+		return false
+	for type in cost:
+		materials[type] -= cost[type]
+		if materials[type] <= 0:
+			materials.erase(type)
+	return true
+
+
+## Empties the materials carried and returns them.
+func take_materials() -> Dictionary:
+	var taken := materials
+	materials = {}
 	return taken
 
 
@@ -426,9 +465,12 @@ func get_status_text() -> String:
 				return "Departs at end of turn - %s" % mission.get_description()
 		State.ON_MISSION:
 			if mission:
-				return mission.get_progress_text()
+				var carrying := " - carrying %s" % ResourceDeposit.format_cost(materials) if not materials.is_empty() else ""
+				return mission.get_progress_text() + carrying
 		State.RETURNING:
 			var carrying := " with %s" % get_cargo_text() if has_cargo() else ""
+			if not materials.is_empty():
+				carrying += " (bringing back unused %s)" % ResourceDeposit.format_cost(materials)
 			return "Returning to hub%s (%d turn(s) left)" % [carrying, estimate_turns(_path)]
 	return ""
 

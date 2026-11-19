@@ -65,8 +65,9 @@ func get_invalid_reason(_u: Unit) -> String:
 	return ""
 
 
-## Resources the hub pays when assigning this mission (refunded if it is
-## cancelled before departure or fails). ResourceDeposit.Type -> int.
+## Resources the hub pays when assigning this mission. The unit carries
+## them (Unit.materials); whatever isn't used goes back into the hub when it
+## gets home (cancelled, failed...). ResourceDeposit.Type -> int.
 func get_cost() -> Dictionary:
 	return {}
 
@@ -79,6 +80,13 @@ func get_target_hex() -> Variant:
 ## The hex the unit walks to before working. Usually the target itself.
 func get_travel_hex() -> Variant:
 	return get_target_hex()
+
+
+## Called once when the order is given (the unit is still in the hub, and
+## has already been handed get_cost() as Unit.materials). Missions that pay
+## as they go take their first job's materials here.
+func on_assigned() -> void:
+	pass
 
 
 ## Called once, on the turn the unit leaves the hub. Plans the route.

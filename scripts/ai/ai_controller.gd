@@ -168,13 +168,15 @@ func _plan_extractors() -> void:
 		# extractor - each its own order, so we only gather one thing at a time.
 		var stage := _current_stage(plan)
 		var m: LineBuildMission = Orders.make_mission(hub, stage, plan.target)
-		# Builders already out there will each take one of the jobs.
-		var busy := 0
+		# Tiles builders already took materials for aren't up for grabs.
+		var claimed := {}
 		for u in hub.units:
-			if u.mission is LineBuildMission and u.mission.target == m.target and not u.can_cancel_mission():
-				busy += 1
-		var jobs := m.take_startable(hub, map, hub.hex, budget, busy + idle.size())
-		for j in maxi(jobs - busy, 0):
+			if u.mission is LineBuildMission and u.mission.target == m.target:
+				var tile: Variant = u.mission.get_claimed_tile()
+				if tile != null:
+					claimed[tile] = true
+		var jobs := m.take_startable(hub, map, hub.hex, budget, idle.size(), claimed)
+		for j in jobs:
 			if _order(Orders.mission(idle.pop_front(), stage, m.target)):
 				started = maxi(started, i + 1)
 		if i >= started:

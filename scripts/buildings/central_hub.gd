@@ -167,28 +167,49 @@ func get_field_units() -> Array[Unit]:
 	return result
 
 
-## Gives `mission` to a garrisoned unit and pays its cost. The unit departs
-## when the turn ends.
+## Gives `mission` to a garrisoned unit. Its cost leaves the stockpile at
+## once and goes with the unit (Unit.materials), so no other order can spend
+## the same resources. The unit departs when the turn ends.
 func assign_mission(unit: Unit, mission: Mission) -> bool:
 	if unit.hub != self or not unit.can_accept_mission(mission):
 		return false
-	if not can_afford(mission.get_cost()):
+	var cost := mission.get_cost()
+	if not can_afford(cost):
 		return false
-	_change_resources(mission.get_cost(), -1)
+	_change_resources(cost, -1)
 	unit.assign_mission(mission)
+	unit.add_materials(cost)
+	mission.on_assigned()  # Line builds take their first job's materials.
 	unit_event.emit("%s ordered: %s" % [unit.display_name, mission.get_description()])
 	return true
 
 
-## Withdraws an order from a unit that hasn't left yet, refunding its cost.
+## Withdraws an order from a unit that hasn't left yet (or is back at the hub
+## waiting), putting the materials it was given back in the stockpile.
 func cancel_mission(unit: Unit) -> bool:
 	if unit.hub != self:
 		return false
-	var mission := unit.mission
 	if not unit.cancel_mission():
 		return false
-	_change_resources(mission.get_cost(), 1)
+	_change_resources(unit.take_materials(), 1)
 	return true
+
+
+## Hands the hub's resources to `unit` to carry for a job (Unit.materials).
+## Returns false (taking nothing) if the stockpile can't cover `cost`.
+func give_materials(unit: Unit, cost: Dictionary) -> bool:
+	if not pay(cost):
+		return false
+	unit.add_materials(cost)
+	return true
+
+
+## Puts whatever `unit` is carrying for its job back in the stockpile.
+## Returns what came back.
+func take_back_materials(unit: Unit) -> Dictionary:
+	var returned := unit.take_materials()
+	_change_resources(returned, 1)
+	return returned
 
 
 func add_resource(type: ResourceDeposit.Type, amount: int) -> void:
@@ -531,24 +552,29 @@ func _on_unit_mission_completed(unit: Unit, mission: Mission) -> void:
 	unit_event.emit("%s %s" % [unit.display_name, mission.get_completion_text()])
 
 
-func _on_unit_mission_failed(unit: Unit, mission: Mission, reason: String) -> void:
-	var cost := mission.get_cost()
-	if cost.is_empty():
-		unit_event.emit("%s failed: %s" % [unit.display_name, reason])
-		return
-	_change_resources(cost, 1)
-	unit_event.emit("%s failed: %s (refunded %s)" % [unit.display_name, reason, ResourceDeposit.format_cost(cost)])
+## (Unused materials come back when the unit gets home - see _on_unit_returned.)
+func _on_unit_mission_failed(unit: Unit, _mission: Mission, reason: String) -> void:
+	var carrying := "" if unit.materials.is_empty() \
+		else " (bringing back %s)" % ResourceDeposit.format_cost(unit.materials)
+	unit_event.emit("%s failed: %s%s" % [unit.display_name, reason, carrying])
 
 
+## Home: unloads what it harvested, and puts back any materials its job
+## didn't use.
 func _on_unit_returned(unit: Unit) -> void:
-	if not unit.has_cargo():
+	var parts: PackedStringArray = []
+	if unit.has_cargo():
+		parts.append("delivered %s" % unit.get_cargo_text())
+		var cargo := unit.take_cargo()
+		for type in cargo:
+			add_resource(type, cargo[type])
+	var returned := take_back_materials(unit)
+	if not returned.is_empty():
+		parts.append("put back %s unused" % ResourceDeposit.format_cost(returned))
+	if parts.is_empty():
 		unit_event.emit("%s returned to the hub" % unit.display_name)
-		return
-	var cargo_text := unit.get_cargo_text()
-	var cargo := unit.take_cargo()
-	for type in cargo:
-		add_resource(type, cargo[type])
-	unit_event.emit("%s returned and delivered %s" % [unit.display_name, cargo_text])
+	else:
+		unit_event.emit("%s returned and %s" % [unit.display_name, " and ".join(parts)])
 
 
 func _draw() -> void:

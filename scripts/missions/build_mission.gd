@@ -1,8 +1,9 @@
 class_name BuildMission
 extends Mission
 ## Travel to a tile, spend the buildable's build turns working there, then
-## return home. The cost is paid by the hub when the order is given and
-## refunded if the mission fails.
+## return home. The cost leaves the hub when the order is given and the
+## builder carries it (Unit.materials); if the mission fails or is
+## cancelled it's put back when the builder gets home.
 ##
 ## Buildables with build_from_adjacent (bridges) are worked on from the
 ## nearest reachable neighbouring tile instead of the target itself.
@@ -129,5 +130,6 @@ func work() -> void:
 		return
 	_turns_worked += 1
 	if _turns_worked >= buildable.build_turns:
+		unit.use_materials(buildable.cost)  # Brought from the hub. (Older saves: already spent.)
 		buildable.apply(unit.map, target, unit.hub.faction)
 		complete()
