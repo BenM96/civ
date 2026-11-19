@@ -139,6 +139,37 @@ func get_work_turns() -> int:
 	return turns
 
 
+## The jobs that could be done next on the route - each tile's next job -
+## lowest layer first (the order workers pick them in), for planners.
+func get_next_jobs(hub: CentralHub, map: HexMap, from: Vector2i) -> Array[Buildable]:
+	var jobs: Array[Buildable] = []
+	for h in plan_route(hub, map, from, target):
+		var pending := _pending_layers(hub, map, h)
+		if not pending.is_empty():
+			jobs.append(pending[0])
+	jobs.sort_custom(func(a: Buildable, b: Buildable) -> bool: return _depth_in(hub, a) < _depth_in(hub, b))
+	return jobs
+
+
+## How many of those next jobs `budget` (Type -> int) pays for, cheapest
+## layers first - i.e. how many workers could set to work right now. Takes
+## what they'd cost out of `budget`, at most `limit` jobs' worth.
+func take_startable(hub: CentralHub, map: HexMap, from: Vector2i, budget: Dictionary, limit: int) -> int:
+	var count := 0
+	for job in get_next_jobs(hub, map, from):
+		if count >= limit:
+			break
+		var fits := true
+		for type in job.cost:
+			if budget.get(type, 0) < job.cost[type]:
+				fits = false
+		if fits:
+			for type in job.cost:
+				budget[type] -= job.cost[type]
+			count += 1
+	return count
+
+
 ## Everything the route still needs, in total: ResourceDeposit.Type -> int.
 func get_total_cost(hub: CentralHub, map: HexMap, from: Vector2i) -> Dictionary:
 	var total := {}
@@ -364,9 +395,13 @@ func _expand(hub: CentralHub, id: String) -> Array[Buildable]:
 ## How far down the stack a buildable sits: 0 for one that needs nothing
 ## (a foundation), 1 for one that needs that (a belt)...
 func _depth(b: Buildable) -> int:
+	return _depth_in(unit.hub, b)
+
+
+static func _depth_in(hub: CentralHub, b: Buildable) -> int:
 	var depth := 0
 	for required in b.requires:
-		depth = maxi(depth, _depth(unit.hub.get_buildable(required)) + 1)
+		depth = maxi(depth, _depth_in(hub, hub.get_buildable(required)) + 1)
 	return depth
 
 

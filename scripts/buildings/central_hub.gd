@@ -226,7 +226,7 @@ func _change_resources(cost: Dictionary, direction: int) -> void:
 
 # --- Training --------------------------------------------------------------
 
-## What training one more of `blueprint` costs right now. The price doubles
+## What training one more of `blueprint` costs right now. The price rises
 ## with each one the colony has ever had - starting units, ones trained and
 ## ones still in training - so losing units doesn't make the next cheaper
 ## (see UnitBlueprint.cost_for()).

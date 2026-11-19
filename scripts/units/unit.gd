@@ -27,14 +27,21 @@ enum State {
 const RADIUS := 13.0
 
 @export var unit_name := "Unit"
+## How the training price rises with each one built (see cost_rises_after):
+##   DOUBLE  - each costs double the last: x1, x2, x4, x8...
+##   ADD_ONE - each costs 1 more of every resource in `cost` than the last:
+##             1 Gold + 1 Titanium, then 2 + 2, then 3 + 3...
+enum CostGrowth { DOUBLE, ADD_ONE }
+
 ## Resources paid to train the first of this unit: ResourceDeposit.Type -> int.
-## Each extra one costs double the last (see cost_doubling_after).
+## Later ones cost more (see cost_growth and cost_rises_after).
 var cost: Dictionary = {}
+@export var cost_growth := CostGrowth.DOUBLE
 ## How many of this unit a colony can have built before its training cost
-## starts doubling. E.g. 1: after 1 the next costs `cost`, after 2 double,
-## after 3 four times... Every one ever had counts (starting units, ones in
+## starts rising. E.g. 1: after 1 the next costs `cost`, then it rises with
+## each one after that. Every one ever had counts (starting units, ones in
 ## training, and ones since lost), so losing units doesn't lower the price.
-@export var cost_doubling_after := 0
+@export var cost_rises_after := 0
 ## Turns a hub spends training this unit.
 @export var train_turns := 1
 ## Biomass this unit eats every turn, wherever it is.

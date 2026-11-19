@@ -39,8 +39,9 @@ extractor connected by belts - Workers can't harvest it by hand.
 
 ### Units
 
-Unit costs start at 1 Gold + 1 Titanium and double for each one of that type
-you have ever built. Losing units doesn't make the next one cheaper.
+Units start at 1 Gold + 1 Titanium. Each Worker you build doubles the price
+of the next; each Infantry adds 1 Gold + 1 Titanium to the next (2 + 2, then
+3 + 3...). Every unit you have ever built counts. Losing units doesn't make the next one cheaper.
 
 - **Worker:** harvests resources by hand and builds structures.
 - **Infantry:** moves, guards, captures and demolishes. Fights every enemy

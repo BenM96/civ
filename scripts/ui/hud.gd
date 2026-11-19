@@ -466,7 +466,7 @@ func _fill_training() -> void:
 			func() -> void: train_requested.emit(bp))
 		button.disabled = not _hub.can_afford(cost)
 		button.tooltip_text = ("Not enough resources. " if button.disabled else "") \
-			+ "Each %s you build doubles the price of the next, even if it's later lost." % bp.unit_name
+			+ bp.get_cost_growth_text()
 		_section_list.add_child(button)
 
 	_section_list.add_child(HSeparator.new())

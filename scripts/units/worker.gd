@@ -7,7 +7,8 @@ extends Unit
 func _init() -> void:
 	unit_name = "Worker"
 	cost = {ResourceDeposit.Type.GOLD: 1, ResourceDeposit.Type.TITANIUM: 1}
-	cost_doubling_after = 1  # Every colony starts with one.
+	cost_growth = CostGrowth.DOUBLE
+	cost_rises_after = 1  # Every colony starts with one.
 	train_turns = 2
 	upkeep = 1
 	max_movement = 3

@@ -10,7 +10,8 @@ extends Unit
 func _init() -> void:
 	unit_name = "Infantry"
 	cost = {ResourceDeposit.Type.GOLD: 1, ResourceDeposit.Type.TITANIUM: 1}
-	cost_doubling_after = 0
+	cost_growth = CostGrowth.ADD_ONE  # 1 Gold + 1 Titanium, then 2 + 2, 3 + 3...
+	cost_rises_after = 0
 	train_turns = 3
 	upkeep = 1
 	max_movement = 3

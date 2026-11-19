@@ -13,10 +13,16 @@ extends RefCounted
 ##      anywhere in range, it builds extractors instead.)
 ##   2. Extractors - with less biomass income than that, it builds extractors,
 ##      nearest deposit first (Biomass deposits first while its biomass
-##      income is negative), using the "Build Extractor" order (which also
-##      lays the foundations and belts to the hub). A worker is only sent once
-##      the whole job can be paid for; until then idle workers harvest what's
-##      missing.
+##      income is negative), in stages: "Build Foundations" to the deposit,
+##      then "Build Conveyor Belts", then "Build Extractor" - so it only has
+##      to gather one kind of material at a time. Workers are
+##      sent as soon as a job on the way can be paid for (they pay as they
+##      go) - one per job we can afford, so several build side by side.
+##      Builds under way get workers first; a new one is only started when
+##      spare workers and resources can begin on it straight away. The
+##      others harvest whatever the first build is short of, what its next
+##      job needs first (never from a deposit being built on). A builder
+##      left waiting at the hub for resources is called back to harvest.
 ##   3. Attack - idle Infantry go and demolish other colonies' extractors and
 ##      belts, nearest first. With none left to demolish, they guard a tile
 ##      next to the nearest enemy hub (killing workers who come and go).
@@ -42,6 +48,8 @@ var orders: Orders
 ## Resources the current plan is short of (Type -> amount), so idle workers
 ## know what to harvest. Empty when nothing is needed.
 var _needed: Dictionary = {}
+## The resource types in _needed to fetch first (the next build job's).
+var _needed_first: Dictionary = {}
 
 
 func _init(p_hub: CentralHub, p_map: HexMap, p_orders: Orders) -> void:
@@ -57,6 +65,8 @@ func _order(order: Dictionary) -> bool:
 
 func take_turn() -> void:
 	_needed = {}
+	_needed_first = {}
+	_release_waiting_builders()
 	var growing := _biomass_income() >= MIN_BIOMASS_INCOME_TO_GROW and _plan_growth()
 	if not growing:
 		_plan_extractors()
@@ -123,41 +133,103 @@ func _worker_count() -> int:
 # --- 2. Extractors ---------------------------------------------------------
 
 ## Sends idle workers to build extractors (with their foundations and belts),
-## nearest deposit first, as long as each whole job can be paid for. Then
-## sets _needed to what the next one is short of.
+## nearest deposit first, as soon as the first job on the way can be paid for
+## - the worker pays job by job as it goes. Then sets _needed to whatever the
+## started jobs (and the next one we'd like to start) are still short of, so
+## idle workers harvest it.
 func _plan_extractors() -> void:
-	var budget := hub.inventory.duplicate()  # What's left after this turn's orders.
-	var taken := _targets_in_progress()
 	var idle: Array[Unit] = []
 	for u in hub.get_units_needing_orders():
 		if u.can_take("build"):
 			idle.append(u)
+	var budget := hub.inventory.duplicate()  # What this turn's jobs haven't spoken for.
+	# Builds already under way come first; then new ones, nearest first.
+	# (`projects` holds each one's whole extractor plan.)
+	var projects: Array[LineBuildMission] = []
+	var taken := {}
+	for m in _line_builds_in_progress():
+		if not taken.has(m.target):
+			taken[m.target] = true
+			projects.append(Orders.make_mission(hub, "build:extractor", m.target))
+	var started := projects.size()
+	var i := 0
 	while true:
-		var project := _next_extractor_project(taken)
-		if project.is_empty():
-			return
-		var dep: Vector2i = project[0]
-		var cost: Dictionary = project[1]
-		if idle.is_empty() or not _fits(cost, budget):
-			# Can't start it now: gather what it's missing.
-			var short := {}
-			for type in cost:
-				var s: int = cost[type] - budget.get(type, 0)
-				if s > 0:
-					short[type] = s
-			_needed = short
-			return
-		if not _order(Orders.mission(idle.pop_front(), "build:extractor", dep)):
-			return
-		taken[dep] = true
-		for type in cost:
-			budget[type] = budget.get(type, 0) - cost[type]
+		if i >= projects.size():
+			# Only start another build if spare workers can begin on it now.
+			if idle.is_empty():
+				break
+			var project := _next_extractor_project(taken)
+			if project.is_empty():
+				break
+			projects.append(project[2])
+			taken[project[0]] = true
+		var plan: LineBuildMission = projects[i]
+		# In stages: foundations all the way first, then belts, then the
+		# extractor - each its own order, so we only gather one thing at a time.
+		var stage := _current_stage(plan)
+		var m: LineBuildMission = Orders.make_mission(hub, stage, plan.target)
+		# Builders already out there will each take one of the jobs.
+		var busy := 0
+		for u in hub.units:
+			if u.mission is LineBuildMission and u.mission.target == m.target and not u.can_cancel_mission():
+				busy += 1
+		var jobs := m.take_startable(hub, map, hub.hex, budget, busy + idle.size())
+		for j in maxi(jobs - busy, 0):
+			if _order(Orders.mission(idle.pop_front(), stage, m.target)):
+				started = maxi(started, i + 1)
+		if i >= started:
+			break  # Nothing affordable on this new one: gather for it first.
+		i += 1
+	# Idle workers gather what the first build is short of - what its next
+	# job needs first - then the next build's.
+	for m in projects:
+		var short := _shortfall(m.get_total_cost(hub, map, hub.hex))
+		short.erase(ResourceDeposit.Type.BIOMASS)
+		if short.is_empty():
+			continue
+		_needed = short
+		var next_jobs := m.get_next_jobs(hub, map, hub.hex)
+		if not next_jobs.is_empty():
+			_needed_first = _shortfall(next_jobs[0].cost)
+		break
+
+
+## Which order the extractor `plan` needs next: "build:foundation" while
+## any foundation is missing on the way, then "build:conveyor", then
+## "build:extractor".
+func _current_stage(plan: LineBuildMission) -> String:
+	var next_jobs := plan.get_next_jobs(hub, map, hub.hex)
+	if next_jobs.is_empty():
+		return "build:extractor"
+	var id := next_jobs[0].id
+	if id == "foundation" or id == "conveyor":
+		return "build:" + id
+	return "build:extractor"
+
+
+## Our workers' extractor builds still under way.
+func _line_builds_in_progress() -> Array[LineBuildMission]:
+	var result: Array[LineBuildMission] = []
+	for u in hub.units:
+		if u.mission is LineBuildMission and u.mission not in result:
+			result.append(u.mission)
+	return result
+
+
+## Builders waiting at the hub for resources are called off, so they can go
+## and harvest what's missing instead of standing idle (otherwise a colony
+## with one worker would wait for ever). The build is ordered again - and
+## carries on from where it stopped - once a job can be paid for.
+func _release_waiting_builders() -> void:
+	for u in hub.units.duplicate():
+		if u.mission is LineBuildMission and u.can_cancel_mission():
+			_order(Orders.cancel_mission(u))
 
 
 ## The deposit with the shortest walk from the hub that we could put an
 ## extractor on (and run belts to), as [hex, total cost of everything to
-## build], or [] if there's none. While biomass income is negative (heading
-## for starvation), Biomass deposits come first.
+## build, its LineBuildMission], or [] if there's none. While biomass income
+## is negative (heading for starvation), Biomass deposits come first.
 func _next_extractor_project(taken: Dictionary) -> Array:
 	var biomass_first := _biomass_income() < 0
 	var walk := {}
@@ -183,7 +255,7 @@ func _next_extractor_project(taken: Dictionary) -> Array:
 		var m: LineBuildMission = Orders.make_mission(hub, "build:extractor", h)
 		if m.plan_route(hub, map, hub.hex, h).is_empty():
 			continue  # No way to run belts there.
-		return [h, m.get_total_cost(hub, map, hub.hex)]
+		return [h, m.get_total_cost(hub, map, hub.hex), m]
 	return []
 
 
@@ -322,6 +394,13 @@ func _plan_harvesting() -> void:
 	if idle.is_empty():
 		return
 	var deposits := _harvestable_deposits_by_walk(still_needed)
+	if not _needed_first.is_empty():
+		# What the next job needs first (still nearest first within each group).
+		var first: Array[Vector2i] = []
+		var rest: Array[Vector2i] = []
+		for h in deposits:
+			(first if _needed_first.has(map.get_tile(h).deposit.type) else rest).append(h)
+		deposits = first + rest
 	# How many of our workers are already heading for each deposit.
 	var reserved := {}
 	for u in hub.units:
@@ -348,8 +427,13 @@ func _plan_harvesting() -> void:
 ## Unmined deposits of the wanted resource types within harvesting range,
 ## shortest walk from the hub first (deposits we can't reach are left out).
 func _harvestable_deposits_by_walk(wanted: Dictionary) -> Array[Vector2i]:
+	var building_on := {}  # An extractor is coming; harvesting there is wasted.
+	for m in _line_builds_in_progress():
+		building_on[m.target] = true
 	var walk := {}
 	for h in map.tiles:
+		if building_on.has(h):
+			continue
 		var tile: HexTile = map.tiles[h]
 		if not tile.has_deposit() or not wanted.has(tile.deposit.type):
 			continue
