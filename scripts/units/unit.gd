@@ -32,6 +32,8 @@ const RADIUS := 13.0
 ##   ADD_ONE - each costs 1 more of every resource in `cost` than the last:
 ##             1 Gold + 1 Titanium, then 2 + 2, then 3 + 3...
 enum CostGrowth { DOUBLE, ADD_ONE }
+## Kinds of armour (see armor_type and damage). Add new kinds at the end.
+enum ArmorType { INFANTRY }
 
 ## Resources paid to train the first of this unit: ResourceDeposit.Type -> int.
 ## Later ones cost more (see cost_growth and cost_rises_after).
@@ -48,16 +50,20 @@ var cost: Dictionary = {}
 @export var upkeep := 1
 ## Movement points per turn (open ground costs 3, foundations and bridges 1).
 @export var max_movement := 3
+## Hit points (HP) a fresh unit has. Losing them all in battle kills it;
+## dropping below half makes it break and flee (see Combat).
 @export var max_health := 10
+## What kind of armour this unit wears: decides how much damage each attacker
+## does to it (see `damage`).
+@export var armor_type := ArmorType.INFANTRY
+## HP this unit takes off an enemy with each shot, by the enemy's armour:
+## ArmorType -> int. Armour types left out take no damage from it.
+@export var damage: Dictionary = {}
 @export var body_color := Color.WHITE
 ## The kinds of mission this unit may be given: "move", "harvest", "build"
 ## (any structure) and/or "demolish" - the same names orders use (see
 ## Orders.make_mission). The HUD only offers these, and Orders refuses others.
 @export var allowed_missions: Array[String] = ["move"]
-## Whether this unit fights (see Combat). Any unit meeting an enemy starts a
-## battle and stops (see Movement), but only battles with fighters in them
-## kill anyone.
-@export var can_fight := false
 ## Seconds the move animation spends on each tile.
 @export var move_anim_time := 0.18
 
@@ -104,6 +110,25 @@ var _move_tween: Tween
 func _ready() -> void:
 	z_index = 10
 	health = max_health
+
+
+## HP taken off `target` by one shot from this unit.
+func get_damage_against(target: Unit) -> int:
+	return damage.get(target.armor_type, 0)
+
+
+## Loses `amount` HP (a hit in battle). Dying is up to Combat.
+func take_damage(amount: int) -> void:
+	if amount <= 0:
+		return
+	health -= amount
+	queue_redraw()
+	state_changed.emit(self)  # So the HUD shows the new HP.
+
+
+## Below half its max HP (but alive): it breaks after a battle round.
+func is_broken() -> bool:
+	return health > 0 and health < max_health / 2.0
 
 
 ## Called by the hub when the unit joins it.
@@ -425,6 +450,35 @@ func _reached_destination() -> void:
 		_arrive_home()
 
 
+## Broke in battle (see Combat): drops its mission and retreats one tile
+## towards its hub, then carries on home like any returning unit. Anything
+## it carries comes home with it.
+func break_off() -> void:
+	if state == State.ON_MISSION:
+		var abandoned := mission
+		abandoned.fail_reason = "broke in battle and fled"
+		mission_failed.emit(self, abandoned, abandoned.fail_reason)
+		mission = null
+	if hex == player.hex:
+		_arrive_home()
+		return
+	_set_state(State.RETURNING)
+	if not set_destination(player.hex) or _path.is_empty():
+		return  # Cut off from home: tries again next turn.
+	hex = _path.pop_front()
+	if _path.is_empty():
+		_arrive_home()
+	_animate_retreat(map.hex_to_world(hex))
+
+
+## Plays the retreat step once this turn's move has finished playing.
+func _animate_retreat(to: Vector2) -> void:
+	if is_animating():
+		await _move_tween.finished
+	_anim_steps.append(to)
+	play_movement()
+
+
 ## Killed in combat. The hub has already removed it from the colony; this
 ## lets its last move finish playing, then fades it out.
 func die() -> void:
@@ -458,6 +512,13 @@ func _can_enter(step: int, mp: int) -> bool:
 # --- Presentation ----------------------------------------------------------
 
 func get_status_text() -> String:
+	var text := _get_activity_text()
+	if health < max_health:
+		text += "  [HP %d/%d]" % [health, max_health]
+	return text
+
+
+func _get_activity_text() -> String:
 	match state:
 		State.IN_HUB:
 			return "Waiting in hub" if waiting else "In hub"
@@ -537,3 +598,10 @@ func _draw() -> void:
 	var baseline := (font.get_ascent(font_size) - font.get_descent(font_size)) / 2.0
 	draw_string(font, c + Vector2(-text_width / 2.0, baseline), label,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.1, 0.1, 0.1))
+	# Health bar under the icon once it has taken damage.
+	if health < max_health:
+		var bar := Rect2(c + Vector2(-RADIUS, RADIUS + 5.0) * s, Vector2(RADIUS * 2.0, 4.0) * s)
+		draw_rect(bar, Color(0, 0, 0, 0.8))
+		var fraction := clampf(float(health) / max_health, 0.0, 1.0)
+		var fill := Color(0.95, 0.3, 0.25) if is_broken() else Color(0.4, 0.9, 0.35)
+		draw_rect(Rect2(bar.position, Vector2(bar.size.x * fraction, bar.size.y)), fill)

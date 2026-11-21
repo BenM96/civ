@@ -11,6 +11,9 @@ extends RefCounted
 ##
 ## A battle breaks out when units of opposing colonies (Workers and Infantry
 ## alike) either:
+##   - start the turn on the same tile (e.g. survivors of last turn's
+##     battle, or a guard and the enemy it caught): that tile is a battle
+##     hex before anyone moves, so they fight again rather than walk away, or
 ##   - end up on the same tile (one walks onto the other, or both arrive at
 ##     once): that tile becomes a battle hex, or
 ##   - try to pass through each other, swapping tiles on the same tick:
@@ -34,8 +37,8 @@ extends RefCounted
 
 ## Runs the movement phase: moves every unit, then has Combat fight the
 ## battles that broke out. Returns messages for the event log.
-static func run(map: HexMap) -> PackedStringArray:
-	return Combat.resolve(map, _move_units(map))
+static func run(map: HexMap, turn: int) -> PackedStringArray:
+	return Combat.resolve(map, _move_units(map), turn)
 
 
 ## Moves every unit, tick by tick. Returns the battles, as described above.
@@ -48,6 +51,12 @@ static func _move_units(map: HexMap) -> Array:
 	var outbreaks: Array = []
 	# Every hex in any battle -> true.
 	var battle_hexes := {}
+	# Units that start the turn on a tile with enemies fight there.
+	for h in _find_meetings(map):
+		_add_battle([h], outbreaks, battle_hexes)
+	for u in units:
+		if battle_hexes.has(u.hex):
+			u.engage()
 	for tick in range(1, ticks + 1):
 		var movers: Array[Unit] = []
 		for u in units:

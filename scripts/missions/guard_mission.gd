@@ -2,9 +2,9 @@ class_name GuardMission
 extends Mission
 ## Travel to a tile and hold it for GUARD_TURNS turns, then return home.
 ##
-## Guarding is just standing there: while on the tile, a fighting unit starts
-## a battle with any enemy that walks onto it or tries to slip past it
-## (see Movement and Combat).
+## Guarding is just standing there: while on the tile, the unit starts a
+## battle with any enemy that walks onto it or tries to slip past it, and
+## fights it again every turn they share the tile (see Movement and Combat).
 
 ## Turns spent holding the tile once there.
 const GUARD_TURNS := 20

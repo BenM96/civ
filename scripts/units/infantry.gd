@@ -3,8 +3,8 @@ extends Unit
 ## Military unit. Can guard a tile, escort another unit from its hub,
 ## capture other colonies' extractors and conveyors, and demolish man-made
 ## structures (foundations, bridges, extractors, conveyors), leaving rubble
-## behind. Can't harvest or build. Fights: trades one-for-one with enemy
-## units in its battle, dying before the Workers beside it (see Combat).
+## behind. Can't harvest or build. The colony's fighter: 7 damage a shot
+## against infantry armour, which Workers wear too (see Combat).
 
 
 func _init() -> void:
@@ -15,7 +15,7 @@ func _init() -> void:
 	train_turns = 3
 	upkeep = 1
 	max_movement = 3
-	max_health = 15
+	armor_type = ArmorType.INFANTRY
+	damage = {ArmorType.INFANTRY: 7}
 	body_color = Color(0.9, 0.35, 0.3)
 	allowed_missions = ["move", "guard", "escort", "capture", "demolish"]
-	can_fight = true

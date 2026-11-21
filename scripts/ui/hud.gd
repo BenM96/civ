@@ -298,7 +298,7 @@ func _mission_choices(unit: Unit) -> Array:
 		choices.append(["move", "Move", "Walk to a tile, then come home.", true])
 	if unit.can_take("guard"):
 		choices.append(["guard", "Guard (%d turns)" % GuardMission.GUARD_TURNS,
-			"Hold a tile for %d turns, stopping enemy infantry and killing enemy workers there, then come home." % GuardMission.GUARD_TURNS, true])
+			"Hold a tile for %d turns, fighting any enemy that comes onto it, then come home." % GuardMission.GUARD_TURNS, true])
 	if unit.can_take("escort"):
 		for other in _player.units:
 			var m := EscortMission.new(other.id)

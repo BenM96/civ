@@ -102,7 +102,7 @@ func end_turn() -> void:
 		player.start_units_turn()
 
 	# 3. Movement (and the combat it leads to)
-	for message in Movement.run(map):
+	for message in Movement.run(map, turn):
 		event_logged.emit(message)
 
 	# 4. Layout - now we know who's standing where, fit shared tiles' icons

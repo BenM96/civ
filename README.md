@@ -50,9 +50,28 @@ of the next; each Infantry adds 1 Gold + 1 Titanium to the next (2 + 2, then
 3 + 3...). Every unit you have ever built counts. Losing units doesn't make the next one cheaper.
 
 - **Worker:** harvests resources by hand and builds structures.
-- **Infantry:** moves, guards, captures and demolishes. Fights every enemy
-  unit on its tile 1-for-1, Infantry or Worker, and each side loses its
-  Infantry before its Workers. Workers never fight each other.
+- **Infantry:** moves, guards, captures and demolishes. The fighter.
+
+### Combat
+
+Every unit has 10 HP and wears infantry armour. Infantry hit for 7 damage
+and Workers for 3.
+
+A battle starts when units of different colonies end up on the same tile,
+try to walk past each other, or start a turn on the same tile. Everyone in
+it stops for the turn, and one round is fought:
+
+1. Each colony's units are put in a list in random order, and the lists
+   take turns in a random order: the first unit of each list fires, then
+   the second of each, and so on.
+2. Every unit fires once, at a random enemy in the battle. A unit that
+   drops to 0 HP dies at once and doesn't get to fire.
+3. After the round, any unit below half its HP (under 5) breaks: it
+   abandons its mission and retreats a tile towards its hub, then walks
+   home.
+
+Units still sharing a tile next turn fight another round. There's no
+healing yet. Damaged units show a health bar.
 
 ### Missions
 
