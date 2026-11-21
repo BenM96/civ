@@ -26,10 +26,10 @@ extends RefCounted
 ##   3. Attack - idle Infantry go and demolish other colonies' extractors and
 ##      belts, nearest first. With none left to demolish, they guard a tile
 ##      next to the nearest enemy hub (killing workers who come and go).
-## Workers never harvest Biomass by hand - it only comes from the hub and
-## extractors.
+## Workers never harvest Biomass by hand - it only comes from the hub's
+## Greenhouse and extractors.
 
-## Biomass income per turn (hub + extractors - unit upkeep) at which the AI
+## Biomass income per turn (buildings + extractors - unit upkeep) at which the AI
 ## trains more units rather than building extractors.
 const MIN_BIOMASS_INCOME_TO_GROW := 1
 ## The AI only trains Infantry once it has this many Workers (if Workers
@@ -40,7 +40,7 @@ const MAX_HARVEST_DISTANCE := 12
 ## Extractors are only planned on deposits this close to the hub.
 const MAX_EXTRACTOR_DISTANCE := 12
 
-var hub: CentralHub
+var player: Player
 var map: HexMap
 ## Where the AI sends its orders - the same place the human players' go, so
 ## it plays by exactly the same rules.
@@ -52,15 +52,15 @@ var _needed: Dictionary = {}
 var _needed_first: Dictionary = {}
 
 
-func _init(p_hub: CentralHub, p_map: HexMap, p_orders: Orders) -> void:
-	hub = p_hub
+func _init(p_player: Player, p_map: HexMap, p_orders: Orders) -> void:
+	player = p_player
 	map = p_map
 	orders = p_orders
 
 
 ## Sends an order for our colony. Returns true if it was carried out.
 func _order(order: Dictionary) -> bool:
-	return orders.submit(hub.faction, order) == ""
+	return orders.submit(player.id, order) == ""
 
 
 func take_turn() -> void:
@@ -76,7 +76,7 @@ func take_turn() -> void:
 
 ## Biomass gained per turn after every unit has eaten.
 func _biomass_income() -> float:
-	return hub.get_net_income()[ResourceDeposit.Type.BIOMASS]
+	return player.get_net_income()[ResourceDeposit.Type.BIOMASS]
 
 
 # --- 1. Growth -------------------------------------------------------------
@@ -87,9 +87,9 @@ func _biomass_income() -> float:
 func _plan_growth() -> bool:
 	var bp := _cheapest_unit()
 	# One at a time: the next is bought once the current one has finished.
-	if hub.training_queue.is_empty() and _order(Orders.train(bp.unit_name)):
+	if player.training_queue.is_empty() and _order(Orders.train(bp.unit_name)):
 		bp = _cheapest_unit()  # Gather for the one after.
-	var short := _shortfall(hub.get_training_cost(bp))
+	var short := _shortfall(player.get_training_cost(bp))
 	short.erase(ResourceDeposit.Type.BIOMASS)
 	if short.is_empty():
 		return true  # Can pay; trained as soon as the queue is free.
@@ -105,11 +105,11 @@ func _cheapest_unit() -> UnitBlueprint:
 	var best: UnitBlueprint = null
 	var best_total := 1 << 30
 	var workers_only := _worker_count() < WORKERS_BEFORE_INFANTRY
-	for bp in hub.blueprints:
+	for bp in player.blueprints:
 		if workers_only and bp.unit_name != "Worker":
 			continue
 		var total := 0
-		var cost := hub.get_training_cost(bp)
+		var cost := player.get_training_cost(bp)
 		for type in cost:
 			total += cost[type]
 		if total < best_total or (total == best_total and bp.unit_name == "Worker"):
@@ -121,10 +121,10 @@ func _cheapest_unit() -> UnitBlueprint:
 ## Workers we have, counting any being trained.
 func _worker_count() -> int:
 	var count := 0
-	for u in hub.units:
+	for u in player.units:
 		if u.unit_name == "Worker":
 			count += 1
-	for t in hub.training_queue:
+	for t in player.training_queue:
 		if t.blueprint.unit_name == "Worker":
 			count += 1
 	return count
@@ -139,10 +139,10 @@ func _worker_count() -> int:
 ## idle workers harvest it.
 func _plan_extractors() -> void:
 	var idle: Array[Unit] = []
-	for u in hub.get_units_needing_orders():
+	for u in player.get_units_needing_orders():
 		if u.can_take("build"):
 			idle.append(u)
-	var budget := hub.inventory.duplicate()  # What this turn's jobs haven't spoken for.
+	var budget := player.inventory.duplicate()  # What this turn's jobs haven't spoken for.
 	# Builds already under way come first; then new ones, nearest first.
 	# (`projects` holds each one's whole extractor plan.)
 	var projects: Array[LineBuildMission] = []
@@ -150,7 +150,7 @@ func _plan_extractors() -> void:
 	for m in _line_builds_in_progress():
 		if not taken.has(m.target):
 			taken[m.target] = true
-			projects.append(Orders.make_mission(hub, "build:extractor", m.target))
+			projects.append(Orders.make_mission(player, "build:extractor", m.target))
 	var started := projects.size()
 	var i := 0
 	while true:
@@ -167,15 +167,15 @@ func _plan_extractors() -> void:
 		# In stages: foundations all the way first, then belts, then the
 		# extractor - each its own order, so we only gather one thing at a time.
 		var stage := _current_stage(plan)
-		var m: LineBuildMission = Orders.make_mission(hub, stage, plan.target)
+		var m: LineBuildMission = Orders.make_mission(player, stage, plan.target)
 		# Tiles builders already took materials for aren't up for grabs.
 		var claimed := {}
-		for u in hub.units:
+		for u in player.units:
 			if u.mission is LineBuildMission and u.mission.target == m.target:
 				var tile: Variant = u.mission.get_claimed_tile()
 				if tile != null:
 					claimed[tile] = true
-		var jobs := m.take_startable(hub, map, hub.hex, budget, idle.size(), claimed)
+		var jobs := m.take_startable(player, map, player.hex, budget, idle.size(), claimed)
 		for j in jobs:
 			if _order(Orders.mission(idle.pop_front(), stage, m.target)):
 				started = maxi(started, i + 1)
@@ -185,12 +185,12 @@ func _plan_extractors() -> void:
 	# Idle workers gather what the first build is short of - what its next
 	# job needs first - then the next build's.
 	for m in projects:
-		var short := _shortfall(m.get_total_cost(hub, map, hub.hex))
+		var short := _shortfall(m.get_total_cost(player, map, player.hex))
 		short.erase(ResourceDeposit.Type.BIOMASS)
 		if short.is_empty():
 			continue
 		_needed = short
-		var next_jobs := m.get_next_jobs(hub, map, hub.hex)
+		var next_jobs := m.get_next_jobs(player, map, player.hex)
 		if not next_jobs.is_empty():
 			_needed_first = _shortfall(next_jobs[0].cost)
 		break
@@ -200,7 +200,7 @@ func _plan_extractors() -> void:
 ## any foundation is missing on the way, then "build:conveyor", then
 ## "build:extractor".
 func _current_stage(plan: LineBuildMission) -> String:
-	var next_jobs := plan.get_next_jobs(hub, map, hub.hex)
+	var next_jobs := plan.get_next_jobs(player, map, player.hex)
 	if next_jobs.is_empty():
 		return "build:extractor"
 	var id := next_jobs[0].id
@@ -212,7 +212,7 @@ func _current_stage(plan: LineBuildMission) -> String:
 ## Our workers' extractor builds still under way.
 func _line_builds_in_progress() -> Array[LineBuildMission]:
 	var result: Array[LineBuildMission] = []
-	for u in hub.units:
+	for u in player.units:
 		if u.mission is LineBuildMission and u.mission not in result:
 			result.append(u.mission)
 	return result
@@ -223,7 +223,7 @@ func _line_builds_in_progress() -> Array[LineBuildMission]:
 ## with one worker would wait for ever). The build is ordered again - and
 ## carries on from where it stopped - once a job can be paid for.
 func _release_waiting_builders() -> void:
-	for u in hub.units.duplicate():
+	for u in player.units.duplicate():
 		if u.mission is LineBuildMission and u.can_cancel_mission():
 			_order(Orders.cancel_mission(u))
 
@@ -238,10 +238,10 @@ func _next_extractor_project(taken: Dictionary) -> Array:
 	for h in map.tiles:
 		var tile: HexTile = map.tiles[h]
 		var free := tile.structure == Structure.Type.NONE \
-			or (tile.structure == Structure.Type.CONVEYOR and tile.structure_owner == hub.faction)
+			or (tile.structure == Structure.Type.CONVEYOR and tile.structure_owner == player.id)
 		if tile.has_deposit() and free and not taken.has(h) \
-				and Hex.distance(hub.hex, h) <= MAX_EXTRACTOR_DISTANCE:
-			var path := map.find_path(hub.hex, h)
+				and Hex.distance(player.hex, h) <= MAX_EXTRACTOR_DISTANCE:
+			var path := map.find_path(player.hex, h)
 			if not path.is_empty():
 				walk[h] = map.get_path_cost(path)
 	var candidates: Array[Vector2i] = []
@@ -254,10 +254,10 @@ func _next_extractor_project(taken: Dictionary) -> Array:
 				return a_bio
 		return walk[a] < walk[b])
 	for h in candidates:
-		var m: LineBuildMission = Orders.make_mission(hub, "build:extractor", h)
-		if m.plan_route(hub, map, hub.hex, h).is_empty():
+		var m: LineBuildMission = Orders.make_mission(player, "build:extractor", h)
+		if m.plan_route(player, map, player.hex, h).is_empty():
 			continue  # No way to run belts there.
-		return [h, m.get_total_cost(hub, map, hub.hex), m]
+		return [h, m.get_total_cost(player, map, player.hex), m]
 	return []
 
 
@@ -274,7 +274,7 @@ func _fits(cost: Dictionary, budget: Dictionary) -> bool:
 ## nearest first; with none left, to guard beside the nearest enemy hub.
 func _plan_attacks() -> void:
 	var taken := _targets_in_progress()
-	for u in hub.get_units_needing_orders():
+	for u in player.get_units_needing_orders():
 		if not u.can_take("demolish"):
 			continue
 		var target: Variant = _nearest_enemy_structure(u, taken)
@@ -294,14 +294,14 @@ func _nearest_enemy_structure(u: Unit, taken: Dictionary) -> Variant:
 	var candidates: Array[Vector2i] = []
 	for h in map.tiles:
 		var tile: HexTile = map.tiles[h]
-		if tile.structure != Structure.Type.NONE and tile.structure_owner != hub.faction \
+		if tile.structure != Structure.Type.NONE and tile.structure_owner != player.id \
 				and tile.structure_owner != Faction.NONE and not taken.has(h):
 			candidates.append(h)
 	candidates.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return Hex.distance(hub.hex, a) < Hex.distance(hub.hex, b))
+		return Hex.distance(player.hex, a) < Hex.distance(player.hex, b))
 	for h in candidates:
-		var m := Orders.make_mission(hub, "demolish", h)
-		if Orders.get_invalid_reason(hub, u, m) == "":
+		var m := Orders.make_mission(player, "demolish", h)
+		if Orders.get_invalid_reason(player, u, m) == "":
 			return h
 	return null
 
@@ -310,18 +310,18 @@ func _nearest_enemy_structure(u: Unit, taken: Dictionary) -> Variant:
 ## or null.
 func _post_by_enemy_hub(u: Unit, taken: Dictionary) -> Variant:
 	var enemies: Array = []
-	for faction in map.hubs:
-		var other: CentralHub = map.hubs[faction]
-		if other != hub and not other.collapsed:
+	for faction in map.players:
+		var other: Player = map.players[faction]
+		if other != player and not other.collapsed:
 			enemies.append(other)
-	enemies.sort_custom(func(a: CentralHub, b: CentralHub) -> bool:
-		return Hex.distance(hub.hex, a.hex) < Hex.distance(hub.hex, b.hex))
-	for enemy: CentralHub in enemies:
+	enemies.sort_custom(func(a: Player, b: Player) -> bool:
+		return Hex.distance(player.hex, a.hex) < Hex.distance(player.hex, b.hex))
+	for enemy: Player in enemies:
 		for n in Hex.neighbors(enemy.hex):
 			if taken.has(n):
 				continue
-			var m := Orders.make_mission(hub, "guard", n)
-			if Orders.get_invalid_reason(hub, u, m) == "":
+			var m := Orders.make_mission(player, "guard", n)
+			if Orders.get_invalid_reason(player, u, m) == "":
 				return n
 	return null
 
@@ -332,7 +332,7 @@ func _post_by_enemy_hub(u: Unit, taken: Dictionary) -> Variant:
 func _shortfall(cost: Dictionary) -> Dictionary:
 	var missing := {}
 	for type in cost:
-		var short: int = cost[type] - hub.get_resource(type)
+		var short: int = cost[type] - player.get_resource(type)
 		if short > 0:
 			missing[type] = short
 	return missing
@@ -342,7 +342,7 @@ func _shortfall(cost: Dictionary) -> Dictionary:
 ## harvesting range (or an extractor already bringing it in). Saving up is
 ## pointless if even one of them can never be got.
 func _can_gather_all(types: Dictionary) -> bool:
-	var income := hub.get_income()
+	var income := player.get_income()
 	for type in types:
 		if income.get(type, 0) > 0:
 			continue
@@ -353,7 +353,7 @@ func _can_gather_all(types: Dictionary) -> bool:
 			var tile: HexTile = map.tiles[h]
 			if tile.has_deposit() and tile.deposit.type == type \
 					and tile.structure != Structure.Type.EXTRACTOR \
-					and Hex.distance(hub.hex, h) <= MAX_HARVEST_DISTANCE:
+					and Hex.distance(player.hex, h) <= MAX_HARVEST_DISTANCE:
 				found = true
 				break
 		if not found:
@@ -364,7 +364,7 @@ func _can_gather_all(types: Dictionary) -> bool:
 ## Tiles our units are already heading to build on, harvest or attack.
 func _targets_in_progress() -> Dictionary:
 	var taken := {}
-	for u in hub.units:
+	for u in player.units:
 		if u.mission:
 			var target: Variant = u.mission.get_target_hex()
 			if target != null:
@@ -390,7 +390,7 @@ func _plan_harvesting() -> void:
 	if still_needed.is_empty():
 		return
 	var idle: Array[Unit] = []
-	for worker in hub.get_units_needing_orders():
+	for worker in player.get_units_needing_orders():
 		if worker.can_take("harvest"):
 			idle.append(worker)
 	if idle.is_empty():
@@ -405,7 +405,7 @@ func _plan_harvesting() -> void:
 		deposits = first + rest
 	# How many of our workers are already heading for each deposit.
 	var reserved := {}
-	for u in hub.units:
+	for u in player.units:
 		if u.mission is HarvestMission:
 			reserved[u.mission.target] = reserved.get(u.mission.target, 0) + 1
 	for worker in idle:
@@ -443,9 +443,9 @@ func _harvestable_deposits_by_walk(wanted: Dictionary) -> Array[Vector2i]:
 			continue  # Extractors only.
 		if tile.structure == Structure.Type.EXTRACTOR:
 			continue  # Already being mined.
-		if Hex.distance(hub.hex, h) > MAX_HARVEST_DISTANCE:
+		if Hex.distance(player.hex, h) > MAX_HARVEST_DISTANCE:
 			continue
-		var path := map.find_path(hub.hex, h)
+		var path := map.find_path(player.hex, h)
 		if not path.is_empty():
 			walk[h] = map.get_path_cost(path)
 	var result: Array[Vector2i] = []
@@ -457,7 +457,7 @@ func _harvestable_deposits_by_walk(wanted: Dictionary) -> Array[Vector2i]:
 ## Resources our units are bringing home: carried, or about to be harvested.
 func _incoming_resources() -> Dictionary:
 	var incoming := {}
-	for u in hub.units:
+	for u in player.units:
 		for type in u.cargo:
 			incoming[type] = incoming.get(type, 0) + u.cargo[type]
 		if u.mission is HarvestMission:

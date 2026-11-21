@@ -2,7 +2,7 @@ class_name Unit
 extends Node2D
 ## Base class for every unit.
 ##
-## Units are never controlled directly. They live in a CentralHub and are
+## Units are never controlled directly. They live in a Player and are
 ## handed a Mission. During turn resolution they execute the mission, then
 ## walk back to the hub on their own, where they wait for the next order.
 ##
@@ -10,7 +10,7 @@ extends Node2D
 ## training cost, training time and upkeep - and can override
 ## get_short_label() / _draw() for visuals or add new abilities for missions.
 ## To make a hub able to train a unit, add its class to the hub's list in
-## CentralHub._init().
+## Player._init().
 
 signal state_changed(unit: Unit)
 signal mission_completed(unit: Unit, mission: Mission)
@@ -67,7 +67,7 @@ var id := 0
 ## Unique name given by the hub, e.g. "Worker 2".
 var display_name := ""
 var hex: Vector2i
-var hub: CentralHub
+var player: Player
 var map: HexMap
 var state: State = State.IN_HUB
 var mission: Mission
@@ -107,10 +107,10 @@ func _ready() -> void:
 
 
 ## Called by the hub when the unit joins it.
-func setup(p_hub: CentralHub, p_map: HexMap) -> void:
-	hub = p_hub
+func setup(p_player: Player, p_map: HexMap) -> void:
+	player = p_player
 	map = p_map
-	hex = hub.hex
+	hex = player.hex
 	global_position = map.hex_to_world(hex)
 	_refresh_visibility()
 
@@ -186,7 +186,7 @@ func load_dict(data: Dictionary) -> void:
 		_path.append(SaveGame.hex_from_data(h))
 	if data["mission"] != null:
 		var m_data: Dictionary = data["mission"]
-		mission = Orders.make_mission(hub, m_data["kind"], SaveGame.hex_from_data(m_data["target"]))
+		mission = Orders.make_mission(player, m_data["kind"], SaveGame.hex_from_data(m_data["target"]))
 		mission.unit = self
 		mission.load_dict(m_data)
 	global_position = map.hex_to_world(hex)
@@ -256,7 +256,7 @@ func can_accept_mission(m: Mission) -> bool:
 	return state == State.IN_HUB and m.is_valid_for(self)
 
 
-## Use CentralHub.assign_mission() rather than calling this directly.
+## Use Player.assign_mission() rather than calling this directly.
 func assign_mission(m: Mission) -> void:
 	waiting = false
 	mission = m
@@ -266,7 +266,7 @@ func assign_mission(m: Mission) -> void:
 
 
 ## Withdraws the mission from a unit that hasn't left yet. Use
-## CentralHub.cancel_mission() (which also refunds the cost) rather than
+## Player.cancel_mission() (which also refunds the cost) rather than
 ## calling this directly.
 func cancel_mission() -> bool:
 	if not can_cancel_mission():
@@ -283,7 +283,7 @@ func cancel_mission() -> bool:
 func can_cancel_mission() -> bool:
 	if state == State.DEPLOYING:
 		return true
-	return state == State.ON_MISSION and hex == hub.hex and mission.can_cancel_at_hub()
+	return state == State.ON_MISSION and hex == player.hex and mission.can_cancel_at_hub()
 
 
 # --- Turn steps (run by TurnManager, in this order) ------------------------
@@ -301,7 +301,7 @@ func start_turn() -> void:
 		mission.prepare()
 	_check_mission_end()
 	if state == State.RETURNING and not has_destination():
-		set_destination(hub.hex)  # If cut off from home, try again next turn.
+		set_destination(player.hex)  # If cut off from home, try again next turn.
 
 
 ## "Work" step, after movement and combat: a unit that spent the whole turn
@@ -336,11 +336,11 @@ func _end_mission(success: bool) -> void:
 
 func _begin_return() -> void:
 	_path.clear()
-	if hex == hub.hex:
+	if hex == player.hex:
 		_arrive_home()
 		return
 	_set_state(State.RETURNING)
-	set_destination(hub.hex)
+	set_destination(player.hex)
 
 
 func _arrive_home() -> void:
@@ -421,7 +421,7 @@ func _reached_destination() -> void:
 		# A finished mission (e.g. Move) starts the walk home straight away,
 		# using whatever movement is left this turn.
 		_check_mission_end()
-	elif state == State.RETURNING and hex == hub.hex:
+	elif state == State.RETURNING and hex == player.hex:
 		_arrive_home()
 
 
@@ -507,7 +507,7 @@ func play_movement() -> void:
 ## Units are only drawn while out in the world (not on their own hub, e.g.
 ## a worker waiting there for resources).
 func _refresh_visibility() -> void:
-	visible = (state == State.ON_MISSION or state == State.RETURNING) and not (hub and hex == hub.hex)
+	visible = (state == State.ON_MISSION or state == State.RETURNING) and not (player and hex == player.hex)
 	if not visible and map:
 		global_position = map.hex_to_world(hex)
 
@@ -526,7 +526,7 @@ func _draw() -> void:
 	var c := _icon_offset
 	var s := _icon_scale
 	# Ring in the owner's colour so rival units are easy to tell apart.
-	var faction_color := Faction.get_color(hub.faction) if hub else Color.BLACK
+	var faction_color := Faction.get_color(player.id) if player else Color.BLACK
 	draw_circle(c, (RADIUS + 3.5) * s, faction_color)
 	draw_circle(c, (RADIUS + 1.5) * s, Color(0, 0, 0, 0.8))
 	draw_circle(c, RADIUS * s, body_color)

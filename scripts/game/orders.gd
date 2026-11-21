@@ -25,12 +25,12 @@ extends RefCounted
 
 var map: HexMap
 ## Every colony, indexed by faction.
-var colonies: Array[CentralHub]
+var players: Array[Player]
 
 
-func _init(p_map: HexMap, p_colonies: Array[CentralHub]) -> void:
+func _init(p_map: HexMap, p_players: Array[Player]) -> void:
 	map = p_map
-	colonies = p_colonies
+	players = p_players
 
 
 # --- Making orders ---------------------------------------------------------
@@ -70,58 +70,58 @@ const DEBUG_RESOURCE_AMOUNT := 50
 ## Checks `order` from `faction` and, if it's allowed, carries it out.
 ## Returns "" on success, otherwise why it was refused.
 func submit(faction: int, order: Dictionary) -> String:
-	var hub := get_colony(faction)
-	if hub == null or hub.collapsed:
+	var player := get_player(faction)
+	if player == null or player.collapsed:
 		return "no such colony"
 	match order.get("order", ""):
 		"mission":
-			var unit := _own_unit(hub, order)
+			var unit := _own_unit(player, order)
 			if unit == null:
 				return "no such unit"
-			var m := make_mission(hub, str(order.get("kind", "")), _to_hex(order.get("target")))
+			var m := make_mission(player, str(order.get("kind", "")), _to_hex(order.get("target")))
 			if m == null:
 				return "unknown mission"
-			var reason := get_invalid_reason(hub, unit, m)
+			var reason := get_invalid_reason(player, unit, m)
 			if reason != "":
 				return reason
-			return "" if hub.assign_mission(unit, m) else "can't do that"
+			return "" if player.assign_mission(unit, m) else "can't do that"
 		"cancel_mission":
-			var unit := _own_unit(hub, order)
+			var unit := _own_unit(player, order)
 			if unit == null:
 				return "no such unit"
-			return "" if hub.cancel_mission(unit) else "it's out on its mission and can't be called back now"
+			return "" if player.cancel_mission(unit) else "it's out on its mission and can't be called back now"
 		"wait":
-			var unit := _own_unit(hub, order)
+			var unit := _own_unit(player, order)
 			if unit == null:
 				return "no such unit"
-			return "" if hub.set_unit_waiting(unit, bool(order.get("value", true))) else "can't wait now"
+			return "" if player.set_unit_waiting(unit, bool(order.get("value", true))) else "can't wait now"
 		"train":
-			var bp := hub.get_blueprint(str(order.get("unit_type", "")))
+			var bp := player.get_blueprint(str(order.get("unit_type", "")))
 			if bp == null:
 				return "unknown unit type"
-			var cost := hub.get_training_cost(bp)
-			if not hub.can_afford(cost):
+			var cost := player.get_training_cost(bp)
+			if not player.can_afford(cost):
 				return "need %s" % ResourceDeposit.format_cost(cost)
-			return "" if hub.queue_training(bp) else "can't train that"
+			return "" if player.queue_training(bp) else "can't train that"
 		"cancel_training":
-			return "" if hub.cancel_training(int(order.get("index", -1))) else "nothing to cancel"
+			return "" if player.cancel_training(int(order.get("index", -1))) else "nothing to cancel"
 		"debug_resources":  # TESTING ONLY - remove before release.
 			for type in ResourceDeposit.Type.values():
-				hub.add_resource(type, DEBUG_RESOURCE_AMOUNT)
+				player.add_resource(type, DEBUG_RESOURCE_AMOUNT)
 			return ""
 	return "unknown order"
 
 
-func get_colony(faction: int) -> CentralHub:
-	if faction < 0 or faction >= colonies.size():
+func get_player(faction: int) -> Player:
+	if faction < 0 or faction >= players.size():
 		return null
-	return colonies[faction]
+	return players[faction]
 
 
 ## Why `unit` can't take `m` right now ("" if it can): everything the
 ## mission's own get_invalid_reason() checks, plus whether this unit may do
 ## that kind of mission at all, is at home, and can be paid for.
-static func get_invalid_reason(hub: CentralHub, unit: Unit, m: Mission) -> String:
+static func get_invalid_reason(player: Player, unit: Unit, m: Mission) -> String:
 	if unit.state != Unit.State.IN_HUB:
 		return "%s is already out" % unit.display_name
 	if not unit.can_take(m.get_kind()):
@@ -130,7 +130,7 @@ static func get_invalid_reason(hub: CentralHub, unit: Unit, m: Mission) -> Strin
 	var reason := m.get_invalid_reason(unit)
 	if reason != "":
 		return reason
-	if not hub.can_afford(m.get_cost()):
+	if not player.can_afford(m.get_cost()):
 		return "need %s" % ResourceDeposit.format_cost(m.get_cost())
 	return ""
 
@@ -140,13 +140,13 @@ static func get_invalid_reason(hub: CentralHub, unit: Unit, m: Mission) -> Strin
 ## (An escort's target hex is ignored.) Returns null for an
 ## unknown kind. Add new mission kinds here (and give the mission a matching
 ## get_kind()).
-static func make_mission(hub: CentralHub, kind: String, target: Vector2i) -> Mission:
+static func make_mission(player: Player, kind: String, target: Vector2i) -> Mission:
 	if kind == "build:road":
 		kind = "build:foundation"  # Renamed; older saves may still say road.
 	if kind.begins_with("escort:"):
 		return EscortMission.new(int(kind.trim_prefix("escort:")))
 	if kind.begins_with("build:"):
-		var buildable := hub.get_buildable(kind.trim_prefix("build:"))
+		var buildable := player.get_buildable(kind.trim_prefix("build:"))
 		if buildable == null:
 			return null
 		if buildable.line_of != "":
@@ -168,8 +168,8 @@ static func make_mission(hub: CentralHub, kind: String, target: Vector2i) -> Mis
 
 ## The order's unit, if it exists and belongs to `hub` (so nobody can order
 ## another colony's units about).
-func _own_unit(hub: CentralHub, order: Dictionary) -> Unit:
-	return hub.get_unit(int(order.get("unit", 0)))
+func _own_unit(player: Player, order: Dictionary) -> Unit:
+	return player.get_unit(int(order.get("unit", 0)))
 
 
 static func _to_hex(value: Variant) -> Vector2i:

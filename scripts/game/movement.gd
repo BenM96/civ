@@ -86,7 +86,7 @@ static func _find_crossings(movers: Array[Unit]) -> Array:
 		var key := _edge(u.hex, u.get_next_step_hex())
 		if not crossing.has(key):
 			crossing[key] = {}
-		crossing[key][u.hub.faction] = true
+		crossing[key][u.player.id] = true
 	var result := []
 	var done := {}
 	for key: Vector4i in crossing:
@@ -117,7 +117,7 @@ static func _find_meetings(map: HexMap) -> Array[Vector2i]:
 	for u in map.get_units_in_world():
 		if not factions_at.has(u.hex):
 			factions_at[u.hex] = {}
-		factions_at[u.hex][u.hub.faction] = true
+		factions_at[u.hex][u.player.id] = true
 	var result: Array[Vector2i] = []
 	for h: Vector2i in factions_at:
 		if factions_at[h].size() >= 2:

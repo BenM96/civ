@@ -13,7 +13,7 @@ extends Node
 ##   4. Layout      - units sharing a tile are laid out side by side.
 ##   5. Work        - units that spent the turn at their site build,
 ##                    harvest or demolish. Units killed in combat don't.
-##   6. Production  - training, extractors, hub biomass.
+##   6. Production  - training, extractors, hub buildings (Greenhouse biomass).
 ##   7. Upkeep      - every unit eats 1 biomass; a colony below 0 starves
 ##                    (the player loses; a rival is eliminated).
 ##   8. Victory     - the first colony to hold AMOUNT_TO_WIN of WIN_RESOURCE
@@ -32,10 +32,10 @@ signal turn_started(turn: int)
 signal event_logged(message: String)
 ## Colonies whose biomass fell below zero. The game decides what happens
 ## (see remove_colony() and stop()).
-signal colonies_starved(starved: Array[CentralHub])
+signal colonies_starved(starved: Array[Player])
 ## The first colony (or colonies, if tied) to hold AMOUNT_TO_WIN of
 ## WIN_RESOURCE. Only ever happens once per game.
-signal win_goal_reached(winners: Array[CentralHub])
+signal win_goal_reached(winners: Array[Player])
 
 ## Seconds to wait after units finish moving before the next skipped turn runs.
 const SKIP_PAUSE := 0.5
@@ -51,9 +51,9 @@ var auto_skip := true
 
 var map: HexMap
 ## The colony played from this computer (used to decide when to auto-skip).
-var local_hub: CentralHub
+var local_player: Player
 ## Every colony, the player's included.
-var hubs: Array[CentralHub] = []
+var players: Array[Player] = []
 var ais: Array[AiController] = []
 
 ## Someone has already reached AMOUNT_TO_WIN (so it isn't announced again).
@@ -67,10 +67,10 @@ var _skip_this_turn := false
 var _skip_wait := 0.0
 
 
-func setup(p_map: HexMap, p_local_hub: CentralHub, p_hubs: Array[CentralHub], p_ais: Array[AiController]) -> void:
+func setup(p_map: HexMap, p_local_player: Player, p_players: Array[Player], p_ais: Array[AiController]) -> void:
 	map = p_map
-	local_hub = p_local_hub
-	hubs = p_hubs
+	local_player = p_local_player
+	players = p_players
 	ais = p_ais
 
 
@@ -81,10 +81,10 @@ func stop() -> void:
 
 
 ## Takes an eliminated colony (and the AI playing it) out of the turns.
-func remove_colony(hub: CentralHub) -> void:
-	hubs.erase(hub)
+func remove_colony(player: Player) -> void:
+	players.erase(player)
 	for ai in ais.duplicate():
-		if ai.hub == hub:
+		if ai.player == player:
 			ais.erase(ai)
 
 
@@ -98,8 +98,8 @@ func end_turn() -> void:
 		ai.take_turn()
 
 	# 2. Set out
-	for hub in hubs:
-		hub.start_units_turn()
+	for player in players:
+		player.start_units_turn()
 
 	# 3. Movement (and the combat it leads to)
 	for message in Movement.run(map):
@@ -110,25 +110,25 @@ func end_turn() -> void:
 	UnitStackLayout.arrange(map)
 
 	# 5. Work
-	for hub in hubs:
-		hub.units_work()
+	for player in players:
+		player.units_work()
 
 	# 6. Production
-	for hub in hubs:
-		hub.produce()
+	for player in players:
+		player.produce()
 
 	# 7. Upkeep
-	var starved: Array[CentralHub] = []
-	for hub in hubs:
-		if hub.feed_units():
-			starved.append(hub)
+	var starved: Array[Player] = []
+	for player in players:
+		if player.feed_units():
+			starved.append(player)
 
 	# 8. Victory
 	var winners := _winners()
 
 	# 9. Next turn
-	for hub in hubs:
-		hub.finish_turn()
+	for player in players:
+		player.finish_turn()
 	turn += 1
 	turn_started.emit(turn)
 	if not starved.is_empty():
@@ -147,18 +147,18 @@ func end_turn() -> void:
 ## The colonies that win this turn: whoever holds the most WIN_RESOURCE, if
 ## that's at least AMOUNT_TO_WIN (several only on an exact tie). Empty if
 ## nobody has reached it, or someone already did earlier in the game.
-func _winners() -> Array[CentralHub]:
-	var winners: Array[CentralHub] = []
+func _winners() -> Array[Player]:
+	var winners: Array[Player] = []
 	if win_goal_reached_already:
 		return winners
 	var best := AMOUNT_TO_WIN
-	for hub in hubs:
-		var held := hub.get_resource(WIN_RESOURCE)
+	for player in players:
+		var held := player.get_resource(WIN_RESOURCE)
 		if held > best:
 			best = held
 			winners.clear()
 		if held >= best:
-			winners.append(hub)
+			winners.append(player)
 	return winners
 
 
@@ -178,9 +178,9 @@ func set_auto_skip(enabled: bool) -> void:
 ## True when no unit needs orders (all busy or waiting) and letting time pass
 ## would actually change something (units out, or training in progress).
 func _no_units_need_orders() -> bool:
-	if local_hub.units.is_empty() or not local_hub.get_units_needing_orders().is_empty():
+	if local_player.units.is_empty() or not local_player.get_units_needing_orders().is_empty():
 		return false
-	return not local_hub.get_field_units().is_empty() or not local_hub.training_queue.is_empty()
+	return not local_player.get_field_units().is_empty() or not local_player.training_queue.is_empty()
 
 
 func _process(delta: float) -> void:
@@ -190,8 +190,8 @@ func _process(delta: float) -> void:
 		_skip_this_turn = false
 		return
 	# Let this turn's movement play out before moving on.
-	for hub in hubs:
-		for unit in hub.units:
+	for player in players:
+		for unit in player.units:
 			if unit.is_animating():
 				_skip_wait = 0.0
 				return

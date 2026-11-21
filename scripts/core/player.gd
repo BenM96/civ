@@ -1,7 +1,13 @@
-class_name CentralHub
-extends Building
-## The player's main building. Every unit belongs to a hub: it waits here in
-## the garrison until given a mission, and returns here when it's done.
+class_name Player
+extends Node2D
+## One colony in the game, human or computer-controlled. A player and its
+## central hub are the same thing: this node stands on the map where the hub
+## is (`hex`) and draws it, and holds everything the colony owns - its
+## stockpile, units, training queue, buildings and supply network.
+##
+## Every unit belongs to a player: it waits at the hub until given a mission,
+## and returns there when it's done. Buildings (see Building) live inside the
+## hub rather than on map tiles.
 
 ## Emitted whenever any unit changes state (joins, departs, returns...).
 signal units_changed
@@ -14,6 +20,8 @@ signal inventory_changed
 signal training_changed
 ## Emitted when the set of extractors linked to the hub changes.
 signal network_changed
+## Emitted when a building is added to (or removed from) the hub.
+signal buildings_changed
 ## A newly linked extractor started delivering (lets the game report rivals).
 signal extractor_connected(h: Vector2i, type: ResourceDeposit.Type)
 
@@ -31,14 +39,24 @@ class TrainingOrder:
 		turns_left = p_blueprint.train_turns
 
 
-## Who owns this hub (see Faction). Set before place().
-var faction := Faction.NONE
+## This player's number, 0 and up: its index in Game.players, and what map
+## tiles store as their structure_owner. Name and colour come from Faction.
+## Set before place().
+var id := Faction.NONE
+## Played by the computer (an AiController gives its orders) rather than a
+## human.
+var is_ai := false
+## Where the hub stands on the map. Units set out from and return here.
+var hex: Vector2i
+var map: HexMap
 ## Starved and eliminated: no units, no turns, left standing as a ruin.
 var collapsed := false
 
-## Biomass the hub itself grows every turn.
-const HUB_BIOMASS_OUTPUT := 3
+## What the hub is called on the map.
+const HUB_NAME := "Central Hub"
 
+## Buildings inside the hub, in the order they were added.
+var buildings: Array[Building] = []
 var units: Array[Unit] = []
 ## Stockpiled resources: ResourceDeposit.Type -> int.
 var inventory: Dictionary = {}
@@ -62,8 +80,6 @@ var _units_ever_had: Dictionary = {}
 
 
 func _init() -> void:
-	building_name = "Central Hub"
-	max_health = 100
 	# Units this hub can train. Their costs, training times and upkeep are
 	# set in each unit's own script (scripts/units/).
 	for unit_script in [Worker, Infantry]:
@@ -74,11 +90,46 @@ func _init() -> void:
 	buildables.append(ConveyorBuildable.new())
 
 
-func get_buildable(id: String) -> Buildable:
+## "Your colony" for the player at this computer, otherwise e.g. "Pink colony".
+func get_display_name() -> String:
+	return Faction.get_display_name(id)
+
+
+func get_color() -> Color:
+	return Faction.get_color(id)
+
+
+func get_buildable(buildable_id: String) -> Buildable:
 	for b in buildables:
-		if b.id == id:
+		if b.id == buildable_id:
 			return b
 	return null
+
+
+# --- Buildings -------------------------------------------------------------
+
+## Adds a building to the hub.
+func add_building(building: Building) -> void:
+	buildings.append(building)
+	buildings_changed.emit()
+
+
+## How many of the hub's buildings have this id, e.g. "greenhouse".
+func count_buildings(building_id: String) -> int:
+	var count := 0
+	for b in buildings:
+		if b.id == building_id:
+			count += 1
+	return count
+
+
+## What every building in the hub produces in a turn: Type -> int.
+func get_building_output() -> Dictionary:
+	var total := {}
+	for b in buildings:
+		for type in b.output:
+			total[type] = total.get(type, 0) + b.output[type]
+	return total
 
 
 ## The blueprint for training a unit type, e.g. "Worker", or null.
@@ -90,9 +141,9 @@ func get_blueprint(unit_name: String) -> UnitBlueprint:
 
 
 ## One of this colony's units by its id, or null.
-func get_unit(id: int) -> Unit:
+func get_unit(unit_id: int) -> Unit:
 	for u in units:
-		if u.id == id:
+		if u.id == unit_id:
 			return u
 	return null
 
@@ -150,7 +201,7 @@ func get_units_needing_orders() -> Array[Unit]:
 
 ## Tells a unit at home to wait (or wakes it).
 func set_unit_waiting(unit: Unit, value: bool) -> bool:
-	if unit.hub != self or not unit.set_waiting(value):
+	if unit.player != self or not unit.set_waiting(value):
 		return false
 	if value:
 		unit_event.emit("%s is waiting at the hub" % unit.display_name)
@@ -171,7 +222,7 @@ func get_field_units() -> Array[Unit]:
 ## once and goes with the unit (Unit.materials), so no other order can spend
 ## the same resources. The unit departs when the turn ends.
 func assign_mission(unit: Unit, mission: Mission) -> bool:
-	if unit.hub != self or not unit.can_accept_mission(mission):
+	if unit.player != self or not unit.can_accept_mission(mission):
 		return false
 	var cost := mission.get_cost()
 	if not can_afford(cost):
@@ -187,7 +238,7 @@ func assign_mission(unit: Unit, mission: Mission) -> bool:
 ## Withdraws an order from a unit that hasn't left yet (or is back at the hub
 ## waiting), putting the materials it was given back in the stockpile.
 func cancel_mission(unit: Unit) -> bool:
-	if unit.hub != self:
+	if unit.player != self:
 		return false
 	if not unit.cancel_mission():
 		return false
@@ -298,9 +349,13 @@ func _process_training() -> void:
 
 # --- Supply network --------------------------------------------------------
 
+## Puts the hub on the map. The player must already be in the tree.
 func place(p_map: HexMap, p_hex: Vector2i) -> void:
-	super.place(p_map, p_hex)
-	map.register_hub(self)
+	map = p_map
+	hex = p_hex
+	global_position = map.hex_to_world(hex)
+	map.register_player(self)
+	queue_redraw()
 	if not map.tile_changed.is_connected(_on_tile_changed):
 		map.tile_changed.connect(_on_tile_changed)
 	update_network()
@@ -310,7 +365,7 @@ func _on_tile_changed(_h: Vector2i) -> void:
 	update_network()
 
 
-## Flood-fills out from the hub through this faction's own conveyors and
+## Flood-fills out from the hub through this player's own conveyors and
 ## extractors (a rival's belts never carry our resources). Called
 ## whenever a tile changes.
 func update_network() -> void:
@@ -322,7 +377,7 @@ func update_network() -> void:
 			if network.has(n):
 				continue
 			var tile := map.get_tile(n)
-			if tile and Structure.carries_resources(tile.structure) and tile.structure_owner == faction:
+			if tile and Structure.carries_resources(tile.structure) and tile.structure_owner == id:
 				network[n] = current
 				frontier.append(n)
 	_network = network
@@ -371,12 +426,15 @@ func get_upkeep() -> int:
 	return total
 
 
-## Overall change per turn, on average: extractors + hub production - unit
+## Overall change per turn, on average: extractors + buildings - unit
 ## upkeep. Type -> float (may be fractional or negative).
 func get_net_income() -> Dictionary:
 	var net := get_income()
+	var made := get_building_output()
+	for type in made:
+		net[type] = net.get(type, 0.0) + made[type]
 	var biomass := ResourceDeposit.Type.BIOMASS
-	net[biomass] = net.get(biomass, 0.0) + HUB_BIOMASS_OUTPUT - get_upkeep()
+	net[biomass] = net.get(biomass, 0.0) - get_upkeep()
 	return net
 
 
@@ -398,7 +456,7 @@ func _process_extractors() -> void:
 	# Forget progress on tiles that are no longer our extractors.
 	for h in _extractor_progress.keys():
 		var tile := map.get_tile(h)
-		if tile.structure != Structure.Type.EXTRACTOR or tile.structure_owner != faction:
+		if tile.structure != Structure.Type.EXTRACTOR or tile.structure_owner != id:
 			_extractor_progress.erase(h)
 	for h in get_producing_extractors():
 		var deposit := map.get_tile(h).deposit
@@ -409,15 +467,15 @@ func _process_extractors() -> void:
 		if whole > 0:
 			add_resource(deposit.type, deposit.extract(whole))
 		if deposit.is_depleted():
-			map.set_structure(h, Structure.Type.CONVEYOR, faction)
+			map.set_structure(h, Structure.Type.CONVEYOR, id)
 			_extractor_progress.erase(h)
 			unit_event.emit("Extractor at (%d, %d) has exhausted its %s deposit and was removed (the belt stays)"
 				% [h.x, h.y, deposit.get_display_name()])
 	# Older saves may still have extractors on deposits that ran dry.
 	for h in _network.keys():  # A copy: changing a tile rebuilds _network.
 		var tile := map.get_tile(h)
-		if tile.structure == Structure.Type.EXTRACTOR and tile.structure_owner == faction and not tile.has_deposit():
-			map.set_structure(h, Structure.Type.CONVEYOR, faction)
+		if tile.structure == Structure.Type.EXTRACTOR and tile.structure_owner == id and not tile.has_deposit():
+			map.set_structure(h, Structure.Type.CONVEYOR, id)
 
 
 # --- Turn steps (run by TurnManager, in this order) ------------------------
@@ -443,13 +501,14 @@ func units_work() -> void:
 		unit.do_work()
 
 
-## "Production" step: training progresses, extractors deliver, the hub
-## grows its biomass. (After movement, so a freshly trained unit just
-## waits in the garrison.)
+## "Production" step: training progresses, extractors deliver, the hub's
+## buildings produce (e.g. a Greenhouse grows biomass). (After movement, so
+## a freshly trained unit just waits in the garrison.)
 func produce() -> void:
 	_process_training()
 	_process_extractors()
-	add_resource(ResourceDeposit.Type.BIOMASS, HUB_BIOMASS_OUTPUT)
+	for building in buildings:
+		building.produce(self)
 
 
 ## "Upkeep" step: every unit eats. Returns true if biomass went below zero.
@@ -480,7 +539,9 @@ func to_dict() -> Dictionary:
 		progress.append([h.x, h.y, _extractor_progress[h]])
 	return {
 		"extractor_progress": progress,
-		"faction": faction,
+		"id": id,
+		"is_ai": is_ai,
+		"buildings": buildings.map(func(b: Building) -> String: return b.id),
 		"hex": SaveGame.hex_to_data(hex),
 		"collapsed": collapsed,
 		"inventory": SaveGame.resources_to_data(inventory),
@@ -513,6 +574,14 @@ func load_dict(data: Dictionary) -> void:
 	_units_ever_had = {}
 	for unit_name in data["units_named"]:
 		_units_ever_had[unit_name] = int(data["units_named"][unit_name])
+	buildings.clear()
+	# Older saves have no buildings: the hub grew biomass by itself, which
+	# a Greenhouse does now.
+	for building_id in data.get("buildings", [Greenhouse.ID]):
+		var building := Building.create(str(building_id))
+		if building:
+			buildings.append(building)
+	buildings_changed.emit()
 	if data["collapsed"]:
 		collapse()
 
@@ -530,10 +599,10 @@ func collapse() -> void:
 
 func get_info_text() -> String:
 	if collapsed:
-		return "%s (%s) - collapsed, abandoned" % [building_name, Faction.get_display_name(faction)]
+		return "%s (%s) - collapsed, abandoned" % [HUB_NAME, get_display_name()]
 	var text := "%s (%s) - %d/%d units home" % [
-		building_name, Faction.get_display_name(faction), get_garrison().size(), units.size()]
-	if faction != Faction.local_faction:
+		HUB_NAME, get_display_name(), get_garrison().size(), units.size()]
+	if id != Faction.local_faction:
 		# Scouting report on a rival's stockpile.
 		text += "\nStockpile: %s" % (ResourceDeposit.format_cost(inventory) if not inventory.is_empty() else "empty")
 		var income := get_income()
@@ -584,7 +653,7 @@ func _draw() -> void:
 	draw_colored_polygon(outer, Color(0.32, 0.34, 0.38))
 	var outline := outer.duplicate()
 	outline.append(outer[0])
-	draw_polyline(outline, Faction.get_color(faction), 3.0, true)
+	draw_polyline(outline, get_color(), 3.0, true)
 	# Habitat dome with an antenna.
 	var base_y := size * 0.25
 	var r := size * 0.42

@@ -23,8 +23,8 @@ var _astar := AStar2D.new()
 var _point_ids: Dictionary = {}  # Vector2i -> int
 var _id_to_hex: Array[Vector2i] = []
 var _foundation_anchors: Array[Vector2i] = []
-## Faction -> CentralHub, for drawing ownership and supply networks.
-var hubs: Dictionary = {}
+## Faction -> Player, for drawing ownership and supply networks.
+var players: Dictionary = {}
 ## The seed the current map was generated from (pass it back to generate()
 ## to make the same map again).
 var last_seed := 0
@@ -287,23 +287,23 @@ func set_structure(h: Vector2i, type: Structure.Type, owner_faction := Faction.N
 
 
 ## Lets the map draw each faction's hub links and supply network.
-func register_hub(hub: CentralHub) -> void:
-	hubs[hub.faction] = hub
-	add_foundation_anchor(hub.hex)
+func register_player(player: Player) -> void:
+	players[player.id] = player
+	add_foundation_anchor(player.hex)
 
 
-func get_hub_at(h: Vector2i) -> CentralHub:
-	for faction in hubs:
-		if hubs[faction].hex == h:
-			return hubs[faction]
+func get_player_at(h: Vector2i) -> Player:
+	for faction in players:
+		if players[faction].hex == h:
+			return players[faction]
 	return null
 
 
 ## Every faction's units that are out on the map (not garrisoned).
 func get_units_in_world() -> Array[Unit]:
 	var result: Array[Unit] = []
-	for faction in hubs:
-		for u: Unit in hubs[faction].units:
+	for faction in players:
+		for u: Unit in players[faction].units:
 			if u.is_in_world():
 				result.append(u)
 	return result
@@ -475,8 +475,8 @@ func _belt_owner(h: Vector2i) -> int:
 	var tile := get_tile(h)
 	if tile and Structure.carries_resources(tile.structure):
 		return tile.structure_owner
-	var hub := get_hub_at(h)
-	return hub.faction if hub else Faction.NONE
+	var player := get_player_at(h)
+	return player.id if player else Faction.NONE
 
 
 ## Belts only link up with the same faction's belts, extractors and hub.
@@ -493,7 +493,7 @@ func _has_belt_neighbour(h: Vector2i, owner_faction: int) -> bool:
 
 
 func _is_supply_connected(h: Vector2i, owner_faction: int) -> bool:
-	return hubs.has(owner_faction) and hubs[owner_faction].is_supply_connected(h)
+	return players.has(owner_faction) and players[owner_faction].is_supply_connected(h)
 
 
 ## Half a belt from this tile's centre to each linked neighbour; the
@@ -526,7 +526,7 @@ func _draw_belt_links(h: Vector2i, owner_faction: int) -> void:
 		draw_line(c + side, e + side, rail, 1.5)
 		draw_line(c - side, e - side, rail, 1.5)
 	# Flow chevrons on the segment towards the hub.
-	var next_hex: Vector2i = hubs[owner_faction].get_network_parent(h) if lit else h
+	var next_hex: Vector2i = players[owner_faction].get_network_parent(h) if lit else h
 	if lit and next_hex != h:
 		var target := c + (Hex.to_pixel(next_hex, s) - c) * 0.5
 		var dir := (target - c).normalized()

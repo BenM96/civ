@@ -4,7 +4,7 @@ extends CanvasLayer
 ##
 ## Layout:
 ##   - Top bar: turn, resources, hint/help, auto-end toggle, End Turn.
-##   - Bottom bar: section buttons (Units, Field, Training). Clicking one opens that
+##   - Bottom bar: section buttons (Units, Field, Training, Buildings). Clicking one opens that
 ##     section in a panel just above the bar; clicking it again closes it.
 ##   - Event log (top right) and hovered-tile info (bottom right).
 
@@ -26,14 +26,15 @@ signal debug_resources_requested
 ## The player closed the winner popup with Keep Playing.
 signal popup_closed
 
-enum Section { NONE, UNITS, FIELD, TRAINING }
+enum Section { NONE, UNITS, FIELD, TRAINING, BUILDINGS }
 
 const END_TURN_TEXT := "End Turn (Enter)"
 const MAX_LOG_LINES := 8
 const BOTTOM_BAR_HEIGHT := 78.0
 const PANEL_WIDTH := 380.0
 
-const SECTION_TITLES := {Section.UNITS: "Units", Section.FIELD: "In the Field", Section.TRAINING: "Training"}
+const SECTION_TITLES := {Section.UNITS: "Units", Section.FIELD: "In the Field", Section.TRAINING: "Training",
+	Section.BUILDINGS: "Buildings"}
 
 const ICON_UNITS := """<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">
 <circle cx="22" cy="10" r="4.5" fill="#9fb4d6"/><path d="M14 27c1-6 4-9 8-9s7 3 8 9z" fill="#9fb4d6"/>
@@ -43,6 +44,14 @@ const ICON_UNITS := """<svg xmlns="http://www.w3.org/2000/svg" width="32" height
 const ICON_TRAINING := """<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">
 <circle cx="11" cy="11" r="5.5" fill="#eef4ff"/><path d="M1 29c0-7 4-11 10-11s10 4 10 11z" fill="#eef4ff"/>
 <rect x="23" y="3" width="4" height="14" rx="1" fill="#7dff7a"/><rect x="18" y="8" width="14" height="4" rx="1" fill="#7dff7a"/>
+</svg>"""
+
+## A greenhouse: a glass dome with a sprout inside.
+const ICON_BUILDINGS := """<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+<rect x="2" y="25" width="28" height="4" rx="1" fill="#9fb4d6"/>
+<path d="M4 25a12 12 0 0 1 24 0z" fill="#bfe6ff" fill-opacity="0.45" stroke="#eef4ff" stroke-width="2"/>
+<path d="M16 25v-9" stroke="#7dff7a" stroke-width="2.5"/>
+<path d="M16 19c-4 0-6-2-6-5 4 0 6 2 6 5zm0-2c0-3 2-5 6-5 0 3-2 5-6 5z" fill="#7dff7a"/>
 </svg>"""
 
 ## A map pin over a route line: units out in the field.
@@ -70,7 +79,7 @@ var _section_list: VBoxContainer
 var _section_buttons: Dictionary = {}
 var _section := Section.NONE
 
-var _hub: CentralHub
+var _player: Player
 var _game_over := false
 ## The popup covering the screen, or null.
 var _popup: Control = null
@@ -96,28 +105,32 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	elif key.keycode == KEY_T:
 		toggle_section(Section.TRAINING)
 		get_viewport().set_input_as_handled()
+	elif key.keycode == KEY_B:
+		toggle_section(Section.BUILDINGS)
+		get_viewport().set_input_as_handled()
 
 
 # --- Public API ------------------------------------------------------------
 
-## Connects the HUD to the hub whose units/training it shows.
-func set_hub(hub: CentralHub) -> void:
-	if _hub == hub:
+## Connects the HUD to the player whose units, training and buildings it shows.
+func set_player(player: Player) -> void:
+	if _player == player:
 		return
-	if _hub:
-		for s in [_hub.units_changed, _hub.inventory_changed, _hub.training_changed]:
+	if _player:
+		for s in [_player.units_changed, _player.inventory_changed, _player.training_changed, _player.buildings_changed]:
 			if s.is_connected(refresh):
 				s.disconnect(refresh)
-	_hub = hub
-	_hub.units_changed.connect(refresh)
-	_hub.inventory_changed.connect(refresh)
-	_hub.training_changed.connect(refresh)
+	_player = player
+	_player.units_changed.connect(refresh)
+	_player.inventory_changed.connect(refresh)
+	_player.training_changed.connect(refresh)
+	_player.buildings_changed.connect(refresh)
 	refresh()
 
 
 ## Opens the Units section for `hub` (used when the hub is clicked on the map).
-func show_hub(hub: CentralHub) -> void:
-	set_hub(hub)
+func show_hub(player: Player) -> void:
+	set_player(player)
 	open_section(Section.UNITS)
 
 
@@ -253,7 +266,7 @@ func log_event(message: String) -> void:
 ## Re-reads the hub: bottom-bar counts always, panel contents if open.
 func refresh() -> void:
 	_update_section_buttons()
-	if _hub == null or _section == Section.NONE:
+	if _player == null or _section == Section.NONE:
 		return
 	_section_title.text = SECTION_TITLES[_section]
 	for child in _section_list.get_children():
@@ -265,6 +278,8 @@ func refresh() -> void:
 			_fill_field()
 		Section.TRAINING:
 			_fill_training()
+		Section.BUILDINGS:
+			_fill_buildings()
 
 
 ## Kept for older callers.
@@ -285,7 +300,7 @@ func _mission_choices(unit: Unit) -> Array:
 		choices.append(["guard", "Guard (%d turns)" % GuardMission.GUARD_TURNS,
 			"Hold a tile for %d turns, stopping enemy infantry and killing enemy workers there, then come home." % GuardMission.GUARD_TURNS, true])
 	if unit.can_take("escort"):
-		for other in _hub.units:
+		for other in _player.units:
 			var m := EscortMission.new(other.id)
 			if m.get_invalid_reason(unit) == "":
 				var plans := "" if other.mission == null else " (%s)" % other.mission.get_description()
@@ -298,23 +313,23 @@ func _mission_choices(unit: Unit) -> Array:
 	if unit.can_take("harvest"):
 		choices.append(["harvest", "Harvest", "Bring back 1 resource from a deposit.", true])
 	if unit.can_take("build"):
-		for b in _hub.buildables:
+		for b in _player.buildables:
 			# Line jobs pay as they go, so they're always offered; the order
 			# itself says if you can't afford to start.
 			if b.line_of == b.id:
 				var extra := "" if b.requires.is_empty() else " (and %ss where missing)" % " / ".join(
-					b.requires.map(func(r: String) -> String: return _hub.get_buildable(r).display_name))
+					b.requires.map(func(r: String) -> String: return _player.get_buildable(r).display_name))
 				choices.append(["build:" + b.id, "Build %ss (%s each)" % [b.display_name, b.get_cost_text()],
 					"Pick a tile: builds a %s%s on every tile from the hub to there, paying as it goes. Stops and comes home if you run out." % [
 						b.display_name, extra], true])
 			elif b.line_of != "":
-				var line_name := _hub.get_buildable(b.line_of).display_name
+				var line_name := _player.get_buildable(b.line_of).display_name
 				choices.append(["build:" + b.id, "Build %s (%s, + %ss to hub)" % [b.display_name, b.get_cost_text(), line_name],
 					"Pick a deposit: lays foundations and %ss from the hub to it where missing, then builds the %s. Pays as it goes." % [
 						line_name, b.display_name], true])
 			else:
 				choices.append(["build:" + b.id, "Build %s (%s)" % [b.display_name, b.get_cost_text()],
-					"Costs %s." % b.get_cost_text(), _hub.can_afford(b.cost)])
+					"Costs %s." % b.get_cost_text(), _player.can_afford(b.cost)])
 	if unit.can_take("demolish"):
 		choices.append(["demolish", "Demolish",
 			"Tear down foundations, bridges, extractors or conveyors on a tile, leaving rubble.", true])
@@ -355,7 +370,7 @@ func _make_mission_picker(unit: Unit) -> OptionButton:
 ## Units at home that are ready for orders. Units told to wait are listed
 ## separately underneath (just a Wake button) so they can be brought back.
 func _fill_units() -> void:
-	var ready := _hub.get_units_needing_orders()
+	var ready := _player.get_units_needing_orders()
 	_add_heading("Ready for orders (%d)" % ready.size())
 	if ready.is_empty():
 		_add_note("Nobody is waiting for orders.")
@@ -387,7 +402,7 @@ func _fill_units() -> void:
 		_section_list.add_child(row)
 
 	var waiting: Array[Unit] = []
-	for unit in _hub.get_garrison():
+	for unit in _player.get_garrison():
 		if unit.waiting:
 			waiting.append(unit)
 	if waiting.is_empty():
@@ -410,7 +425,7 @@ func _fill_units() -> void:
 
 ## Every unit that is out of the hub or leaving it, grouped by what it's doing.
 func _fill_field() -> void:
-	var field := _hub.get_field_units()
+	var field := _player.get_field_units()
 	if field.is_empty():
 		_add_note("Nobody is out. Give orders from the Units panel.")
 		return
@@ -458,23 +473,23 @@ func _fill_field() -> void:
 
 func _fill_training() -> void:
 	_add_heading("Train a unit")
-	for blueprint in _hub.blueprints:
+	for blueprint in _player.blueprints:
 		var bp := blueprint
-		var cost := _hub.get_training_cost(bp)
+		var cost := _player.get_training_cost(bp)
 		var button := _make_button("Train %s  (%s, %d turns)" % [
 			bp.unit_name, ResourceDeposit.format_cost(cost), bp.train_turns],
 			func() -> void: train_requested.emit(bp))
-		button.disabled = not _hub.can_afford(cost)
+		button.disabled = not _player.can_afford(cost)
 		button.tooltip_text = ("Not enough resources. " if button.disabled else "") \
 			+ bp.get_cost_growth_text()
 		_section_list.add_child(button)
 
 	_section_list.add_child(HSeparator.new())
-	_add_heading("Queue (%d)" % _hub.training_queue.size())
-	if _hub.training_queue.is_empty():
+	_add_heading("Queue (%d)" % _player.training_queue.size())
+	if _player.training_queue.is_empty():
 		_add_note("Nothing in training.")
-	for i in _hub.training_queue.size():
-		var order := _hub.training_queue[i]
+	for i in _player.training_queue.size():
+		var order := _player.training_queue[i]
 		var row := HBoxContainer.new()
 		var label := Label.new()
 		if i == 0:
@@ -488,19 +503,36 @@ func _fill_training() -> void:
 		_section_list.add_child(row)
 
 
+## The buildings inside the hub. (Building new ones will come here later.)
+func _fill_buildings() -> void:
+	_add_heading("In your hub (%d)" % _player.buildings.size())
+	if _player.buildings.is_empty():
+		_add_note("No buildings yet.")
+	for building in _player.buildings:
+		var label := Label.new()
+		var output := building.get_output_text()
+		label.text = building.display_name + ("  (%s)" % output if output != "" else "")
+		label.tooltip_text = building.description
+		label.mouse_filter = Control.MOUSE_FILTER_PASS  # So the tooltip shows.
+		_section_list.add_child(label)
+
+
 func _update_section_buttons() -> void:
 	if _section_buttons.is_empty():
 		return
 	var units_button: Button = _section_buttons[Section.UNITS]
 	var training_button: Button = _section_buttons[Section.TRAINING]
 	var field_button: Button = _section_buttons[Section.FIELD]
-	if _hub:
-		var idle := _hub.get_units_needing_orders().size()
+	var buildings_button: Button = _section_buttons[Section.BUILDINGS]
+	if _player:
+		var idle := _player.get_units_needing_orders().size()
 		units_button.text = "Units  (%d ready)" % idle if idle > 0 else "Units"
-		var out := _hub.get_field_units().size()
+		var out := _player.get_field_units().size()
 		field_button.text = "Field  (%d)" % out if out > 0 else "Field"
-		var queued := _hub.training_queue.size()
+		var queued := _player.training_queue.size()
 		training_button.text = "Training  (%d)" % queued if queued > 0 else "Training"
+		var built := _player.buildings.size()
+		buildings_button.text = "Buildings  (%d)" % built if built > 0 else "Buildings"
 	for section in _section_buttons:
 		var b: Button = _section_buttons[section]
 		b.set_pressed_no_signal(section == _section)
@@ -600,7 +632,7 @@ func _build_top_bar(root: Control) -> void:
 	top_row.add_child(_hint_label)
 	_help_label = Label.new()
 	_help_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	_help_label.text = "WASD: pan   Wheel: zoom   U: units   F: field   T: training   "
+	_help_label.text = "WASD: pan   Wheel: zoom   U: units   F: field   T: training   B: buildings   "
 	_help_label.modulate = Color(1, 1, 1, 0.6)
 	_help_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_help_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -641,6 +673,7 @@ func _build_bottom_bar(root: Control) -> void:
 	_section_buttons[Section.UNITS] = _make_section_button(row, "Units", ICON_UNITS, Section.UNITS, "Units (U)")
 	_section_buttons[Section.FIELD] = _make_section_button(row, "Field", ICON_FIELD, Section.FIELD, "Units in the field (F)")
 	_section_buttons[Section.TRAINING] = _make_section_button(row, "Training", ICON_TRAINING, Section.TRAINING, "Training (T)")
+	_section_buttons[Section.BUILDINGS] = _make_section_button(row, "Buildings", ICON_BUILDINGS, Section.BUILDINGS, "Buildings in your hub (B)")
 
 
 func _make_section_button(parent: Control, text: String, svg: String, section: Section, tooltip: String) -> Button:

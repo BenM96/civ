@@ -104,7 +104,7 @@ func find_work_site(map: HexMap, from: Vector2i) -> Variant:
 
 
 func get_invalid_reason(u: Unit) -> String:
-	if u.map.get_hub_at(target) != null:
+	if u.map.get_player_at(target) != null:
 		return "not on a hub"
 	var reason := buildable.get_invalid_reason(u.map, target)
 	if reason != "":
@@ -131,5 +131,5 @@ func work() -> void:
 	_turns_worked += 1
 	if _turns_worked >= buildable.build_turns:
 		unit.use_materials(buildable.cost)  # Brought from the hub. (Older saves: already spent.)
-		buildable.apply(unit.map, target, unit.hub.faction)
+		buildable.apply(unit.map, target, unit.player.id)
 		complete()

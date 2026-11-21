@@ -1,7 +1,7 @@
 class_name BiomassResource
 extends ResourceType
 ## Food. Every unit eats it each turn and a colony whose stock falls below
-## zero loses. The hub grows some; the rest comes from extractors (Workers
+## zero loses. The hub's Greenhouse grows some; the rest comes from extractors (Workers
 ## can harvest it, but the AI never does).
 
 

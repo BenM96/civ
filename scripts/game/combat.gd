@@ -31,9 +31,9 @@ static func _sides_on(map: HexMap, hexes: Array[Vector2i]) -> Dictionary:
 	for u in map.get_units_in_world():
 		if not u.hex in hexes:
 			continue
-		if not sides.has(u.hub.faction):
-			sides[u.hub.faction] = []
-		sides[u.hub.faction].append(u)
+		if not sides.has(u.player.id):
+			sides[u.player.id] = []
+		sides[u.player.id].append(u)
 	return sides
 
 
@@ -81,7 +81,7 @@ static func _has_fighter(units: Array) -> bool:
 
 static func _remove_dead(dead: Array[Unit]) -> void:
 	for u in dead:
-		u.hub.remove_unit(u)
+		u.player.remove_unit(u)
 
 
 ## e.g. "(3, 4), (4, 4)"
@@ -97,7 +97,7 @@ static func _describe_losses(dead: Array[Unit]) -> String:
 	# faction -> {unit_name -> count}
 	var losses := {}
 	for u in dead:
-		var faction := u.hub.faction
+		var faction := u.player.id
 		if not losses.has(faction):
 			losses[faction] = {}
 		losses[faction][u.unit_name] = losses[faction].get(u.unit_name, 0) + 1

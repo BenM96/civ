@@ -94,11 +94,11 @@ func get_description() -> String:
 
 
 func get_progress_text() -> String:
-	var left := _count_jobs(unit.hub, unit.map, _route)
+	var left := _count_jobs(unit.player, unit.map, _route)
 	if _waiting_for_resources:
 		var job := _cheapest_blocked_job()
 		var needs := ResourceDeposit.format_cost(_shortfall(job.cost)) if job else "resources"
-		var where := "Waiting at the hub" if unit.hex == unit.hub.hex else "Heading back to the hub to wait"
+		var where := "Waiting at the hub" if unit.hex == unit.player.hex else "Heading back to the hub to wait"
 		return "%s for resources (needs %s) to build %s" % [where, needs, _what()]
 	if _going_home:
 		return "Heading back to the hub before the next job on %s (%d job(s) left)" % [_what(), left]
@@ -126,7 +126,7 @@ func get_target_hex() -> Variant:
 ## resources, else the tile of its current job; before setting off, the target.
 func get_travel_hex() -> Variant:
 	if (_waiting_for_resources or _going_home) and unit:
-		return unit.hub.hex
+		return unit.player.hex
 	if _job_tile != null:
 		return _job_tile
 	return target
@@ -137,32 +137,32 @@ func get_work_turns() -> int:
 	if unit == null:
 		return 0
 	var turns := 0
-	for h in plan_route(unit.hub, unit.map, unit.hex, target):
-		for layer in _pending_layers(unit.hub, unit.map, h):
+	for h in plan_route(unit.player, unit.map, unit.hex, target):
+		for layer in _pending_layers(unit.player, unit.map, h):
 			turns += layer.build_turns
 	return turns
 
 
 ## The jobs that could be done next on the route - each tile's next job -
 ## lowest layer first (the order workers pick them in), for planners.
-func get_next_jobs(hub: CentralHub, map: HexMap, from: Vector2i) -> Array[Buildable]:
+func get_next_jobs(player: Player, map: HexMap, from: Vector2i) -> Array[Buildable]:
 	var jobs: Array[Buildable] = []
-	for entry in _next_jobs_by_tile(hub, map, from, {}):
+	for entry in _next_jobs_by_tile(player, map, from, {}):
 		jobs.append(entry[1])
 	return jobs
 
 
 ## [tile, next job there] for every tile with work left (except tiles in
 ## `skip`), lowest layer first.
-func _next_jobs_by_tile(hub: CentralHub, map: HexMap, from: Vector2i, skip: Dictionary) -> Array:
+func _next_jobs_by_tile(player: Player, map: HexMap, from: Vector2i, skip: Dictionary) -> Array:
 	var jobs := []
-	for h in plan_route(hub, map, from, target):
+	for h in plan_route(player, map, from, target):
 		if skip.has(h):
 			continue
-		var pending := _pending_layers(hub, map, h)
+		var pending := _pending_layers(player, map, h)
 		if not pending.is_empty():
 			jobs.append([h, pending[0]])
-	jobs.sort_custom(func(a: Array, b: Array) -> bool: return _depth_in(hub, a[1]) < _depth_in(hub, b[1]))
+	jobs.sort_custom(func(a: Array, b: Array) -> bool: return _depth_in(player, a[1]) < _depth_in(player, b[1]))
 	return jobs
 
 
@@ -170,10 +170,10 @@ func _next_jobs_by_tile(hub: CentralHub, map: HexMap, from: Vector2i, skip: Dict
 ## layers first - i.e. how many more workers could set to work right now.
 ## Leaves out tiles in `skip` (e.g. ones builders already took materials
 ## for). Takes what they'd cost out of `budget`, at most `limit` jobs' worth.
-func take_startable(hub: CentralHub, map: HexMap, from: Vector2i, budget: Dictionary, limit: int,
+func take_startable(player: Player, map: HexMap, from: Vector2i, budget: Dictionary, limit: int,
 		skip: Dictionary = {}) -> int:
 	var count := 0
-	for entry in _next_jobs_by_tile(hub, map, from, skip):
+	for entry in _next_jobs_by_tile(player, map, from, skip):
 		var job: Buildable = entry[1]
 		if count >= limit:
 			break
@@ -189,10 +189,10 @@ func take_startable(hub: CentralHub, map: HexMap, from: Vector2i, budget: Dictio
 
 
 ## Everything the route still needs, in total: ResourceDeposit.Type -> int.
-func get_total_cost(hub: CentralHub, map: HexMap, from: Vector2i) -> Dictionary:
+func get_total_cost(player: Player, map: HexMap, from: Vector2i) -> Dictionary:
 	var total := {}
-	for h in plan_route(hub, map, from, target):
-		for layer in _pending_layers(hub, map, h):
+	for h in plan_route(player, map, from, target):
+		for layer in _pending_layers(player, map, h):
 			for type in layer.cost:
 				total[type] = total.get(type, 0) + layer.cost[type]
 	return total
@@ -200,13 +200,13 @@ func get_total_cost(hub: CentralHub, map: HexMap, from: Vector2i) -> Dictionary:
 
 ## Every job the route still needs, grouped by buildable, lowest layer first:
 ## [[Buildable, count], ...]. e.g. 3 Foundations, 4 Conveyor Belts, 1 Extractor.
-func get_job_counts(hub: CentralHub, map: HexMap, from: Vector2i) -> Array:
+func get_job_counts(player: Player, map: HexMap, from: Vector2i) -> Array:
 	var counts := {}
-	for h in plan_route(hub, map, from, target):
-		for layer in _pending_layers(hub, map, h):
+	for h in plan_route(player, map, from, target):
+		for layer in _pending_layers(player, map, h):
 			counts[layer] = counts.get(layer, 0) + 1
 	var jobs := []
-	for layer in _expand(hub, buildable.line_of) + _expand(hub, buildable.id):
+	for layer in _expand(player, buildable.line_of) + _expand(player, buildable.id):
 		if counts.has(layer):
 			jobs.append([layer, counts[layer]])
 			counts.erase(layer)
@@ -225,15 +225,15 @@ func can_cancel_at_hub() -> bool:
 
 
 func get_invalid_reason(u: Unit) -> String:
-	if u.map.get_hub_at(target) != null:
+	if u.map.get_player_at(target) != null:
 		return "not on a hub"
-	var target_problem := _site_problem(u.hub, u.map, target)
+	var target_problem := _site_problem(u.player, u.map, target)
 	if target_problem != "":
 		return target_problem
-	var route := plan_route(u.hub, u.map, u.hex, target)
+	var route := plan_route(u.player, u.map, u.hex, target)
 	if route.is_empty():
 		return "no way to build a line there"
-	if _count_jobs(u.hub, u.map, route) == 0:
+	if _count_jobs(u.player, u.map, route) == 0:
 		return "nothing left to build there"
 	return ""  # Can't afford it yet? The worker waits at the hub until we can.
 
@@ -241,16 +241,16 @@ func get_invalid_reason(u: Unit) -> String:
 ## Ordered: pick the first job and take its materials from the hub straight
 ## away, so nothing else can spend them before we set off.
 func on_assigned() -> void:
-	_route = plan_route(unit.hub, unit.map, unit.hex, target)
-	var job := _pick_job(unit.hub.inventory)
-	if not job.is_empty() and unit.hub.give_materials(unit, job[1].cost):
+	_route = plan_route(unit.player, unit.map, unit.hex, target)
+	var job := _pick_job(unit.player.inventory)
+	if not job.is_empty() and unit.player.give_materials(unit, job[1].cost):
 		_job_tile = job[0]
 
 
 func begin() -> void:
-	_route = plan_route(unit.hub, unit.map, unit.hex, target)
+	_route = plan_route(unit.player, unit.map, unit.hex, target)
 	var job_still_there := _job_tile != null and _route.has(_job_tile) \
-		and not _pending_layers(unit.hub, unit.map, _job_tile).is_empty()
+		and not _pending_layers(unit.player, unit.map, _job_tile).is_empty()
 	if job_still_there:
 		_turns_worked = 0
 		phase = Phase.TRAVELLING
@@ -264,19 +264,19 @@ func begin() -> void:
 ## afford a job on the line.
 func prepare() -> void:
 	if _going_home:
-		if unit.hex == unit.hub.hex:
+		if unit.hex == unit.player.hex:
 			_going_home = false
 			_choose_next_job()
 		elif not unit.has_destination():
-			unit.set_destination(unit.hub.hex)
+			unit.set_destination(unit.player.hex)
 		return
 	if not _waiting_for_resources:
 		super()
 		return
-	if not _pick_job(unit.hub.inventory).is_empty() or _count_jobs(unit.hub, unit.map, _route) == 0:
+	if not _pick_job(unit.player.inventory).is_empty() or _count_jobs(unit.player, unit.map, _route) == 0:
 		_choose_next_job()
-	elif unit.hex != unit.hub.hex and not unit.has_destination():
-		unit.set_destination(unit.hub.hex)
+	elif unit.hex != unit.player.hex and not unit.has_destination():
+		unit.set_destination(unit.player.hex)
 
 
 ## One job on the current tile, then back to the hub before the next.
@@ -285,7 +285,7 @@ func work() -> void:
 		return
 	var map := unit.map
 	var h: Vector2i = _job_tile
-	var pending := _pending_layers(unit.hub, map, h)
+	var pending := _pending_layers(unit.player, map, h)
 	if pending.is_empty():
 		_choose_next_job()  # Someone else finished it while we were on our way.
 		return
@@ -302,7 +302,7 @@ func work() -> void:
 	_turns_worked += 1
 	if _turns_worked < layer.build_turns:
 		return
-	layer.apply(map, h, unit.hub.faction)
+	layer.apply(map, h, unit.player.id)
 	_built[layer.display_name] = _built.get(layer.display_name, 0) + 1
 	_turns_worked = 0
 	if _has_unclaimed_jobs():
@@ -316,7 +316,7 @@ func _go_home() -> void:
 	_job_tile = null
 	_going_home = true
 	phase = Phase.TRAVELLING
-	unit.set_destination(unit.hub.hex)
+	unit.set_destination(unit.player.hex)
 
 
 ## Picks the next job and sets off for it - or waits at the hub if none can
@@ -325,14 +325,14 @@ func _go_home() -> void:
 ## out in the field, only a job the materials we carry cover will do (else we
 ## head home to swap them).
 func _choose_next_job() -> void:
-	var at_hub := unit.hex == unit.hub.hex
+	var at_hub := unit.hex == unit.player.hex
 	if at_hub:
-		unit.hub.take_back_materials(unit)
-		var route := plan_route(unit.hub, unit.map, unit.hex, target)
+		unit.player.take_back_materials(unit)
+		var route := plan_route(unit.player, unit.map, unit.hex, target)
 		if not route.is_empty():
 			_route = route  # Picks up foundations etc. built since we last planned.
-	var job := _pick_job(unit.hub.inventory if at_hub else unit.materials)
-	if not job.is_empty() and at_hub and not unit.hub.give_materials(unit, job[1].cost):
+	var job := _pick_job(unit.player.inventory if at_hub else unit.materials)
+	if not job.is_empty() and at_hub and not unit.player.give_materials(unit, job[1].cost):
 		job = []
 	if job.is_empty():
 		_job_tile = null
@@ -367,7 +367,7 @@ func _pick_job(budget: Dictionary) -> Array:
 	for h in _route:
 		if _claimed_by_another(h):
 			continue
-		var pending := _pending_layers(unit.hub, unit.map, h)
+		var pending := _pending_layers(unit.player, unit.map, h)
 		if pending.is_empty():
 			continue
 		var layer: Buildable = pending[0]
@@ -388,7 +388,7 @@ static func _covers(budget: Dictionary, cost: Dictionary) -> bool:
 ## Whether any tile on the line still needs a job no other worker has claimed.
 func _has_unclaimed_jobs() -> bool:
 	for h in _route:
-		if not _claimed_by_another(h) and not _pending_layers(unit.hub, unit.map, h).is_empty():
+		if not _claimed_by_another(h) and not _pending_layers(unit.player, unit.map, h).is_empty():
 			return true
 	return false
 
@@ -398,7 +398,7 @@ func _cheapest_blocked_job() -> Buildable:
 	var best: Buildable = null
 	var best_depth := 1 << 30
 	for h in _route:
-		var pending := _pending_layers(unit.hub, unit.map, h)
+		var pending := _pending_layers(unit.player, unit.map, h)
 		if not pending.is_empty() and _depth(pending[0]) < best_depth:
 			best = pending[0]
 			best_depth = _depth(best)
@@ -409,18 +409,18 @@ func _cheapest_blocked_job() -> Buildable:
 func _wait_for_resources() -> void:
 	if not _waiting_for_resources:
 		var job := _cheapest_blocked_job()
-		unit.hub.unit_event.emit("%s is waiting at the hub for resources (needs %s)" % [
+		unit.player.unit_event.emit("%s is waiting at the hub for resources (needs %s)" % [
 			unit.display_name, ResourceDeposit.format_cost(_shortfall(job.cost)) if job else "resources"])
 	_waiting_for_resources = true
-	unit.set_destination(unit.hub.hex)  # Just clears the path if already there.
-	phase = Phase.WORKING if unit.hex == unit.hub.hex else Phase.TRAVELLING
+	unit.set_destination(unit.player.hex)  # Just clears the path if already there.
+	phase = Phase.WORKING if unit.hex == unit.player.hex else Phase.TRAVELLING
 
 
 ## What the colony is short of to pay `cost`.
 func _shortfall(cost: Dictionary) -> Dictionary:
 	var missing := {}
 	for type in cost:
-		var short: int = cost[type] - unit.hub.get_resource(type)
+		var short: int = cost[type] - unit.player.get_resource(type)
 		if short > 0:
 			missing[type] = short
 	return missing
@@ -431,15 +431,15 @@ func _shortfall(cost: Dictionary) -> Dictionary:
 ## The jobs tile `h` needs, in order: the line's buildable (and what it
 ## requires) on route tiles, the ordered buildable (and its requirements) on
 ## the target.
-func _layers(hub: CentralHub, h: Vector2i) -> Array[Buildable]:
-	return _expand(hub, buildable.id if h == target else buildable.line_of)
+func _layers(player: Player, h: Vector2i) -> Array[Buildable]:
+	return _expand(player, buildable.id if h == target else buildable.line_of)
 
 
-func _expand(hub: CentralHub, id: String) -> Array[Buildable]:
-	var b := hub.get_buildable(id)
+func _expand(player: Player, id: String) -> Array[Buildable]:
+	var b := player.get_buildable(id)
 	var layers: Array[Buildable] = []
 	for required in b.requires:
-		for layer in _expand(hub, required):
+		for layer in _expand(player, required):
 			if layer not in layers:
 				layers.append(layer)
 	layers.append(b)
@@ -449,38 +449,38 @@ func _expand(hub: CentralHub, id: String) -> Array[Buildable]:
 ## How far down the stack a buildable sits: 0 for one that needs nothing
 ## (a foundation), 1 for one that needs that (a belt)...
 func _depth(b: Buildable) -> int:
-	return _depth_in(unit.hub, b)
+	return _depth_in(unit.player, b)
 
 
-static func _depth_in(hub: CentralHub, b: Buildable) -> int:
+static func _depth_in(player: Player, b: Buildable) -> int:
 	var depth := 0
 	for required in b.requires:
-		depth = maxi(depth, _depth_in(hub, hub.get_buildable(required)) + 1)
+		depth = maxi(depth, _depth_in(player, player.get_buildable(required)) + 1)
 	return depth
 
 
 ## The jobs still to do on `h` (in order).
-func _pending_layers(hub: CentralHub, map: HexMap, h: Vector2i) -> Array[Buildable]:
+func _pending_layers(player: Player, map: HexMap, h: Vector2i) -> Array[Buildable]:
 	var pending: Array[Buildable] = []
-	for layer in _layers(hub, h):
-		if not layer.is_built_at(map, h, hub.faction):
+	for layer in _layers(player, h):
+		if not layer.is_built_at(map, h, player.id):
 			pending.append(layer)
 	return pending
 
 
 ## Why the jobs on `h` could never be done ("" if they can, or are done).
-func _site_problem(hub: CentralHub, map: HexMap, h: Vector2i) -> String:
-	for layer in _pending_layers(hub, map, h):
+func _site_problem(player: Player, map: HexMap, h: Vector2i) -> String:
+	for layer in _pending_layers(player, map, h):
 		var reason := layer.get_site_reason(map, h)
 		if reason != "":
 			return reason
 	return ""
 
 
-func _count_jobs(hub: CentralHub, map: HexMap, route: Array[Vector2i]) -> int:
+func _count_jobs(player: Player, map: HexMap, route: Array[Vector2i]) -> int:
 	var count := 0
 	for h in route:
-		count += _pending_layers(hub, map, h).size()
+		count += _pending_layers(player, map, h).size()
 	return count
 
 
@@ -489,7 +489,7 @@ func _count_jobs(hub: CentralHub, map: HexMap, route: Array[Vector2i]) -> int:
 ## The tiles from `from` (not included) to the target that the line runs
 ## along, or [] if there's no way. Cheapest route over passable tiles whose
 ## jobs can be done, preferring ones already built.
-func plan_route(hub: CentralHub, map: HexMap, from: Vector2i, to: Vector2i) -> Array[Vector2i]:
+func plan_route(player: Player, map: HexMap, from: Vector2i, to: Vector2i) -> Array[Vector2i]:
 	var dist := {from: 0}
 	var parent := {from: from}
 	var open: Array[Vector2i] = [from]
@@ -508,12 +508,12 @@ func plan_route(hub: CentralHub, map: HexMap, from: Vector2i, to: Vector2i) -> A
 			return route
 		closed[current] = true
 		for n in Hex.neighbors(current):
-			if closed.has(n) or not map.is_passable(n) or map.get_hub_at(n) != null:
+			if closed.has(n) or not map.is_passable(n) or map.get_player_at(n) != null:
 				continue
-			if _site_problem(hub, map, n) != "":
+			if _site_problem(player, map, n) != "":
 				continue
 			var step := TILE_COST
-			for layer in _pending_layers(hub, map, n):
+			for layer in _pending_layers(player, map, n):
 				for type in layer.cost:
 					step += RESOURCE_COST * int(layer.cost[type])
 			var d: int = dist[current] + step
@@ -552,7 +552,7 @@ func _others_building() -> bool:
 ## need exactly the same jobs, so splitting them up is safe).
 func _fellow_builders() -> Array[LineBuildMission]:
 	var others: Array[LineBuildMission] = []
-	for u in unit.hub.units:
+	for u in unit.player.units:
 		if u != unit and u.mission is LineBuildMission and u.mission.get_kind() == get_kind():
 			others.append(u.mission)
 	return others

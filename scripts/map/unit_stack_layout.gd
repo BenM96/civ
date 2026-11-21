@@ -31,8 +31,8 @@ static func arrange(map: HexMap) -> void:
 		var units: Array = by_tile[h]
 		# Keep each colony's units together, in a stable order.
 		units.sort_custom(func(a: Unit, b: Unit) -> bool:
-			if a.hub.faction != b.hub.faction:
-				return a.hub.faction < b.hub.faction
+			if a.player.id != b.player.id:
+				return a.player.id < b.player.id
 			return a.display_name < b.display_name)
 		var layout: Array = LAYOUTS[mini(units.size(), MAX_SHOWN)]
 		var slots: Array = layout[1]

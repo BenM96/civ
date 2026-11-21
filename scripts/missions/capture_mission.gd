@@ -52,7 +52,7 @@ func get_work_turns() -> int:
 
 
 func get_invalid_reason(u: Unit) -> String:
-	var reason := _get_target_invalid_reason(u.map, u.hub.faction)
+	var reason := _get_target_invalid_reason(u.map, u.player.id)
 	if reason != "":
 		return reason
 	if u.map.find_path(u.hex, target).is_empty():
@@ -62,14 +62,14 @@ func get_invalid_reason(u: Unit) -> String:
 
 func work() -> void:
 	# It may have been demolished, or captured by someone else, on the way.
-	var reason := _get_target_invalid_reason(unit.map, unit.hub.faction)
+	var reason := _get_target_invalid_reason(unit.map, unit.player.id)
 	if reason != "":
 		fail(reason)
 		return
 	_turns_worked += 1
 	if _turns_worked >= CAPTURE_TURNS:
 		var tile := unit.map.get_tile(target)
-		unit.map.set_structure(target, tile.structure, unit.hub.faction)
+		unit.map.set_structure(target, tile.structure, unit.player.id)
 		complete()
 
 

@@ -19,7 +19,7 @@ come home on their own.
 - **Win:** be the first colony to hold 50 Unobtainium at the end of a turn.
   You can keep playing afterwards.
 - **Lose:** your Biomass drops below zero. Every unit eats 1 Biomass a turn and
-  your hub grows 3, so more units need more food.
+  your hub's Greenhouse grows 3, so more units need more food.
 - A rival that starves collapses. Outlast every rival and you also win.
 
 ### Resources
@@ -36,6 +36,12 @@ Every hub has at least one deposit of each resource within 4 tiles (but none
 right next to it), except Unobtainium: its deposits are only found more than
 10 tiles from every hub and from each other, and it can only be mined with an
 extractor connected by belts - Workers can't harvest it by hand.
+
+### Buildings
+
+Buildings live inside your hub rather than on the map. Open **Buildings** on
+the bottom bar (or press B) to see what your hub has. Every colony starts
+with a **Greenhouse**, which grows 3 Biomass a turn.
 
 ### Units
 
@@ -94,7 +100,7 @@ chasms.
 | Mouse wheel | Zoom |
 | Left click | Select a target; click your hub to open it |
 | Right click / Esc | Cancel targeting |
-| U / F / T | Units, In the Field, Training panels |
+| U / F / T / B | Units, In the Field, Training, Buildings panels |
 | Enter | End turn |
 | F5 / F9 | Save / load |
 
@@ -111,8 +117,12 @@ Open the project folder in Godot 4.7 and press Play (F5 in the editor).
   order.
 - Every action, human or AI, is an order sent through
   `scripts/game/orders.gd`.
+- Each player (human or AI) is a `Player` (`scripts/core/player.gd`): its
+  hub, stockpile, units, training and buildings all live there.
 - Each unit and structure keeps all of its data in its own file under
   `scripts/units/` and `scripts/structures/`.
+- Buildings inside the hub (e.g. the Greenhouse) each have a file in
+  `scripts/buildings/`; register new ones in `Building.create()`.
 - Saves are JSON in Godot's user folder; each part of the game saves itself
   with `to_dict()` / `load_dict()`.
 - The **+50 all (test)** button is for testing only. Search for

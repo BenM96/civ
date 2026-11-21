@@ -39,7 +39,7 @@ func get_kind() -> String:
 
 
 func _escortee() -> Unit:
-	return unit.hub.get_unit(escortee_id) if unit else null
+	return unit.player.get_unit(escortee_id) if unit else null
 
 
 func _who() -> String:
@@ -71,7 +71,7 @@ func get_target_hex() -> Variant:
 
 
 func get_invalid_reason(u: Unit) -> String:
-	var e := u.hub.get_unit(escortee_id)
+	var e := u.player.get_unit(escortee_id)
 	if e == null:
 		return "no such unit to escort"
 	if e == u:
@@ -96,7 +96,7 @@ func can_cancel_at_hub() -> bool:
 
 
 func begin() -> void:
-	_destination = unit.hub.hex
+	_destination = unit.player.hex
 	_follow()
 
 

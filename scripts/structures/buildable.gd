@@ -7,7 +7,7 @@ extends RefCounted
 ##
 ## To add a new structure: extend this class, set its data in _init(),
 ## override get_invalid_reason() and apply(), then add it to
-## CentralHub.buildables. If it stands on tiles as a Structure (rather than
+## Player.buildables. If it stands on tiles as a Structure (rather than
 ## changing the terrain, like foundations), also add a value to Structure.Type and
 ## list it in Structure._create_all().
 

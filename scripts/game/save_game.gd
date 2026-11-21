@@ -5,7 +5,7 @@ extends RefCounted
 ## sent over a network.
 ##
 ## Each part of the game saves itself (to_dict / load_dict on HexMap,
-## CentralHub, Unit and Mission); this file just ties them together. When you
+## Player, Unit and Mission); this file just ties them together. When you
 ## add new state to something, add it to that thing's to_dict / load_dict.
 ##
 ## Enums are stored by name ("BIOMASS", "ON_MISSION") rather than number so
@@ -17,18 +17,16 @@ const VERSION := 1
 
 
 ## The whole game as plain data.
-static func capture(map: HexMap, colonies: Array[CentralHub], turn: int,
-		human_factions: Array[int], gold_goal_reached := false) -> Dictionary:
-	var colony_data := []
-	for hub in colonies:
-		colony_data.append(hub.to_dict())
+static func capture(map: HexMap, players: Array[Player], turn: int, gold_goal_reached := false) -> Dictionary:
+	var player_data := []
+	for player in players:
+		player_data.append(player.to_dict())
 	return {
 		"version": VERSION,
 		"turn": turn,
 		"gold_goal_reached": gold_goal_reached,
-		"human_factions": human_factions.duplicate(),
 		"map": map.to_dict(),
-		"colonies": colony_data,
+		"players": player_data,
 	}
 
 
