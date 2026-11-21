@@ -11,10 +11,10 @@ extends RefCounted
 ## Every order says what it is under "order". Build them with the helpers
 ## below rather than by hand:
 ##   {"order": "mission", "unit": id, "kind": kind, "target": [x, y]}
-##       kind: "move", "harvest", "guard", "capture", "demolish",
+##       kind: "move", "harvest", "guard", "capture", "demolish", "qrf", "sortie",
 ##       "escort:<unit id>" or "build:<buildable id>" (see make_mission())
 ##   {"order": "cancel_mission", "unit": id}
-##   {"order": "wait", "unit": id, "value": bool}
+##   {"order": "move_room", "unit": id, "room": room id}   (see Room)
 ##   {"order": "train", "unit_type": "Worker"}
 ##   {"order": "cancel_training", "index": i}
 ##   {"order": "debug_resources"}   TESTING ONLY - remove before release
@@ -43,8 +43,15 @@ static func cancel_mission(unit: Unit) -> Dictionary:
 	return {"order": "cancel_mission", "unit": unit.id}
 
 
-static func wait(unit: Unit, value: bool) -> Dictionary:
-	return {"order": "wait", "unit": unit.id, "value": value}
+## Moves a unit in the hub to another of the hub's rooms (see Room).
+static func move_room(unit: Unit, room_id: String) -> Dictionary:
+	return {"order": "move_room", "unit": unit.id, "room": room_id}
+
+
+## Whether a mission kind needs a tile picked on the map. Escorts and QRF
+## don't: the order is given straight away (with the hub as its target).
+static func needs_target(kind: String) -> bool:
+	return not (kind.begins_with("escort:") or kind == "qrf")
 
 
 static func train(unit_type: String) -> Dictionary:
@@ -90,11 +97,11 @@ func submit(faction: int, order: Dictionary) -> String:
 			if unit == null:
 				return "no such unit"
 			return "" if player.cancel_mission(unit) else "it's out on its mission and can't be called back now"
-		"wait":
+		"move_room":
 			var unit := _own_unit(player, order)
 			if unit == null:
 				return "no such unit"
-			return "" if player.set_unit_waiting(unit, bool(order.get("value", true))) else "can't wait now"
+			return player.move_unit_to_room(unit, str(order.get("room", "")))
 		"train":
 			var bp := player.get_blueprint(str(order.get("unit_type", "")))
 			if bp == null:
@@ -124,6 +131,8 @@ func get_player(faction: int) -> Player:
 static func get_invalid_reason(player: Player, unit: Unit, m: Mission) -> String:
 	if unit.state != Unit.State.IN_HUB:
 		return "%s is already out" % unit.display_name
+	if unit.room_id != MissionBriefingRoom.ID:
+		return "%s must be in Mission Briefing to get orders" % unit.display_name
 	if not unit.can_take(m.get_kind()):
 		return "%s can't %s" % [unit.display_name, m.get_kind().get_slice(":", 0)]
 	m.unit = unit  # Lets the mission plan its route (e.g. a bridge's work site).
@@ -163,6 +172,10 @@ static func make_mission(player: Player, kind: String, target: Vector2i) -> Miss
 			return CaptureMission.new(target)
 		"demolish":
 			return DemolishMission.new(target)
+		"qrf":
+			return QrfMission.new()
+		"sortie":
+			return SortieMission.new(target)
 	return null
 
 

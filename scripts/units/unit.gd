@@ -6,11 +6,15 @@ extends Node2D
 ## handed a Mission. During turn resolution they execute the mission, then
 ## walk back to the hub on their own, where they wait for the next order.
 ##
-## Subclasses (Worker, Scout, ...) set ALL their data in _init() - stats,
-## training cost, training time and upkeep - and can override
-## get_short_label() / _draw() for visuals or add new abilities for missions.
-## To make a hub able to train a unit, add its class to the hub's list in
-## Player._init().
+## Subclasses (Worker, Tank, ...) set ALL their data in _init() - stats,
+## training cost, training time, upkeep and the short label drawn on their
+## icon - and can add new abilities for missions. Units of each type share
+## a base: ArmourUnit (fires twice a round) and AirUnit (flies sorties, then
+## refits). To make a hub able to train a unit, add its class to the list
+## in Player._init().
+##
+## Icons are shaped by unit type: civilians are round, infantry pentagons,
+## armour squares and air triangles (see draw_icon()).
 
 signal state_changed(unit: Unit)
 signal mission_completed(unit: Unit, mission: Mission)
@@ -27,13 +31,15 @@ enum State {
 const RADIUS := 13.0
 
 @export var unit_name := "Unit"
+## Short label drawn on the unit's icon, e.g. "W", "I" or "AA" (1-3 letters).
+@export var short_name := ""
 ## How the training price rises with each one built (see cost_rises_after):
 ##   DOUBLE  - each costs double the last: x1, x2, x4, x8...
 ##   ADD_ONE - each costs 1 more of every resource in `cost` than the last:
 ##             1 Gold + 1 Titanium, then 2 + 2, then 3 + 3...
 enum CostGrowth { DOUBLE, ADD_ONE }
-## Kinds of armour (see armor_type and damage). Add new kinds at the end.
-enum ArmorType { INFANTRY }
+## What kind of unit this is (see unit_type). Add new kinds at the end.
+enum UnitType { INFANTRY, CIVILIAN, AIR, ARMOUR }
 
 ## Resources paid to train the first of this unit: ResourceDeposit.Type -> int.
 ## Later ones cost more (see cost_growth and cost_rises_after).
@@ -53,12 +59,23 @@ var cost: Dictionary = {}
 ## Hit points (HP) a fresh unit has. Losing them all in battle kills it;
 ## dropping below half makes it break and flee (see Combat).
 @export var max_health := 10
-## What kind of armour this unit wears: decides how much damage each attacker
-## does to it (see `damage`).
-@export var armor_type := ArmorType.INFANTRY
-## HP this unit takes off an enemy with each shot, by the enemy's armour:
-## ArmorType -> int. Armour types left out take no damage from it.
+## What kind of unit this is. Decides how much damage each attacker does to
+## it (see `damage`), and which hub room it waits in when off duty (Break
+## Room, Barracks, Hangar or Garage - see QuartersRoom).
+@export var unit_type := UnitType.INFANTRY
+## HP this unit takes off an enemy with each shot, by the enemy's type:
+## UnitType -> int. Types left out take no damage from it.
 @export var damage: Dictionary = {}
+## Shots fired one after another each time its turn comes round in a
+## battle (armour fires twice - see Combat).
+@export var shots_per_turn := 1
+## Flies instead of walking: goes out and comes home in a single jump (see
+## SortieMission), ignoring terrain.
+@export var flies := false
+## Turns spent refitting in its quarters (e.g. the Hangar) after every trip
+## out, before it can go to Mission Briefing again. Refitting also repairs
+## it to full HP. 0 = never refits.
+@export var refit_turns := 0
 @export var body_color := Color.WHITE
 ## The kinds of mission this unit may be given: "move", "harvest", "build"
 ## (any structure) and/or "demolish" - the same names orders use (see
@@ -79,9 +96,14 @@ var state: State = State.IN_HUB
 var mission: Mission
 var movement_left := 0
 var health := 0
-## Told to stay home: the unit doesn't count as needing orders. Cleared when
-## it is given a mission (or woken).
-var waiting := false
+## The hub room (see Room) this unit is in while it's at the hub, e.g.
+## "mission_briefing". Kept while it's out, so a unit that comes back to the
+## hub partway through a mission (or a QRF between call-outs) is back in the
+## same room.
+var room_id := ""
+## Turns of refitting still to do (see refit_turns); counted down by its
+## quarters room.
+var refit_turns_left := 0
 ## The kind of the last mission this unit was given (e.g. "harvest",
 ## "build:foundation"), so the HUD can offer it again. "" if it's never had one.
 var last_mission_kind := ""
@@ -114,7 +136,7 @@ func _ready() -> void:
 
 ## HP taken off `target` by one shot from this unit.
 func get_damage_against(target: Unit) -> int:
-	return damage.get(target.armor_type, 0)
+	return damage.get(target.unit_type, 0)
 
 
 ## Loses `amount` HP (a hit in battle). Dying is up to Combat.
@@ -124,6 +146,57 @@ func take_damage(amount: int) -> void:
 	health -= amount
 	queue_redraw()
 	state_changed.emit(self)  # So the HUD shows the new HP.
+
+
+## The unit types this unit would rather shoot at, best first: grouped by
+## the damage it does to them, most damage first (types it does equal
+## damage to share a group). Civilians always come last, whatever the
+## damage. Types it can't hurt at all come before civilians but after every
+## type it can. E.g. a Tank: [[INFANTRY], [ARMOUR], [AIR], [CIVILIAN]].
+func get_target_preference() -> Array:
+	var by_damage := {}  # damage -> [UnitType]
+	for type in UnitType.values():
+		if type == UnitType.CIVILIAN:
+			continue
+		var amount: int = damage.get(type, 0)
+		if not by_damage.has(amount):
+			by_damage[amount] = []
+		by_damage[amount].append(type)
+	var amounts := by_damage.keys()
+	amounts.sort()
+	amounts.reverse()
+	var groups := []
+	for amount in amounts:
+		groups.append(by_damage[amount])
+	groups.append([UnitType.CIVILIAN])
+	return groups
+
+
+## Of the enemies `candidates`, the ones this unit prefers to shoot at: those
+## of the most preferred type present (see get_target_preference()).
+func pick_preferred_targets(candidates: Array[Unit]) -> Array[Unit]:
+	for group: Array in get_target_preference():
+		var chosen: Array[Unit] = []
+		for u in candidates:
+			if u.unit_type in group:
+				chosen.append(u)
+		if not chosen.is_empty():
+			return chosen
+	return candidates
+
+
+## Gets back up to `amount` HP (never above max_health), e.g. in the Med Bay.
+func heal(amount: int) -> void:
+	var healed := mini(health + amount, max_health)
+	if healed == health:
+		return
+	health = healed
+	queue_redraw()
+	state_changed.emit(self)
+
+
+func is_injured() -> bool:
+	return health < max_health
 
 
 ## Below half its max HP (but alive): it breaks after a battle round.
@@ -141,7 +214,7 @@ func setup(p_player: Player, p_map: HexMap) -> void:
 
 
 func get_short_label() -> String:
-	return unit_name.left(1)
+	return short_name if short_name != "" else unit_name.left(1)
 
 
 ## Whether this unit may take a mission of `kind`. "build:foundation" counts as
@@ -159,18 +232,40 @@ func is_in_world() -> bool:
 	return state == State.ON_MISSION or state == State.RETURNING
 
 
-## At home and not told to wait - the player should give it something to do.
+## Inside its hub, so it's in one of the hub's rooms: at home, about to set
+## out, or back at the hub partway through a mission (e.g. a QRF on standby).
+func is_in_hub() -> bool:
+	return player != null and hex == player.hex and state != State.RETURNING
+
+
+## At home in Mission Briefing - the player should give it something to do.
+## (Only units in Mission Briefing can be given orders.)
 func needs_orders() -> bool:
-	return state == State.IN_HUB and not waiting
+	return state == State.IN_HUB and room_id == MissionBriefingRoom.ID
 
 
-## Wait (stay home without needing orders) or wake up. Only for units at home.
-func set_waiting(value: bool) -> bool:
-	if state != State.IN_HUB or waiting == value:
-		return false
-	waiting = value
+## Records which hub room the unit is in. Moves the player asks for go
+## through Player.move_unit_to_room(), which checks the rules first.
+func set_room(new_room_id: String) -> void:
+	if room_id == new_room_id:
+		return
+	room_id = new_room_id
 	state_changed.emit(self)
-	return true
+
+
+## A `damage` table: HP taken off each type of enemy per shot.
+static func damage_vs(infantry: int, civilian: int, armour: int, air: int) -> Dictionary:
+	return {
+		UnitType.INFANTRY: infantry,
+		UnitType.CIVILIAN: civilian,
+		UnitType.ARMOUR: armour,
+		UnitType.AIR: air,
+	}
+
+
+## Display name of a unit type, e.g. "Civilian".
+static func get_type_name(type: UnitType) -> String:
+	return UnitType.keys()[type].capitalize()
 
 
 # --- Saving ----------------------------------------------------------------
@@ -187,7 +282,8 @@ func to_dict() -> Dictionary:
 		"name": display_name,
 		"hex": SaveGame.hex_to_data(hex),
 		"state": State.keys()[state],
-		"waiting": waiting,
+		"room": room_id,
+		"refit_turns_left": refit_turns_left,
 		"last_mission_kind": last_mission_kind,
 		"health": health,
 		"cargo": SaveGame.resources_to_data(cargo),
@@ -201,7 +297,8 @@ func to_dict() -> Dictionary:
 func load_dict(data: Dictionary) -> void:
 	hex = SaveGame.hex_from_data(data["hex"])
 	state = State[data["state"]]
-	waiting = data["waiting"]
+	room_id = data["room"]
+	refit_turns_left = int(data["refit_turns_left"])
 	last_mission_kind = data.get("last_mission_kind", "")  # Older saves lack it.
 	health = int(data["health"])
 	cargo = SaveGame.resources_from_data(data["cargo"])
@@ -283,7 +380,6 @@ func can_accept_mission(m: Mission) -> bool:
 
 ## Use Player.assign_mission() rather than calling this directly.
 func assign_mission(m: Mission) -> void:
-	waiting = false
 	mission = m
 	last_mission_kind = m.get_kind()
 	m.unit = self
@@ -325,7 +421,9 @@ func start_turn() -> void:
 	elif state == State.ON_MISSION:
 		mission.prepare()
 	_check_mission_end()
-	if state == State.RETURNING and not has_destination():
+	if state == State.RETURNING and flies:
+		fly_to(player.hex)  # Flown home before anyone moves (e.g. after breaking).
+	elif state == State.RETURNING and not has_destination():
 		set_destination(player.hex)  # If cut off from home, try again next turn.
 
 
@@ -365,7 +463,24 @@ func _begin_return() -> void:
 		_arrive_home()
 		return
 	_set_state(State.RETURNING)
-	set_destination(player.hex)
+	if flies:
+		fly_to(player.hex)
+	else:
+		set_destination(player.hex)
+
+
+## Jumps straight to `target` (a flying unit; see SortieMission), whatever
+## lies between. Landing on its own hub brings it home.
+func fly_to(target: Vector2i) -> void:
+	_path.clear()
+	hex = target
+	moved_this_turn = true
+	if hex == player.hex and state == State.RETURNING:
+		_anim_steps.clear()  # Hidden at home: nothing to show.
+		global_position = map.hex_to_world(hex)
+		_arrive_home()
+	else:
+		_anim_steps.append(map.hex_to_world(hex))
 
 
 func _arrive_home() -> void:
@@ -463,6 +578,8 @@ func break_off() -> void:
 		_arrive_home()
 		return
 	_set_state(State.RETURNING)
+	if flies:
+		return  # Flies home at the start of next turn (see start_turn()).
 	if not set_destination(player.hex) or _path.is_empty():
 		return  # Cut off from home: tries again next turn.
 	hex = _path.pop_front()
@@ -530,10 +647,11 @@ func get_status_text() -> String:
 func _get_activity_text() -> String:
 	match state:
 		State.IN_HUB:
-			return "Waiting in hub" if waiting else "In hub"
+			var room := player.get_room(room_id) if player else null
+			return room.get_activity_text(self) if room else "In hub"
 		State.DEPLOYING:
 			if mission:
-				return "Departs at end of turn - %s" % mission.get_description()
+				return mission.get_deploying_text()
 		State.ON_MISSION:
 			if mission:
 				var carrying := " - carrying %s" % ResourceDeposit.format_cost(materials) if not materials.is_empty() else ""
@@ -560,14 +678,23 @@ func is_animating() -> bool:
 	return _move_tween != null and _move_tween.is_running()
 
 
+## Seconds play_movement() will take to show the steps taken this turn.
+func get_movement_anim_time() -> float:
+	return _anim_steps.size() * move_anim_time
+
+
 ## Animates the steps taken this turn. Called once movement is resolved.
-func play_movement() -> void:
+## `delay` holds the unit still first (a QRF waits for everyone else's move
+## to finish playing, since it moves after them).
+func play_movement(delay := 0.0) -> void:
 	if _anim_steps.is_empty():
 		return
 	if _move_tween and _move_tween.is_valid():
 		_move_tween.kill()
 	visible = true
 	_move_tween = create_tween()
+	if delay > 0.0:
+		_move_tween.tween_interval(delay)
 	for p in _anim_steps:
 		_move_tween.tween_property(self, "global_position", p, move_anim_time)
 	_move_tween.tween_callback(_refresh_visibility)
@@ -592,21 +719,69 @@ func set_icon_layout(offset: Vector2, icon_scale: float) -> void:
 	queue_redraw()
 
 
+## Draws a unit icon on `canvas`: its type's shape (see shape_points()) in
+## `body` colour, with a ring of the owner's colour and `label` on it.
+## Shared with the battle replay (BattleView).
+static func draw_icon(canvas: CanvasItem, type: UnitType, c: Vector2, r: float,
+		faction_color: Color, body: Color, label: String, alpha := 1.0) -> void:
+	var ring := faction_color
+	ring.a *= alpha
+	var gap := Color(0, 0, 0, 0.8 * alpha)
+	var fill := body
+	fill.a *= alpha
+	if type == UnitType.CIVILIAN:
+		canvas.draw_circle(c, r + r * 0.27, ring)
+		canvas.draw_circle(c, r + r * 0.12, gap)
+		canvas.draw_circle(c, r, fill)
+	else:
+		canvas.draw_colored_polygon(shape_points(type, c, r + r * 0.3), ring)
+		canvas.draw_colored_polygon(shape_points(type, c, r + r * 0.14), gap)
+		canvas.draw_colored_polygon(shape_points(type, c, r), fill)
+	# Label shrinks to fit (e.g. "APC"), and sits a little low in a triangle.
+	var font := ThemeDB.fallback_font
+	var font_size := maxi(6, roundi(r * 1.15))
+	var max_width := r * (1.3 if type == UnitType.AIR else 1.75)
+	while font_size > 6 and font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > max_width:
+		font_size -= 1
+	var text_width := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var baseline := (font.get_ascent(font_size) - font.get_descent(font_size)) / 2.0
+	var drop := r * 0.25 if type == UnitType.AIR else 0.0
+	canvas.draw_string(font, c + Vector2(-text_width / 2.0, baseline + drop), label,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.1, 0.1, 0.1, alpha))
+
+
+## The outline of a unit type's icon around `c`, sized to look about as big
+## as a circle of radius `r`: a pentagon (infantry), square (armour) or
+## triangle (air). Civilians are round - this gives a 20-sided polygon.
+static func shape_points(type: UnitType, c: Vector2, r: float) -> PackedVector2Array:
+	var sides := 20
+	var radius := r
+	var turn := -PI / 2.0  # First corner straight up.
+	match type:
+		UnitType.INFANTRY:
+			sides = 5
+			radius = r * 1.12
+		UnitType.ARMOUR:
+			sides = 4
+			radius = r * 1.2
+			turn = -PI / 4.0  # Flat top.
+		UnitType.AIR:
+			sides = 3
+			radius = r * 1.4
+			c += Vector2(0, r * 0.2)  # Balance the point on top.
+	var points := PackedVector2Array()
+	for i in sides:
+		var a := turn + TAU * i / sides
+		points.append(c + Vector2(cos(a), sin(a)) * radius)
+	return points
+
+
 func _draw() -> void:
 	var c := _icon_offset
 	var s := _icon_scale
 	# Ring in the owner's colour so rival units are easy to tell apart.
 	var faction_color := Faction.get_color(player.id) if player else Color.BLACK
-	draw_circle(c, (RADIUS + 3.5) * s, faction_color)
-	draw_circle(c, (RADIUS + 1.5) * s, Color(0, 0, 0, 0.8))
-	draw_circle(c, RADIUS * s, body_color)
-	var font := ThemeDB.fallback_font
-	var font_size := maxi(7, roundi(15 * s))
-	var label := get_short_label()
-	var text_width := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	var baseline := (font.get_ascent(font_size) - font.get_descent(font_size)) / 2.0
-	draw_string(font, c + Vector2(-text_width / 2.0, baseline), label,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.1, 0.1, 0.1))
+	draw_icon(self, unit_type, c, RADIUS * s, faction_color, body_color, get_short_label())
 	# Health bar under the icon once it has taken damage.
 	if health < max_health:
 		var bar := Rect2(c + Vector2(-RADIUS, RADIUS + 5.0) * s, Vector2(RADIUS * 2.0, 4.0) * s)

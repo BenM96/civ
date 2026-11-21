@@ -35,6 +35,8 @@ const MIN_BIOMASS_INCOME_TO_GROW := 1
 ## The AI only trains Infantry once it has this many Workers (if Workers
 ## die, it rebuilds them before more Infantry).
 const WORKERS_BEFORE_INFANTRY := 3
+## The units the AI trains. (It doesn't use the other unit types yet.)
+const AI_UNIT_TYPES: Array[String] = ["Worker", "Infantry"]
 ## Workers only travel this far (hex distance) to harvest.
 const MAX_HARVEST_DISTANCE := 12
 ## Extractors are only planned on deposits this close to the hub.
@@ -106,6 +108,8 @@ func _cheapest_unit() -> UnitBlueprint:
 	var best_total := 1 << 30
 	var workers_only := _worker_count() < WORKERS_BEFORE_INFANTRY
 	for bp in player.blueprints:
+		if not bp.unit_name in AI_UNIT_TYPES:
+			continue
 		if workers_only and bp.unit_name != "Worker":
 			continue
 		var total := 0

@@ -24,6 +24,15 @@ extends RefCounted
 ## does any unit that steps onto one later in the turn (it joins the
 ## battle). Everyone else carries on moving.
 ##
+## Quick reaction forces (QrfMission) don't move with everyone else: once
+## all other units have finished, they choose where to go from where the
+## enemies ended up and get a movement phase of their own (same ticks, same
+## battle rules). Their move is also shown after everyone else's.
+##
+## Aircraft on a sortie (SortieMission) go last of all, after the QRF: each
+## jumps straight to its target tile. Enemies on the tile it lands on make
+## it a battle hex, and the battle takes in the tiles around it as usual.
+##
 ## Battles that share a hex (e.g. several border clashes around one tile)
 ## are merged into one. What's passed to Combat is the list of battles, each
 ## an array of hexes - plain JSON-safe data:
@@ -41,12 +50,24 @@ static func run(map: HexMap, turn: int) -> Array[Dictionary]:
 	return Combat.resolve(map, _move_units(map), turn)
 
 
-## Moves every unit, tick by tick. Returns the battles, as described above.
+## Moves every unit, in three phases (see Mission.get_move_phase()): first
+## everyone moves together, tick by tick; then the QRF picks where to go
+## from where everyone ended up, and moves the same way; then aircraft fly
+## straight to their targets. Returns the battles, as described above.
 static func _move_units(map: HexMap) -> Array:
 	var units := map.get_units_in_world()
-	var ticks := 0
+	var normal: Array[Unit] = []
+	var late: Array[Unit] = []
+	var air: Array[Unit] = []
 	for u in units:
-		ticks = maxi(ticks, u.max_movement)
+		var phase := u.mission.get_move_phase() if u.mission else Mission.MovePhase.NORMAL
+		match phase:
+			Mission.MovePhase.REACTION:
+				late.append(u)
+			Mission.MovePhase.AIR:
+				air.append(u)
+			_:
+				normal.append(u)
 	# Each battle as it broke out: an Array of Vector2i. Merged at the end.
 	var outbreaks: Array = []
 	# Every hex in any battle -> true.
@@ -57,6 +78,46 @@ static func _move_units(map: HexMap) -> Array:
 	for u in units:
 		if battle_hexes.has(u.hex):
 			u.engage()
+	_run_ticks(map, normal, outbreaks, battle_hexes)
+	var late_delay := 0.0
+	for u in normal:
+		late_delay = maxf(late_delay, u.get_movement_anim_time())
+	for u in late:
+		u.mission.react()
+	_run_ticks(map, late, outbreaks, battle_hexes)
+	var air_delay := late_delay
+	for u in late:
+		air_delay = maxf(air_delay, late_delay + u.get_movement_anim_time())
+	_fly(map, air, outbreaks, battle_hexes)
+	for u in normal:
+		u.play_movement()
+	for u in late:
+		u.play_movement(late_delay)  # Shown moving after everyone else.
+	for u in air:
+		u.play_movement(air_delay)  # And aircraft after the QRF.
+	return _merge(outbreaks)
+
+
+## Aircraft jump to their sortie targets; enemies where they land start
+## battles.
+static func _fly(map: HexMap, air: Array[Unit], outbreaks: Array, battle_hexes: Dictionary) -> void:
+	if air.is_empty():
+		return
+	for u in air:
+		u.mission.fly()
+	for h in _find_meetings(map):
+		if not battle_hexes.has(h):
+			_add_battle([h], outbreaks, battle_hexes)
+	for u in map.get_units_in_world():
+		if battle_hexes.has(u.hex):
+			u.engage()
+
+
+## Moves `units`, tick by tick, adding any battles that break out.
+static func _run_ticks(map: HexMap, units: Array[Unit], outbreaks: Array, battle_hexes: Dictionary) -> void:
+	var ticks := 0
+	for u in units:
+		ticks = maxi(ticks, u.max_movement)
 	for tick in range(1, ticks + 1):
 		var movers: Array[Unit] = []
 		for u in units:
@@ -75,9 +136,6 @@ static func _move_units(map: HexMap) -> Array:
 		for u in map.get_units_in_world():
 			if battle_hexes.has(u.hex):
 				u.engage()
-	for u in units:
-		u.play_movement()
-	return _merge(outbreaks)
 
 
 static func _add_battle(hexes: Array, outbreaks: Array, battle_hexes: Dictionary) -> void:

@@ -43,19 +43,95 @@ Buildings live inside your hub rather than on the map. Open **Buildings** on
 the bottom bar (or press B) to see what your hub has. Every colony starts
 with a **Greenhouse**, which grows 3 Biomass a turn.
 
+### The central hub's rooms
+
+Every unit at home is in one of the hub's rooms. Open **Central Hub** on the
+bottom bar (or press H, or click your hub) to see them, and drag a unit onto
+another room to move it there. A room that won't take a unit refuses the
+drop and says why in the top bar.
+
+| Room | What it's for |
+|---|---|
+| Mission Briefing | Idle units wait here for orders. Only units in Mission Briefing can be given a mission. Units come here when they get home. |
+| Airlock | Units given a mission wait here to leave at the end of the turn. Drag one out to call its mission off. |
+| Med Bay | Units heal 1 HP a turn. Units that come home hurt go here, and move on to Mission Briefing once healed. Only injured units are allowed in. |
+| Quick Reaction Force | Units on the QRF mission stand by here (see Missions). Drag one out to take it off QRF duty. |
+| Break Room | Off-duty civilian units (Workers). Workers in training are shown here. |
+| Barracks | The same, for infantry. |
+| Hangar | The same, for air units. Aircraft back from a sortie refit here for 10 turns and can't leave until they're done. |
+| Garage | The same, for armour units. |
+
+Units only get to the Airlock and the QRF room by being given a mission.
+Units in the Break Room, Barracks, Hangar or Garage don't need orders, so
+idle turns can be skipped; the **Wait** button in Mission Briefing sends a
+unit there.
+
 ### Units
 
-Units start at 1 Gold + 1 Titanium. Each Worker you build doubles the price
-of the next; each Infantry adds 1 Gold + 1 Titanium to the next (2 + 2, then
-3 + 3...). Every unit you have ever built counts. Losing units doesn't make the next one cheaper.
+Train units from **Training** on the bottom bar. Each Worker you build
+doubles the price of the next; every other unit adds 1 of each resource to
+the price of the next of its kind (Infantry: 1 Gold + 1 Titanium, then
+2 + 2, 3 + 3...). Every unit you have ever built counts. Losing units
+doesn't make the next one cheaper.
 
-- **Worker:** harvests resources by hand and builds structures.
-- **Infantry:** moves, guards, captures and demolishes. The fighter.
+Each unit has a type, which decides its icon's shape, how much damage it
+takes, how it moves and fights, and which room it waits in:
+
+| Type | Icon | Special |
+|---|---|---|
+| Civilian | Circle | - |
+| Infantry | Pentagon | - |
+| Armour | Square | Fires **twice** each time its turn comes in a battle. Can't capture or demolish. |
+| Air | Triangle | Only flies **sorties** (see Missions), then refits in the Hangar for 10 turns. |
+
+Each icon shows the unit's short name, e.g. W, I, AA.
+
+| Unit | Type | Label | Cost (first one) | Turns | Missions |
+|---|---|---|---|---|---|
+| Worker | Civilian | W | 1 Gold, 1 Titanium | 2 | Harvest, build |
+| Guard | Civilian | G | 1 Gold, 1 Titanium | 2 | Move, guard, QRF |
+| Infantry | Infantry | I | 1 Gold, 1 Titanium | 3 | Move, guard, escort, capture, demolish, QRF |
+| Assault Infantry | Infantry | AS | 2 Gold, 1 Titanium | 3 | As Infantry |
+| AT Infantry | Infantry | AT | 2 Gold, 1 Titanium | 3 | As Infantry |
+| Stinger Infantry | Infantry | ST | 2 Gold, 1 Titanium | 3 | As Infantry |
+| APC | Armour | APC | 2 Gold, 2 Titanium | 4 | Move, guard, escort, QRF |
+| Tank Destroyer | Armour | TD | 3 Gold, 3 Titanium | 5 | As APC |
+| Tank | Armour | T | 3 Gold, 3 Titanium | 5 | As APC |
+| Anti-Aircraft Gun | Armour | AA | 3 Gold, 3 Titanium | 5 | As APC |
+| Chopper | Air | CH | 2 Gold, 3 Titanium | 4 | Sortie |
+| Fighter | Air | F | 3 Gold, 3 Titanium | 5 | Sortie |
+| Bomber | Air | B | 3 Gold, 4 Titanium | 5 | Sortie |
+
+The computer colonies only train Workers and Infantry for now.
 
 ### Combat
 
-Every unit has 10 HP and wears infantry armour. Infantry hit for 7 damage
-and Workers for 3.
+Every unit has 10 HP. Damage per shot depends on the attacker and the
+target's type (hover over a unit in Training to see its numbers):
+
+| Attacker | vs Infantry | vs Civilian | vs Armour | vs Air |
+|---|---|---|---|---|
+| Worker | 1 | 3 | 0 | 0 |
+| Guard | 3 | 4 | 0 | 0 |
+| Infantry | 4 | 5 | 2 | 2 |
+| Assault Infantry | 6 | 10 | 5 | 5 |
+| AT Infantry | 5 | 7 | 10 | 3 |
+| Stinger Infantry | 4 | 5 | 6 | 4 |
+| APC (x2 shots) | 4 | 6 | 4 | 2 |
+| Tank Destroyer (x2) | 2 | 4 | 8 | 1 |
+| Tank (x2) | 6 | 8 | 4 | 2 |
+| Anti-Aircraft Gun (x2) | 4 | 6 | 4 | 8 |
+| Chopper | 4 | 4 | 4 | 4 |
+| Fighter | 2 | 3 | 2 | 8 |
+| Bomber | 7 | 7 | 7 | 1 |
+
+**Preferred targets.** Each unit would rather shoot the type it does the
+most damage to: if any enemy of that type is in the fight it shoots one of
+them at random, otherwise the type it does the next most damage to, and so
+on. Types it does equal damage to are equally preferred. Civilians always
+come last, whatever the damage, so fighting units only shoot civilians when
+nothing else is left. The Training tooltips show each unit's order
+("Shoots first: ...").
 
 A battle starts when units of different colonies end up on the same tile,
 try to walk past each other, or start a turn on the same tile. The battle
@@ -68,14 +144,15 @@ fought:
 2. Each colony's other units are put in a list in random order, and the
    lists take turns in a random order: the first unit of each list fires,
    then the second of each, and so on.
-3. Every unit fires once, at a random enemy still in the fight. A unit hit
-   to 0 HP dies at once; one hit below half its HP breaks and flees at
-   once. Either way it's out of the fight and doesn't get to fire.
+3. Every unit fires once (armour twice in a row), at an enemy still in the
+   fight, picked at random from its preferred targets (see above). A unit hit to 0 HP dies at once; one hit below half its
+   HP breaks and flees at once. Either way it's out of the fight and
+   doesn't get to fire.
 4. Units that fled abandon their mission, retreat a tile towards their
-   hub, then walk home.
+   hub, then walk home. Aircraft fly home at the start of the next turn.
 
-Units still sharing a tile next turn fight another round. There's no
-healing yet. Damaged units show a health bar.
+Units still sharing a tile next turn fight another round. Damaged units
+show a health bar, and heal in the hub's Med Bay once they get home.
 
 After each turn the camera moves to every battle and replays it shot by
 shot. **Skip** jumps to the end of one battle; **Skip all battles** skips
@@ -83,18 +160,36 @@ the rest for that turn.
 
 ### Missions
 
-Open **Units** on the bottom bar, pick a mission from a unit's dropdown,
-press **Select Target** and click a tile.
+Open **Mission Briefing** on the bottom bar, pick a mission from a unit's
+dropdown, press **Select Target** and click a tile. (Escort and QRF need no
+tile: the button says **Give Order**.)
 
 | Mission | Who | What it does |
 |---|---|---|
-| Move | Infantry | Walk to a tile, then come home |
+| Move | Guard, infantry, armour | Walk to a tile, then come home |
 | Harvest | Worker | Bring back 1 resource from a deposit |
 | Build | Worker | Foundation, bridge, conveyor belt or extractor |
-| Guard | Infantry | Hold a tile for 20 turns |
-| Escort | Infantry | Follow a unit from the hub wherever it goes, fighting beside it, and come home with it |
+| Guard | Guard, infantry, armour | Hold a tile for 20 turns |
+| Escort | Infantry, armour | Follow a unit from the hub wherever it goes, fighting beside it, and come home with it (not aircraft) |
 | Capture | Infantry | Take over an enemy extractor or conveyor belt |
 | Demolish | Infantry | Tear down foundations, bridges, belts or extractors |
+| QRF | Guard, infantry, armour | Stand by in the Quick Reaction Force room and defend your extractors and belts (see below) |
+| Sortie | Air | Fly straight to any tile but a hub and fight there (see below) |
+
+**Sortie.** Aircraft don't walk. Once every other unit has moved (the QRF
+included), each aircraft on a sortie jumps straight to its target, over
+anything in between, and starts or joins battles there like anyone else.
+At the start of the next turn it flies straight home, and refits in the
+Hangar for 10 turns, which also repairs it. It then goes to Mission
+Briefing, ready for another sortie.
+
+**QRF (quick reaction force).** QRF units don't move with everyone else.
+Once every other unit has finished moving, each QRF unit heads for the
+nearest enemy standing on one of your structures (extractors and conveyor
+belts; foundations and bridges can't be owned), hoping to start a battle.
+It picks again every turn, and walks back to the QRF room once no enemies
+are left on your structures. It stays on duty until you drag it out of the
+QRF room. If it breaks in battle, it drops QRF duty and comes home.
 
 ### Building an economy
 
@@ -127,7 +222,8 @@ chasms.
 | Mouse wheel | Zoom |
 | Left click | Select a target; click your hub to open it |
 | Right click / Esc | Cancel targeting |
-| U / F / T / B | Units, In the Field, Training, Buildings panels |
+| H / M / F / T / B | Central Hub, Mission Briefing, In the Field, Training, Buildings panels |
+| Drag a unit card | Move a unit between the hub's rooms (Central Hub panel) |
 | Enter | End turn |
 | F5 / F9 | Save / load |
 
@@ -147,9 +243,18 @@ Open the project folder in Godot 4.7 and press Play (F5 in the editor).
 - Each player (human or AI) is a `Player` (`scripts/core/player.gd`): its
   hub, stockpile, units, training and buildings all live there.
 - Each unit and structure keeps all of its data in its own file under
-  `scripts/units/` and `scripts/structures/`.
+  `scripts/units/` and `scripts/structures/`. Units are in a folder per
+  type (`scripts/units/civilian/`, `infantry/`, `armour/`, `air/`); the
+  shared `Unit` base is `scripts/units/unit.gd`, and armour and air units
+  also share `armour/armour_unit.gd` / `air/air_unit.gd`. Register new
+  units in the list in `Player._init()`.
 - Buildings inside the hub (e.g. the Greenhouse) each have a file in
   `scripts/buildings/`; register new ones in `Building.create()`.
+- The hub's rooms each have a file in `scripts/rooms/`, holding what
+  happens to the units in them; register new ones in `Room.create_all()`.
+- The HUD (`scripts/ui/hud.gd`) is the frame; each bottom-bar panel
+  (Central Hub, Mission Briefing, Field, Training, Buildings) has its own
+  `*_panel.gd` file, and shared button/box styles live in `ui_style.gd`.
 - Saves are JSON in Godot's user folder; each part of the game saves itself
   with `to_dict()` / `load_dict()`.
 - The **+50 all (test)** button is for testing only. Search for

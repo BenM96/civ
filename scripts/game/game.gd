@@ -90,8 +90,10 @@ func _ready() -> void:
 		if _submit(Orders.cancel_mission(unit)) == "":
 			hud.log_event("%s's mission was cancelled" % unit.display_name))
 	hud.focus_requested.connect(func(unit: Unit) -> void: camera.focus_on(map.hex_to_world(unit.hex)))
-	hud.wait_requested.connect(func(unit: Unit, value: bool) -> void:
-		_submit(Orders.wait(unit, value)))
+	hud.room_move_requested.connect(func(unit: Unit, room_id: String) -> void:
+		var reason := _submit(Orders.move_room(unit, room_id))
+		if reason != "":
+			hud.log_event("Can't move %s: %s" % [unit.display_name, reason]))
 	hud.hub_panel_closed.connect(_cancel_targeting)
 	hud.auto_end_toggled.connect(turns.set_auto_skip)
 	hud.train_requested.connect(func(bp: UnitBlueprint) -> void:
@@ -115,7 +117,7 @@ func _ready() -> void:
 	hud.set_player(local_player)
 	_refresh_markers()
 	if save.is_empty():
-		hud.log_event("Your colony hub has landed on Mars. Open Units (bottom bar) to give orders.")
+		hud.log_event("Your colony hub has landed on Mars. Open Mission Briefing (bottom bar) to give orders, or Central Hub to see its rooms.")
 	else:
 		hud.log_event("Game loaded (turn %d)." % turns.turn)
 
@@ -460,7 +462,7 @@ func _on_left_click() -> void:
 # --- Targeting -------------------------------------------------------------
 
 func _begin_targeting(unit: Unit, kind: String) -> void:
-	if kind.begins_with("escort:"):
+	if not Orders.needs_target(kind):
 		# Nothing to pick on the map: order it straight away.
 		_cancel_targeting()
 		var reason := _submit(Orders.mission(unit, kind, local_player.hex))

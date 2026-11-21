@@ -80,6 +80,10 @@ func get_invalid_reason(u: Unit) -> String:
 		return "%s has already left the hub" % e.display_name
 	if e.mission is EscortMission:
 		return "can't escort an escort"
+	if e.flies:
+		return "can't escort an aircraft"
+	if e.mission and e.mission.get_move_phase() != MovePhase.NORMAL:
+		return "can't escort a unit on QRF duty"
 	return ""
 
 

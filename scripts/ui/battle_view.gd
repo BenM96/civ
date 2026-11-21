@@ -291,11 +291,7 @@ func _draw() -> void:
 		if v["dead"]:
 			body = Color(0.9, 0.2, 0.15)
 		body = body.lerp(Color.WHITE, v["flash"])
-		draw_circle(pos, r + r * 0.25, _with_alpha(Faction.get_color(info["faction"]), a))
-		draw_circle(pos, r + r * 0.1, Color(0, 0, 0, 0.8 * a))
-		draw_circle(pos, r, _with_alpha(body, a))
-		var letter: String = str(info["type"]).left(1)
-		_draw_centered(font, letter, pos, roundi(r * 1.1), Color(0.1, 0.1, 0.1, a))
+		Unit.draw_icon(self, info["unit_type"], pos, r, Faction.get_color(info["faction"]), body, info["short"], a)
 		if v["dead"]:
 			var d := r * 0.6
 			draw_line(pos + Vector2(-d, -d), pos + Vector2(d, d), Color(0.1, 0, 0, a), 4.0)
@@ -308,8 +304,8 @@ func _draw() -> void:
 		draw_rect(Rect2(bar.position, Vector2(bar.size.x * fraction, bar.size.y)), _with_alpha(fill, a))
 		var text_size := clampi(roundi(r * 0.4), 9, 16)
 		var unit_name: String = info["name"]
-		if r < 20.0:  # Small: "Infantry 2" -> "Inf 2", so neighbours' labels don't collide.
-			unit_name = "%s %s" % [str(info["type"]).left(3), unit_name.get_slice(" ", unit_name.get_slice_count(" ") - 1)]
+		if r < 20.0:  # Small: "Tank Destroyer 2" -> "TD 2", so neighbours' labels don't collide.
+			unit_name = "%s %s" % [info["short"], unit_name.get_slice(" ", unit_name.get_slice_count(" ") - 1)]
 		_draw_centered(font, unit_name, Vector2(pos.x, bar.end.y + text_size * 0.9), text_size, Color(1, 1, 1, a))
 		_draw_centered(font, ("HP %d/%d" if r >= 20.0 else "%d/%d") % [maxi(roundi(v["hp"]), 0), info["max_hp"]],
 			Vector2(pos.x, bar.end.y + text_size * 2.1), text_size, Color(1, 1, 1, 0.75 * a))

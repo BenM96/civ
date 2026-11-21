@@ -29,6 +29,8 @@ extends RefCounted
 enum Result { IN_PROGRESS, COMPLETE, FAILED }
 ## TRAVELLING: heading for get_travel_hex(). WORKING: there, doing the job.
 enum Phase { TRAVELLING, WORKING }
+## When in the movement phase the unit moves (see get_move_phase()).
+enum MovePhase { NORMAL, REACTION, AIR }
 
 var unit: Unit
 var result := Result.IN_PROGRESS
@@ -122,6 +124,23 @@ func work() -> void:
 ## (e.g. Escort).
 func sets_out_last() -> bool:
 	return false
+
+
+## Which part of the movement phase the unit moves in (see Movement):
+## NORMAL with everyone else; REACTION once they've all finished (a QRF,
+## which reacts to where enemies ended up); AIR last of all (a sortie).
+func get_move_phase() -> MovePhase:
+	return MovePhase.NORMAL
+
+
+## The hub room (see Room) the unit waits in once given this mission.
+func get_departure_room_id() -> String:
+	return AirlockRoom.ID
+
+
+## Status line between being given the mission and setting out.
+func get_deploying_text() -> String:
+	return "Departs at end of turn - %s" % get_description()
 
 
 ## Whether the player may call this mission off while the unit is back at

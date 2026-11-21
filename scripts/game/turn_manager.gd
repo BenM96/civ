@@ -7,13 +7,15 @@ extends Node
 ##   2. Set out     - deployed units leave their hubs; units already out
 ##                    re-plan their routes and start work if they've arrived.
 ##   3. Movement    - every unit moves at the same time; units of opposing
-##                    colonies that meet start battles and stop. The
+##                    colonies that meet start battles and stop. QRF
+##                    units move last, once everyone else has. The
 ##                    movement phase then passes the battles (each an array
 ##                    of hexes) to Combat (see Movement).
 ##   4. Layout      - units sharing a tile are laid out side by side.
 ##   5. Work        - units that spent the turn at their site build,
 ##                    harvest or demolish. Units killed in combat don't.
-##   6. Production  - training, extractors, hub buildings (Greenhouse biomass).
+##   6. Production  - training, extractors, hub buildings (Greenhouse biomass),
+##                    hub rooms (the Med Bay heals).
 ##   7. Upkeep      - every unit eats 1 biomass; a colony below 0 starves
 ##                    (the player loses; a rival is eliminated).
 ##   8. Victory     - the first colony to hold AMOUNT_TO_WIN of WIN_RESOURCE
@@ -183,12 +185,15 @@ func set_auto_skip(enabled: bool) -> void:
 		_skip_this_turn = false
 
 
-## True when no unit needs orders (all busy or waiting) and letting time pass
-## would actually change something (units out, or training in progress).
+## True when no unit needs orders (all busy, or off duty in the hub) and
+## letting time pass would actually change something (units out, training
+## in progress, or a hub room at work - units healing or refitting).
 func _no_units_need_orders() -> bool:
 	if local_player.units.is_empty() or not local_player.get_units_needing_orders().is_empty():
 		return false
-	return not local_player.get_field_units().is_empty() or not local_player.training_queue.is_empty()
+	if not local_player.get_field_units().is_empty() or not local_player.training_queue.is_empty():
+		return true
+	return local_player.rooms.any(func(room: Room) -> bool: return room.has_work(local_player))
 
 
 func _process(delta: float) -> void:

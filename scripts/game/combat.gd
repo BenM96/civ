@@ -18,21 +18,30 @@ extends RefCounted
 ##      lists are taken in a random order.
 ##   3. Working through the lists side by side - the first unit of each list
 ##      in turn, then the second of each, and so on (a list that runs out is
-##      skipped) - every unit fires once, at a random enemy unit still in
-##      the fight, taking that much HP off it: the attacker's damage against
-##      the target's armour type (Unit.damage, Unit.armor_type).
+##      skipped) - every unit fires once, at an enemy unit still in the
+##      fight, taking that much HP off it: the attacker's damage against
+##      the target's unit type (Unit.damage, Unit.unit_type). Armour takes
+##      two shots one after the other when its turn comes (each picking a
+##      target afresh - Unit.shots_per_turn).
+##      Targets: each unit prefers the type it does most damage to, and
+##      shoots a random enemy of that type if there is one; otherwise the
+##      next most damaged type, and so on. Civilians always come last, so
+##      fighters shoot civilians only when nothing else is left
+##      (Unit.get_target_preference()).
 ##   4. A unit hit down to 0 HP or below dies on the spot. One hit below half
 ##      its max HP breaks and flees on the spot. Either way it's out of the
 ##      fight: it doesn't fire if its turn hadn't come yet, and can't be shot.
 ##   5. Afterwards the dead are removed, and everyone who fled drops their
-##      mission and retreats one tile towards their hub (Unit.break_off()).
+##      mission and retreats one tile towards their hub (Unit.break_off());
+##      aircraft fly home at the start of the next turn instead.
 ## Units still sharing a tile next turn fight again (see Movement).
 ##
 ## Each battle also comes back as a report - plain data describing who was
 ## there and every shot, in order - so the game can replay it (BattleView):
 ##   {"core": [Vector2i] (where enemies met), "hexes": [Vector2i] (the core
 ##    and every tile around it), "message": String,
-##    "units": {unit id: {"name", "type", "faction", "color", "hex", "home",
+##    "units": {unit id: {"name", "type", "short", "unit_type", "faction",
+##                        "color", "hex", "home",
 ##                        "hp", "max_hp"}},   # As they were before the battle.
 ##    "events": [{"type": "flee", "unit": id}
 ##               or {"type": "shot", "from": id, "to": id, "damage": int,
@@ -147,6 +156,8 @@ static func _describe_units(sides: Dictionary) -> Dictionary:
 			units[u.id] = {
 				"name": u.display_name,
 				"type": u.unit_name,
+				"short": u.get_short_label(),
+				"unit_type": u.unit_type,
 				"faction": u.player.id,
 				"color": u.body_color,
 				"hex": u.hex,
@@ -182,27 +193,40 @@ static func _fight(sides: Dictionary, rng: RandomNumberGenerator, events: Array)
 			var attacker: Unit = list[i]
 			if attacker.health <= 0 or attacker in fled:
 				continue  # Killed or fled before its turn came.
-			var targets: Array[Unit] = []
-			for other in order:
-				if other == side:
-					continue
-				for u: Unit in sides[other]:
-					if u.health > 0 and not u in fled:
-						targets.append(u)
-			if targets.is_empty():
-				continue
-			var target := targets[rng.randi_range(0, targets.size() - 1)]
-			var amount := attacker.get_damage_against(target)
-			target.take_damage(amount)
-			var result := "hit"
-			if target.health <= 0:
-				result = "dead"
-			elif target.is_broken():
-				result = "broken"
-				fled.append(target)
-			events.append({"type": "shot", "from": attacker.id, "to": target.id,
-				"damage": amount, "hp": target.health, "result": result})
+			# Armour fires twice in a row (Unit.shots_per_turn).
+			for shot in attacker.shots_per_turn:
+				if not _fire(attacker, sides, order, side, rng, fled, events):
+					break
 	return fled
+
+
+## `attacker` fires one shot at a random enemy still in the fight, of the
+## type it most prefers to shoot (see Unit.pick_preferred_targets()).
+## Returns false if there was nobody left to shoot.
+static func _fire(attacker: Unit, sides: Dictionary, order: Array, side: Variant,
+		rng: RandomNumberGenerator, fled: Array[Unit], events: Array) -> bool:
+	var targets: Array[Unit] = []
+	for other in order:
+		if other == side:
+			continue
+		for u: Unit in sides[other]:
+			if u.health > 0 and not u in fled:
+				targets.append(u)
+	if targets.is_empty():
+		return false
+	targets = attacker.pick_preferred_targets(targets)
+	var target := targets[rng.randi_range(0, targets.size() - 1)]
+	var amount := attacker.get_damage_against(target)
+	target.take_damage(amount)
+	var result := "hit"
+	if target.health <= 0:
+		result = "dead"
+	elif target.is_broken():
+		result = "broken"
+		fled.append(target)
+	events.append({"type": "shot", "from": attacker.id, "to": target.id,
+		"damage": amount, "hp": target.health, "result": result})
+	return true
 
 
 ## Fisher-Yates with our own rng (Array.shuffle() would use the global one).

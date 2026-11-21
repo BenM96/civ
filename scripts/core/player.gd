@@ -7,7 +7,8 @@ extends Node2D
 ##
 ## Every unit belongs to a player: it waits at the hub until given a mission,
 ## and returns there when it's done. Buildings (see Building) live inside the
-## hub rather than on map tiles.
+## hub rather than on map tiles. Units in the hub are each in one of its
+## rooms (see Room): only units in Mission Briefing can be given orders.
 
 ## Emitted whenever any unit changes state (joins, departs, returns...).
 signal units_changed
@@ -57,6 +58,8 @@ const HUB_NAME := "Central Hub"
 
 ## Buildings inside the hub, in the order they were added.
 var buildings: Array[Building] = []
+## The hub's rooms (see Room). Every unit in the hub is in one of them.
+var rooms: Array[Room] = Room.create_all()
 var units: Array[Unit] = []
 ## Stockpiled resources: ResourceDeposit.Type -> int.
 var inventory: Dictionary = {}
@@ -81,8 +84,12 @@ var _units_ever_had: Dictionary = {}
 
 func _init() -> void:
 	# Units this hub can train. Their costs, training times and upkeep are
-	# set in each unit's own script (scripts/units/).
-	for unit_script in [Worker, Infantry]:
+	# set in each unit's own script (scripts/units/<type>/).
+	for unit_script in [
+			Worker, GuardUnit,
+			Infantry, AssaultInfantry, AtInfantry, StingerInfantry,
+			Apc, TankDestroyer, Tank, AntiAircraftGun,
+			Chopper, Fighter, Bomber]:
 		blueprints.append(UnitBlueprint.new(unit_script))
 	buildables.append(FoundationBuildable.new())
 	buildables.append(BridgeBuildable.new())
@@ -157,6 +164,8 @@ func add_unit(unit: Unit) -> void:
 	if unit.display_name == "":
 		_units_ever_had[unit.unit_name] = _units_ever_had.get(unit.unit_name, 0) + 1
 		unit.display_name = "%s %d" % [unit.unit_name, _units_ever_had[unit.unit_name]]
+	if unit.room_id == "":
+		unit.room_id = MissionBriefingRoom.ID
 	units.append(unit)
 	unit.setup(self, map)
 	unit.state_changed.connect(_on_unit_state_changed)
@@ -190,7 +199,7 @@ func get_garrison() -> Array[Unit]:
 	return result
 
 
-## Units at home that haven't been given orders or told to wait.
+## Units at home in Mission Briefing, waiting for orders.
 func get_units_needing_orders() -> Array[Unit]:
 	var result: Array[Unit] = []
 	for u in units:
@@ -199,15 +208,77 @@ func get_units_needing_orders() -> Array[Unit]:
 	return result
 
 
-## Tells a unit at home to wait (or wakes it).
-func set_unit_waiting(unit: Unit, value: bool) -> bool:
-	if unit.player != self or not unit.set_waiting(value):
-		return false
-	if value:
-		unit_event.emit("%s is waiting at the hub" % unit.display_name)
-	else:
-		unit_event.emit("%s is ready for orders" % unit.display_name)
-	return true
+# --- Rooms -----------------------------------------------------------------
+
+## One of the hub's rooms by its id, e.g. MedBayRoom.ID, or null.
+func get_room(room_id: String) -> Room:
+	for room in rooms:
+		if room.id == room_id:
+			return room
+	return null
+
+
+## The units in the hub that are in a room (units out on the map aren't in
+## any), in the order they joined the colony.
+func get_units_in_room(room_id: String) -> Array[Unit]:
+	var result: Array[Unit] = []
+	for u in units:
+		if u.room_id == room_id and u.is_in_hub():
+			result.append(u)
+	return result
+
+
+## Where an off-duty `unit` waits: the Break Room, Barracks, Hangar or Garage
+## for its type. Null if the hub has none for it.
+func get_quarters_for(unit: Unit) -> Room:
+	for room in rooms:
+		if room is QuartersRoom and room.get_refusal(unit) == "":
+			return room
+	return null
+
+
+## Why the player can't move `unit` into the room `room_id` right now, or ""
+## if they can (see move_unit_to_room()).
+func get_room_move_refusal(unit: Unit, room_id: String) -> String:
+	var room := get_room(room_id)
+	if room == null:
+		return "no such room"
+	if unit.player != self:
+		return "not one of our units"
+	if not unit.is_in_hub():
+		return "%s isn't in the hub" % unit.display_name
+	if unit.room_id == room_id:
+		return "%s is already in the %s" % [unit.display_name, room.display_name]
+	if unit.mission and not unit.can_cancel_mission():
+		return "%s can't be called off its mission right now" % unit.display_name
+	var current := get_room(unit.room_id)
+	if current:
+		var stuck := current.get_leave_refusal(unit)
+		if stuck != "":
+			return stuck
+	return room.get_refusal(unit)
+
+
+## The player moves a unit in the hub to another room. A unit with a mission
+## it hasn't set out on (in the Airlock, or on QRF duty) has it called off,
+## as with cancel_mission(). Returns "" if it moved, otherwise why not.
+func move_unit_to_room(unit: Unit, room_id: String) -> String:
+	var reason := get_room_move_refusal(unit, room_id)
+	if reason != "":
+		return reason
+	if unit.mission:
+		var called_off := unit.mission.get_description()
+		cancel_mission(unit)
+		unit_event.emit("%s's mission was called off (%s)" % [unit.display_name, called_off])
+	unit.set_room(room_id)
+	unit_event.emit("%s moved to the %s" % [unit.display_name, get_room(room_id).display_name])
+	return ""
+
+
+## The room a unit coming home goes to: the Med Bay if it's hurt, otherwise
+## Mission Briefing.
+func _room_for_returning(unit: Unit) -> String:
+	return MedBayRoom.ID if unit.is_injured() else MissionBriefingRoom.ID
 
 
 func get_field_units() -> Array[Unit]:
@@ -229,6 +300,7 @@ func assign_mission(unit: Unit, mission: Mission) -> bool:
 		return false
 	_change_resources(cost, -1)
 	unit.assign_mission(mission)
+	unit.set_room(mission.get_departure_room_id())
 	unit.add_materials(cost)
 	mission.on_assigned()  # Line builds take their first job's materials.
 	unit_event.emit("%s ordered: %s" % [unit.display_name, mission.get_description()])
@@ -243,6 +315,7 @@ func cancel_mission(unit: Unit) -> bool:
 	if not unit.cancel_mission():
 		return false
 	_change_resources(unit.take_materials(), 1)
+	unit.set_room(_room_for_returning(unit))
 	return true
 
 
@@ -502,13 +575,16 @@ func units_work() -> void:
 
 
 ## "Production" step: training progresses, extractors deliver, the hub's
-## buildings produce (e.g. a Greenhouse grows biomass). (After movement, so
-## a freshly trained unit just waits in the garrison.)
+## buildings produce (e.g. a Greenhouse grows biomass) and its rooms do
+## their work (e.g. the Med Bay heals). (After movement, so a freshly trained
+## unit just waits in the garrison.)
 func produce() -> void:
 	_process_training()
 	_process_extractors()
 	for building in buildings:
 		building.produce(self)
+	for room in rooms:
+		room.process_turn(self)
 
 
 ## "Upkeep" step: every unit eats. Returns true if biomass went below zero.
@@ -628,9 +704,19 @@ func _on_unit_mission_failed(unit: Unit, _mission: Mission, reason: String) -> v
 	unit_event.emit("%s failed: %s%s" % [unit.display_name, reason, carrying])
 
 
-## Home: unloads what it harvested, and puts back any materials its job
-## didn't use.
+## Home: unloads what it harvested, puts back any materials its job didn't
+## use, and goes to Mission Briefing (or the Med Bay if it's hurt).
 func _on_unit_returned(unit: Unit) -> void:
+	var quarters := get_quarters_for(unit)
+	if unit.refit_turns > 0 and quarters:
+		# Refits (and is repaired) in its quarters, e.g. an aircraft in the Hangar.
+		unit.refit_turns_left = unit.refit_turns
+		unit.set_room(quarters.id)
+		unit_event.emit("%s is back and refitting in the %s (%d turns)" % [unit.display_name, quarters.display_name, unit.refit_turns])
+	else:
+		unit.set_room(_room_for_returning(unit))
+		if unit.room_id == MedBayRoom.ID:
+			unit_event.emit("%s came home injured and went to the Med Bay" % unit.display_name)
 	var parts: PackedStringArray = []
 	if unit.has_cargo():
 		parts.append("delivered %s" % unit.get_cargo_text())
