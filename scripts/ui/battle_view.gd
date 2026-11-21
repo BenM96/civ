@@ -1,8 +1,8 @@
 class_name BattleView
 extends Control
 ## Replays one battle on a screen of its own (see Hud.play_battle()): the
-## battle's hexes blown up to fill the screen with every unit standing on
-## them, then each shot in the order Combat fired it - the shooter pulses, a
+## battle's hexes - where enemies met (outlined) and every tile around them -
+## blown up to fill the screen with every unit standing on them, then each shot in the order Combat fired it - the shooter pulses, a
 ## bullet flies, the target flashes and loses HP. Units that break run off
 ## the screen by the nearest edge; units that die burst and fade away.
 ##
@@ -262,14 +262,21 @@ func _unit_pos(v: Dictionary) -> Vector2:
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.05, 0.03, 0.03, 0.88))
-	for h: Vector2i in _report["hexes"]:
-		var tile := _map.get_tile(h) if _map else null
-		var color := Terrain.get_color(tile.terrain) if tile else Color(0.82, 0.42, 0.2)
-		var corners := Hex.corners(_hex_center(h), _hex_size * 0.97)
-		draw_colored_polygon(corners, color)
-		var outline := corners.duplicate()
-		outline.append(corners[0])
-		draw_polyline(outline, color.darkened(0.45), 3.0, true)
+	# Surrounding hexes first, then the core (where enemies met) outlined on top.
+	for in_core in [false, true]:
+		for h: Vector2i in _report["hexes"]:
+			if (h in _report["core"]) != in_core:
+				continue
+			var tile := _map.get_tile(h) if _map else null
+			var color := Terrain.get_color(tile.terrain) if tile else Color(0.82, 0.42, 0.2)
+			var corners := Hex.corners(_hex_center(h), _hex_size * 0.97)
+			draw_colored_polygon(corners, color if in_core else color.darkened(0.15))
+			var outline := corners.duplicate()
+			outline.append(corners[0])
+			if in_core:
+				draw_polyline(outline, Color(1.0, 0.8, 0.35), 4.0, true)
+			else:
+				draw_polyline(outline, color.darkened(0.45), 3.0, true)
 
 	var font := ThemeDB.fallback_font
 	for id in _units:
@@ -299,9 +306,12 @@ func _draw() -> void:
 		var fraction := clampf(v["hp"] / float(info["max_hp"]), 0.0, 1.0)
 		var fill := Color(0.4, 0.9, 0.35) if v["hp"] >= info["max_hp"] / 2.0 else Color(0.95, 0.3, 0.25)
 		draw_rect(Rect2(bar.position, Vector2(bar.size.x * fraction, bar.size.y)), _with_alpha(fill, a))
-		var text_size := clampi(roundi(r * 0.4), 11, 16)
-		_draw_centered(font, info["name"], Vector2(pos.x, bar.end.y + text_size * 0.9), text_size, Color(1, 1, 1, a))
-		_draw_centered(font, "HP %d/%d" % [maxi(roundi(v["hp"]), 0), info["max_hp"]],
+		var text_size := clampi(roundi(r * 0.4), 9, 16)
+		var unit_name: String = info["name"]
+		if r < 20.0:  # Small: "Infantry 2" -> "Inf 2", so neighbours' labels don't collide.
+			unit_name = "%s %s" % [str(info["type"]).left(3), unit_name.get_slice(" ", unit_name.get_slice_count(" ") - 1)]
+		_draw_centered(font, unit_name, Vector2(pos.x, bar.end.y + text_size * 0.9), text_size, Color(1, 1, 1, a))
+		_draw_centered(font, ("HP %d/%d" if r >= 20.0 else "%d/%d") % [maxi(roundi(v["hp"]), 0), info["max_hp"]],
 			Vector2(pos.x, bar.end.y + text_size * 2.1), text_size, Color(1, 1, 1, 0.75 * a))
 
 	if not _bullet.is_empty():
@@ -328,7 +338,7 @@ func _with_alpha(c: Color, a: float) -> Color:
 
 func _hexes_text() -> String:
 	var parts: PackedStringArray = []
-	for h: Vector2i in _report["hexes"]:
+	for h: Vector2i in _report["core"]:
 		parts.append("(%d, %d)" % [h.x, h.y])
 	return ", ".join(parts)
 

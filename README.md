@@ -58,8 +58,11 @@ Every unit has 10 HP and wears infantry armour. Infantry hit for 7 damage
 and Workers for 3.
 
 A battle starts when units of different colonies end up on the same tile,
-try to walk past each other, or start a turn on the same tile. Everyone in
-it stops for the turn, and one round is fought:
+try to walk past each other, or start a turn on the same tile. The battle
+takes in those tiles and every tile around them: every unit standing in that
+area joins in (units at their own hub stay safe), and battles whose areas
+overlap become one. Everyone in it stops for the turn, and one round is
+fought:
 
 1. Units already below half their HP (under 5) flee straight away.
 2. Each colony's other units are put in a list in random order, and the

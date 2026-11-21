@@ -339,9 +339,9 @@ func _show_battles(reports: Array[Dictionary]) -> void:
 		if _game_over:
 			break
 		var center := Vector2.ZERO
-		for h: Vector2i in report["hexes"]:
+		for h: Vector2i in report["core"]:
 			center += map.hex_to_world(h)
-		camera.focus_on(center / report["hexes"].size())
+		camera.focus_on(center / report["core"].size())
 		if await hud.play_battle(report, map):
 			break
 	turns.showing_battles = false

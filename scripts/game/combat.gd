@@ -4,9 +4,12 @@ extends RefCounted
 ## doesn't go looking for fights itself: the movement phase works out where
 ## battles broke out and passes them in (see Movement).
 ##
-## A battle is just an array of hexes. Everyone standing on those hexes
-## takes part, pooled into one fight whichever hex they're on, and nobody
-## changes hex during a battle. Units garrisoned in a hub are safe.
+## A battle starts as an array of hexes where enemies met (its "core"), and
+## spreads to every hex right next to them: everyone standing anywhere in
+## that area takes part, pooled into one fight whichever hex they're on.
+## Battles whose areas overlap are fought as one. Nobody changes hex during
+## a battle. Units at a hub (garrisoned, or waiting there) are safe unless
+## the hub tile itself is in the core.
 ##
 ## One round is fought per turn:
 ##   1. Units already below half their max HP (broken in an earlier battle)
@@ -27,7 +30,8 @@ extends RefCounted
 ##
 ## Each battle also comes back as a report - plain data describing who was
 ## there and every shot, in order - so the game can replay it (BattleView):
-##   {"hexes": [Vector2i], "message": String,
+##   {"core": [Vector2i] (where enemies met), "hexes": [Vector2i] (the core
+##    and every tile around it), "message": String,
 ##    "units": {unit id: {"name", "type", "faction", "color", "hex", "home",
 ##                        "hp", "max_hp"}},   # As they were before the battle.
 ##    "events": [{"type": "flee", "unit": id}
@@ -43,21 +47,21 @@ extends RefCounted
 ## hexes as [x, y] (see Movement). Returns a report for each (see above).
 static func resolve(map: HexMap, battles: Array, turn: int) -> Array[Dictionary]:
 	var reports: Array[Dictionary] = []
-	for i in battles.size():
-		var hexes: Array[Vector2i] = []
-		for data in battles[i]:
-			hexes.append(SaveGame.hex_from_data(data))
+	var areas := _battle_areas(map, battles)
+	for i in areas.size():
+		var core: Array[Vector2i] = areas[i][0]
+		var hexes: Array[Vector2i] = areas[i][1]
 		var rng := RandomNumberGenerator.new()
 		rng.seed = hash([map.last_seed, turn, i])
-		var sides := _sides_on(map, hexes)
-		var report := {"hexes": hexes, "units": _describe_units(sides), "events": []}
+		var sides := _sides_on(map, hexes, core)
+		var report := {"core": core, "hexes": hexes, "units": _describe_units(sides), "events": []}
 		var fled := _fight(sides, rng, report["events"])
 		var dead: Array[Unit] = []
 		for side in sides:
 			for u: Unit in sides[side]:
 				if u.health <= 0:
 					dead.append(u)
-		report["message"] = "Battle at %s: %s" % [_describe_hexes(hexes), _describe_outcome(report["events"], dead, fled)]
+		report["message"] = "Battle at %s: %s" % [_describe_hexes(core), _describe_outcome(report["events"], dead, fled)]
 		reports.append(report)
 		for u in dead:
 			u.player.remove_unit(u)
@@ -66,12 +70,66 @@ static func resolve(map: HexMap, battles: Array, turn: int) -> Array[Dictionary]
 	return reports
 
 
+## Each battle's area: [core, hexes] - the core hexes where enemies met, and
+## those plus every tile next to them. Battles whose areas overlap are
+## merged, so no unit fights twice in a turn. Sorted, so every computer
+## fights them in the same order.
+static func _battle_areas(map: HexMap, battles: Array) -> Array:
+	var areas: Array = []
+	for battle: Array in battles:
+		var core := {}
+		var area := {}
+		for data in battle:
+			var h := SaveGame.hex_from_data(data)
+			core[h] = true
+			area[h] = true
+			for n in Hex.neighbors(h):
+				if map.has_tile(n):
+					area[n] = true
+		areas.append([core, area])
+	# Merge overlapping areas until none overlap.
+	var merged := true
+	while merged:
+		merged = false
+		for i in areas.size():
+			for j in range(i + 1, areas.size()):
+				var a: Dictionary = areas[i][1]
+				var b: Dictionary = areas[j][1]
+				if a.keys().any(func(h: Vector2i) -> bool: return b.has(h)):
+					areas[i][0].merge(areas[j][0])
+					a.merge(b)
+					areas.remove_at(j)
+					merged = true
+					break
+			if merged:
+				break
+	var result: Array = []
+	for entry: Array in areas:
+		result.append([_sorted_hexes(entry[0]), _sorted_hexes(entry[1])])
+	result.sort_custom(func(x: Array, y: Array) -> bool: return _hex_less(x[0][0], y[0][0]))
+	return result
+
+
+static func _sorted_hexes(hex_set: Dictionary) -> Array[Vector2i]:
+	var hexes: Array[Vector2i] = []
+	hexes.assign(hex_set.keys())
+	hexes.sort_custom(_hex_less)
+	return hexes
+
+
+static func _hex_less(a: Vector2i, b: Vector2i) -> bool:
+	return a.x < b.x or (a.x == b.x and a.y < b.y)
+
+
 ## Everyone out on the map standing on any of `hexes`, as {faction: [Unit]},
-## each side in unit id order.
-static func _sides_on(map: HexMap, hexes: Array[Vector2i]) -> Dictionary:
+## each side in unit id order. Units on a hub tile outside the `core` are
+## left out (safe at home).
+static func _sides_on(map: HexMap, hexes: Array[Vector2i], core: Array[Vector2i]) -> Dictionary:
 	var sides := {}
 	for u in map.get_units_in_world():
 		if not u.hex in hexes:
+			continue
+		if not u.hex in core and map.get_player_at(u.hex) != null:
 			continue
 		if not sides.has(u.player.id):
 			sides[u.player.id] = []
