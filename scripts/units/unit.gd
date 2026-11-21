@@ -54,8 +54,9 @@ var cost: Dictionary = {}
 ## (any structure) and/or "demolish" - the same names orders use (see
 ## Orders.make_mission). The HUD only offers these, and Orders refuses others.
 @export var allowed_missions: Array[String] = ["move"]
-## Whether this unit fights (see Combat). Fighters stop when they run into
-## enemy fighters, and kill enemy non-fighters sharing their tile.
+## Whether this unit fights (see Combat). Any unit meeting an enemy starts a
+## battle and stops (see Movement), but only battles with fighters in them
+## kill anyone.
 @export var can_fight := false
 ## Seconds the move animation spends on each tile.
 @export var move_anim_time := 0.18
@@ -408,7 +409,7 @@ func take_step() -> void:
 		_reached_destination()
 
 
-## Met enemy fighters: stop moving for the rest of this turn.
+## Caught in a battle: stop moving for the rest of this turn.
 func engage() -> void:
 	engaged = true
 	movement_left = 0

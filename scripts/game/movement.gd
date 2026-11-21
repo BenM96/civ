@@ -1,6 +1,7 @@
 class_name Movement
 extends RefCounted
-## Moves every unit from every colony at the same time.
+## The movement phase: moves every unit from every colony at the same time,
+## working out where battles break out, then passes those battles to Combat.
 ##
 ## Movement is split into ticks, one per movement point (3 for every unit at
 ## the moment). A step lands on the tick given by Unit.get_next_step_tick():
@@ -8,49 +9,85 @@ extends RefCounted
 ## units whose step lands on the same tick move together, and a unit counts
 ## as standing on its old tile until its step lands.
 ##
-## Fighters (Infantry) of opposing colonies stop when they meet:
-##   - On a tile: after every tick, any tile holding fighters from more than
-##     one colony stops all of them there (walking onto an enemy, or both
-##     arriving on the same tile at once).
-##   - On a border: if they would swap tiles on the same tick, neither gets
-##     across. Both stay on their own tile, stopped, and the attempt is
-##     returned as a "clash" for Combat to resolve.
+## A battle breaks out when units of opposing colonies (Workers and Infantry
+## alike) either:
+##   - end up on the same tile (one walks onto the other, or both arrive at
+##     once): that tile becomes a battle hex, or
+##   - try to pass through each other, swapping tiles on the same tick:
+##     neither gets across, and both tiles become battle hexes.
+## Friendly units never start a battle.
+##
+## Every unit on a battle hex stops there for the rest of the turn, and so
+## does any unit that steps onto one later in the turn (it joins the
+## battle). Everyone else carries on moving.
+##
+## Battles that share a hex (e.g. several border clashes around one tile)
+## are merged into one. What's passed to Combat is the list of battles, each
+## an array of hexes - plain JSON-safe data:
+##
+##   [ [[3, 4], [4, 4]],   # a battle across two hexes
+##     [[9, 2]] ]          # a battle on one hex
+##
+## Hexes within a battle, and the battles themselves, are sorted so every
+## computer resolves them in the same order.
 
 
-## Runs all movement for the turn. Returns the border clashes, each a
-## Dictionary: {"tiles": [Vector2i, Vector2i], "sides": {faction: [Unit]}}.
-static func run(map: HexMap) -> Array[Dictionary]:
+## Runs the movement phase: moves every unit, then has Combat fight the
+## battles that broke out. Returns messages for the event log.
+static func run(map: HexMap) -> PackedStringArray:
+	return Combat.resolve(map, _move_units(map))
+
+
+## Moves every unit, tick by tick. Returns the battles, as described above.
+static func _move_units(map: HexMap) -> Array:
 	var units := map.get_units_in_world()
 	var ticks := 0
 	for u in units:
 		ticks = maxi(ticks, u.max_movement)
-	var clashes: Array[Dictionary] = []
+	# Each battle as it broke out: an Array of Vector2i. Merged at the end.
+	var outbreaks: Array = []
+	# Every hex in any battle -> true.
+	var battle_hexes := {}
 	for tick in range(1, ticks + 1):
 		var movers: Array[Unit] = []
 		for u in units:
 			if u.get_next_step_tick() == tick:
 				movers.append(u)
-		clashes.append_array(_stop_border_crossings(movers))
+		for crossing in _find_crossings(movers):
+			_add_battle(crossing, outbreaks, battle_hexes)
 		for u in movers:
-			u.take_step()
-		_stop_meetings(map)
+			if not battle_hexes.has(u.hex):  # Caught in a battle: stays put.
+				u.take_step()
+		for h in _find_meetings(map):
+			if not battle_hexes.has(h):
+				_add_battle([h], outbreaks, battle_hexes)
+		# Everyone on a battle hex - there from the start, just arrived or
+		# just walked in - stops there.
+		for u in map.get_units_in_world():
+			if battle_hexes.has(u.hex):
+				u.engage()
 	for u in units:
 		u.play_movement()
-	return clashes
+	return _merge(outbreaks)
 
 
-## Finds opposing fighters about to swap tiles. Stops them (removing them
-## from `movers`) and returns the clashes.
-static func _stop_border_crossings(movers: Array[Unit]) -> Array[Dictionary]:
-	# (from, to) -> fighters stepping that way this tick.
+static func _add_battle(hexes: Array, outbreaks: Array, battle_hexes: Dictionary) -> void:
+	outbreaks.append(hexes)
+	for h in hexes:
+		battle_hexes[h] = true
+
+
+## Pairs of tiles that opposing units are about to swap this tick, each as
+## [Vector2i, Vector2i].
+static func _find_crossings(movers: Array[Unit]) -> Array:
+	# (from, to) -> {faction -> true} of the units stepping that way.
 	var crossing := {}
 	for u in movers:
-		if u.can_fight:
-			var key := _edge(u.hex, u.get_next_step_hex())
-			if not crossing.has(key):
-				crossing[key] = []
-			crossing[key].append(u)
-	var clashes: Array[Dictionary] = []
+		var key := _edge(u.hex, u.get_next_step_hex())
+		if not crossing.has(key):
+			crossing[key] = {}
+		crossing[key][u.hub.faction] = true
+	var result := []
 	var done := {}
 	for key: Vector4i in crossing:
 		var reverse := Vector4i(key.z, key.w, key.x, key.y)
@@ -58,38 +95,80 @@ static func _stop_border_crossings(movers: Array[Unit]) -> Array[Dictionary]:
 			continue
 		done[key] = true
 		done[reverse] = true
-		var sides := {}
-		for u: Unit in crossing[key] + crossing[reverse]:
-			if not sides.has(u.hub.faction):
-				sides[u.hub.faction] = []
-			sides[u.hub.faction].append(u)
-		if sides.size() < 2:
-			continue  # Friendly units passing each other.
-		for faction in sides:
-			for u: Unit in sides[faction]:
-				u.engage()
-				movers.erase(u)
-		clashes.append({"tiles": [Vector2i(key.x, key.y), Vector2i(key.z, key.w)], "sides": sides})
-	return clashes
+		if _opposed(crossing[key], crossing[reverse]):
+			result.append([Vector2i(key.x, key.y), Vector2i(key.z, key.w)])
+	return result
 
 
-## Stops every fighter on a tile that holds fighters from more than one colony.
-static func _stop_meetings(map: HexMap) -> void:
-	# hex -> {faction -> true}, and hex -> fighters there.
+## True if some faction in `a` is different from some faction in `b`
+## (friendly units passing each other don't fight).
+static func _opposed(a: Dictionary, b: Dictionary) -> bool:
+	for fa in a:
+		for fb in b:
+			if fa != fb:
+				return true
+	return false
+
+
+## Tiles holding units of more than one colony.
+static func _find_meetings(map: HexMap) -> Array[Vector2i]:
+	# hex -> {faction -> true}
 	var factions_at := {}
-	var fighters_at := {}
 	for u in map.get_units_in_world():
-		if not u.can_fight:
-			continue
-		if not fighters_at.has(u.hex):
-			fighters_at[u.hex] = []
+		if not factions_at.has(u.hex):
 			factions_at[u.hex] = {}
-		fighters_at[u.hex].append(u)
 		factions_at[u.hex][u.hub.faction] = true
-	for h in fighters_at:
+	var result: Array[Vector2i] = []
+	for h: Vector2i in factions_at:
 		if factions_at[h].size() >= 2:
-			for u: Unit in fighters_at[h]:
-				u.engage()
+			result.append(h)
+	return result
+
+
+## Merges battles that share a hex into one, and converts them to sorted,
+## JSON-safe data: [[[x, y], ...], ...].
+static func _merge(outbreaks: Array) -> Array:
+	# Union-find over hexes: hex -> the hex it's joined to.
+	var parent := {}
+	for battle: Array in outbreaks:
+		for h: Vector2i in battle:
+			if not parent.has(h):
+				parent[h] = h
+		for i in range(1, battle.size()):
+			var a := _root(parent, battle[0])
+			var b := _root(parent, battle[i])
+			if a != b:
+				parent[b] = a
+	# root -> the hexes in that battle.
+	var groups := {}
+	for h: Vector2i in parent:
+		var r := _root(parent, h)
+		if not groups.has(r):
+			groups[r] = []
+		groups[r].append(h)
+	var battles: Array = []
+	for r in groups:
+		var hexes: Array = groups[r]
+		hexes.sort_custom(_hex_less)
+		battles.append(hexes)
+	battles.sort_custom(func(a: Array, b: Array) -> bool: return _hex_less(a[0], b[0]))
+	var result := []
+	for hexes: Array in battles:
+		var data := []
+		for h: Vector2i in hexes:
+			data.append(SaveGame.hex_to_data(h))
+		result.append(data)
+	return result
+
+
+static func _root(parent: Dictionary, h: Vector2i) -> Vector2i:
+	while parent[h] != h:
+		h = parent[h]
+	return h
+
+
+static func _hex_less(a: Vector2i, b: Vector2i) -> bool:
+	return a.x < b.x or (a.x == b.x and a.y < b.y)
 
 
 static func _edge(from: Vector2i, to: Vector2i) -> Vector4i:

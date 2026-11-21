@@ -1,59 +1,50 @@
 class_name Combat
 extends RefCounted
-## Fighting between colonies, resolved once every unit has moved (see
-## Movement for how fighters get stopped). Only units out on the map take
-## part; units garrisoned in a hub are safe.
+## Fighting between colonies, resolved once every unit has moved. Combat
+## doesn't go looking for fights itself: the movement phase works out where
+## battles broke out and passes them in (see Movement).
 ##
-##   1. Border clashes: fighters that tried to swap tiles with each other
-##      trade one for one. Survivors stay on their own tiles.
-##   2. Tile battles, on every tile holding more than one colony's units:
-##      every unit (Infantry or Worker) trades one for one, in any fight
-##      where at least one side has Infantry. Each side loses its Infantry
-##      before its Workers. 1 Infantry v 3 Workers leaves 2 Workers; Workers
-##      of different colonies alone just ignore each other.
+## A battle is just an array of hexes. Everyone standing on those hexes
+## takes part, pooled into one fight whichever hex they're on, and nobody
+## changes hex during a battle. Units garrisoned in a hub are safe.
 
 
-## Fights every battle. `clashes` comes from Movement.run(). Returns
-## messages for the event log.
-static func resolve(map: HexMap, clashes: Array[Dictionary]) -> PackedStringArray:
+## Fights every battle in `battles`: an Array of battles, each an Array of
+## hexes as [x, y] (see Movement). Returns messages for the event log.
+static func resolve(map: HexMap, battles: Array) -> PackedStringArray:
 	var messages: PackedStringArray = []
-
-	for clash in clashes:
-		var dead := _trade_fighters(clash["sides"])
-		var a: Vector2i = clash["tiles"][0]
-		var b: Vector2i = clash["tiles"][1]
-		messages.append("Clash between (%d, %d) and (%d, %d): %s"
-			% [a.x, a.y, b.x, b.y, _describe_losses(dead)])
-		_remove_dead(dead)
-
-	var by_tile := {}
-	for u in map.get_units_in_world():
-		if u.hex == u.hub.hex:
-			continue  # On its own hub (e.g. waiting for resources): safe, like the garrison.
-		if not by_tile.has(u.hex):
-			by_tile[u.hex] = []
-		by_tile[u.hex].append(u)
-	for h: Vector2i in by_tile:
-		var dead := _tile_battle(by_tile[h])
+	for battle: Array in battles:
+		var hexes: Array[Vector2i] = []
+		for data in battle:
+			hexes.append(SaveGame.hex_from_data(data))
+		var dead := _fight(_sides_on(map, hexes))
 		if dead.is_empty():
 			continue
-		messages.append("Battle at (%d, %d): %s" % [h.x, h.y, _describe_losses(dead)])
+		messages.append("Battle at %s: %s" % [_describe_hexes(hexes), _describe_losses(dead)])
 		_remove_dead(dead)
 	return messages
 
 
-## Works out who dies among the units on one tile. Every unit counts, one
-## for one, but only in fights involving Infantry: two sides trade a unit
-## each while at least one of them still has Infantry (Workers alone never
-## fight each other). Each side loses its Infantry first, then its Workers -
-## so 1 Infantry v 2 Workers leaves 1 Worker standing.
-static func _tile_battle(units: Array) -> Array[Unit]:
-	# faction -> that faction's units, Workers first so Infantry pop off first.
+## Everyone out on the map standing on any of `hexes`, as {faction: [Unit]}.
+static func _sides_on(map: HexMap, hexes: Array[Vector2i]) -> Dictionary:
 	var sides := {}
-	for u: Unit in units:
+	for u in map.get_units_in_world():
+		if not u.hex in hexes:
+			continue
 		if not sides.has(u.hub.faction):
 			sides[u.hub.faction] = []
 		sides[u.hub.faction].append(u)
+	return sides
+
+
+## Works out who dies in one battle; `sides` is {faction: [Unit]}. Every
+## unit counts, one for one, but only while Infantry are involved: two
+## sides trade a unit each while at least one of them still has Infantry
+## (Workers alone stand off without anyone dying). Each side loses its
+## Infantry first, then its Workers - so 1 Infantry v 2 Workers leaves 1
+## Worker standing.
+static func _fight(sides: Dictionary) -> Array[Unit]:
+	# Workers first in each side, so Infantry pop off first.
 	for side in sides:
 		sides[side].sort_custom(func(a: Unit, b: Unit) -> bool: return not a.can_fight and b.can_fight)
 
@@ -88,24 +79,17 @@ static func _has_fighter(units: Array) -> bool:
 	return not units.is_empty() and (units.back() as Unit).can_fight
 
 
-## Fighters trade one for one while two or more sides still have some.
-## `sides` is {faction: [Unit]}; the dead are removed from it and returned,
-## so afterwards it holds only the survivors.
-static func _trade_fighters(sides: Dictionary) -> Array[Unit]:
-	var dead: Array[Unit] = []
-	while sides.size() >= 2:
-		var order: Array = sides.keys()
-		order.sort_custom(func(a, b) -> bool: return sides[a].size() > sides[b].size())
-		for side in [order[0], order[1]]:
-			dead.append(sides[side].pop_back())
-			if sides[side].is_empty():
-				sides.erase(side)
-	return dead
-
-
 static func _remove_dead(dead: Array[Unit]) -> void:
 	for u in dead:
 		u.hub.remove_unit(u)
+
+
+## e.g. "(3, 4), (4, 4)"
+static func _describe_hexes(hexes: Array[Vector2i]) -> String:
+	var parts: PackedStringArray = []
+	for h in hexes:
+		parts.append("(%d, %d)" % [h.x, h.y])
+	return ", ".join(parts)
 
 
 ## e.g. "Your colony lost 2 Infantry; Rival colony lost 2 Infantry, 1 Worker"

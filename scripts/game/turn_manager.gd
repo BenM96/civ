@@ -6,9 +6,11 @@ extends Node
 ##   1. Orders      - computer players decide (the player already has).
 ##   2. Set out     - deployed units leave their hubs; units already out
 ##                    re-plan their routes and start work if they've arrived.
-##   3. Movement    - every unit moves at the same time (see Movement).
-##   4. Combat      - border clashes, then battles on shared tiles (Combat).
-##                    Then units sharing a tile are laid out side by side.
+##   3. Movement    - every unit moves at the same time; units of opposing
+##                    colonies that meet start battles and stop. The
+##                    movement phase then passes the battles (each an array
+##                    of hexes) to Combat (see Movement).
+##   4. Layout      - units sharing a tile are laid out side by side.
 ##   5. Work        - units that spent the turn at their site build,
 ##                    harvest or demolish. Units killed in combat don't.
 ##   6. Production  - training, extractors, hub biomass.
@@ -99,13 +101,12 @@ func end_turn() -> void:
 	for hub in hubs:
 		hub.start_units_turn()
 
-	# 3. Movement
-	var clashes := Movement.run(map)
-
-	# 4. Combat
-	for message in Combat.resolve(map, clashes):
+	# 3. Movement (and the combat it leads to)
+	for message in Movement.run(map):
 		event_logged.emit(message)
-	# Now we know who's standing where, fit shared tiles' icons side by side.
+
+	# 4. Layout - now we know who's standing where, fit shared tiles' icons
+	# side by side.
 	UnitStackLayout.arrange(map)
 
 	# 5. Work

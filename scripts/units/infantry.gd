@@ -3,8 +3,8 @@ extends Unit
 ## Military unit. Can guard a tile, escort another unit from its hub,
 ## capture other colonies' extractors and conveyors, and demolish man-made
 ## structures (foundations, bridges, extractors, conveyors), leaving rubble
-## behind. Can't harvest or build. Fights: trades one-for-one with any enemy
-## unit on its tile, dying before the Workers beside it (see Combat).
+## behind. Can't harvest or build. Fights: trades one-for-one with enemy
+## units in its battle, dying before the Workers beside it (see Combat).
 
 
 func _init() -> void:
