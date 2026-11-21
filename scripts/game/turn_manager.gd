@@ -30,6 +30,9 @@ signal turn_ending
 signal turn_started(turn: int)
 ## A message for the event log (battles, etc.).
 signal event_logged(message: String)
+## Battles were fought this turn: one report each (see Combat), for the game
+## to replay. Emitted after the turn has fully resolved.
+signal battles_fought(reports: Array[Dictionary])
 ## Colonies whose biomass fell below zero. The game decides what happens
 ## (see remove_colony() and stop()).
 signal colonies_starved(starved: Array[Player])
@@ -61,6 +64,8 @@ var ais: Array[AiController] = []
 var win_goal_reached_already := false
 ## While true (e.g. a popup is open) turns can't be ended.
 var paused := false
+## While true (battles are being replayed) turns can't be ended.
+var showing_battles := false
 
 var _stopped := false
 var _skip_this_turn := false
@@ -89,7 +94,7 @@ func remove_colony(player: Player) -> void:
 
 
 func end_turn() -> void:
-	if _stopped or paused:
+	if _stopped or paused or showing_battles:
 		return
 	turn_ending.emit()
 
@@ -102,8 +107,9 @@ func end_turn() -> void:
 		player.start_units_turn()
 
 	# 3. Movement (and the combat it leads to)
-	for message in Movement.run(map, turn):
-		event_logged.emit(message)
+	var battles := Movement.run(map, turn)
+	for report in battles:
+		event_logged.emit(report["message"])
 
 	# 4. Layout - now we know who's standing where, fit shared tiles' icons
 	# side by side.
@@ -131,6 +137,8 @@ func end_turn() -> void:
 		player.finish_turn()
 	turn += 1
 	turn_started.emit(turn)
+	if not battles.is_empty():
+		battles_fought.emit(battles)
 	if not starved.is_empty():
 		colonies_starved.emit(starved)  # May end the game (stop()).
 	if _stopped:
@@ -184,7 +192,7 @@ func _no_units_need_orders() -> bool:
 
 
 func _process(delta: float) -> void:
-	if not _skip_this_turn or paused:
+	if not _skip_this_turn or paused or showing_battles:
 		return
 	if not auto_skip or not _no_units_need_orders():
 		_skip_this_turn = false

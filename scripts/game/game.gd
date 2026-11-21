@@ -324,9 +324,27 @@ func _setup_turns(start_turn: int) -> void:
 	turns.turn_started.connect(func(turn: int) -> void:
 		hud.set_turn(turn)
 		_refresh_markers())
+	turns.battles_fought.connect(_show_battles)
 	turns.colonies_starved.connect(_on_colonies_starved)
 	turns.win_goal_reached.connect(_on_win_goal_reached)
 	hud.popup_closed.connect(func() -> void: turns.paused = false)
+
+
+## Replays this turn's battles one after another, moving the camera to
+## each. Turns can't be ended until they've finished (or been skipped).
+func _show_battles(reports: Array[Dictionary]) -> void:
+	turns.showing_battles = true
+	_cancel_targeting()
+	for report in reports:
+		if _game_over:
+			break
+		var center := Vector2.ZERO
+		for h: Vector2i in report["hexes"]:
+			center += map.hex_to_world(h)
+		camera.focus_on(center / report["hexes"].size())
+		if await hud.play_battle(report, map):
+			break
+	turns.showing_battles = false
 
 
 ## Someone reached the win goal first: say who won. Play can carry on.
@@ -497,6 +515,11 @@ func _update_hover_info() -> void:
 	var player_here := map.get_player_at(_hover_hex)
 	if player_here:
 		info += "\n" + player_here.get_info_text()
+	var units_here := map.get_units_at(_hover_hex)
+	if not units_here.is_empty():
+		info += "\nUnits here:"
+		for u in units_here:
+			info += "\n  " + u.get_hover_text()
 
 	if _targeting_unit:
 		# Preview: the same checks the order will get, without sending it.

@@ -36,8 +36,8 @@ extends RefCounted
 
 
 ## Runs the movement phase: moves every unit, then has Combat fight the
-## battles that broke out. Returns messages for the event log.
-static func run(map: HexMap, turn: int) -> PackedStringArray:
+## battles that broke out. Returns a report of each battle (see Combat).
+static func run(map: HexMap, turn: int) -> Array[Dictionary]:
 	return Combat.resolve(map, _move_units(map), turn)
 
 

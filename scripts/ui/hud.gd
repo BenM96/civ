@@ -195,6 +195,22 @@ func show_winner(title: String, message: String, color: Color) -> void:
 	_show_popup(title, message, color, true)
 
 
+## Replays a battle (see Combat) on a screen of its own and waits for it to
+## finish. Returns true if the player chose to skip every remaining battle.
+func play_battle(report: Dictionary, map: HexMap) -> bool:
+	close_section()
+	var view := BattleView.new()
+	view.setup(report, map)
+	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(view)
+	if _popup:
+		move_child(_popup, -1)  # Game over / winner stays on top.
+	view.play()
+	var skip_rest: bool = await view.finished
+	view.queue_free()
+	return skip_rest
+
+
 ## True while a popup (winner or game over) is covering the screen.
 func is_popup_open() -> bool:
 	return _popup != null

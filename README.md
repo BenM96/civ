@@ -61,17 +61,22 @@ A battle starts when units of different colonies end up on the same tile,
 try to walk past each other, or start a turn on the same tile. Everyone in
 it stops for the turn, and one round is fought:
 
-1. Each colony's units are put in a list in random order, and the lists
-   take turns in a random order: the first unit of each list fires, then
-   the second of each, and so on.
-2. Every unit fires once, at a random enemy in the battle. A unit that
-   drops to 0 HP dies at once and doesn't get to fire.
-3. After the round, any unit below half its HP (under 5) breaks: it
-   abandons its mission and retreats a tile towards its hub, then walks
-   home.
+1. Units already below half their HP (under 5) flee straight away.
+2. Each colony's other units are put in a list in random order, and the
+   lists take turns in a random order: the first unit of each list fires,
+   then the second of each, and so on.
+3. Every unit fires once, at a random enemy still in the fight. A unit hit
+   to 0 HP dies at once; one hit below half its HP breaks and flees at
+   once. Either way it's out of the fight and doesn't get to fire.
+4. Units that fled abandon their mission, retreat a tile towards their
+   hub, then walk home.
 
 Units still sharing a tile next turn fight another round. There's no
 healing yet. Damaged units show a health bar.
+
+After each turn the camera moves to every battle and replays it shot by
+shot. **Skip** jumps to the end of one battle; **Skip all battles** skips
+the rest for that turn.
 
 ### Missions
 

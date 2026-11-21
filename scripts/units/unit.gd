@@ -511,6 +511,15 @@ func _can_enter(step: int, mp: int) -> bool:
 
 # --- Presentation ----------------------------------------------------------
 
+## One line for the hovered-tile panel, e.g. "Worker 2 (Pink colony) - HP
+## 7/10 - Harvest Biomass at (3, 4)".
+func get_hover_text() -> String:
+	var doing := "Returning to hub"
+	if state == State.ON_MISSION and mission:
+		doing = mission.get_description()
+	return "%s (%s) - HP %d/%d - %s" % [display_name, player.get_display_name(), health, max_health, doing]
+
+
 func get_status_text() -> String:
 	var text := _get_activity_text()
 	if health < max_health:
