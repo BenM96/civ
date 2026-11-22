@@ -72,8 +72,10 @@ func _make_ready_row(unit: Unit) -> HBoxContainer:
 	row.add_child(target)
 	var quarters := player.get_quarters_for(unit)
 	if quarters:
-		var wait := UiStyle.make_button("Wait", func() -> void: hud.room_move_requested.emit(u, quarters.id))
-		wait.tooltip_text = "Go off duty in the %s. Units there don't need orders, so idle turns can be skipped." % quarters.display_name
+		var wait := UiStyle.make_button("Wait", func() -> void:
+			var turns: int = repeat.get_item_metadata(repeat.selected)
+			hud.room_move_requested.emit(u, quarters.id, maxi(turns, 0)))  # INF: until moved.
+		wait.tooltip_text = "Go off duty in the %s for the number of turns picked in the dropdown, then come back to Mission Briefing (INF: stay until you drag it out). Units off duty don't need orders, so idle turns can be skipped." % quarters.display_name
 		row.add_child(wait)
 	return row
 
@@ -88,7 +90,8 @@ func _make_repeat_picker() -> OptionButton:
 		picker.add_item(choice[1])
 		picker.set_item_metadata(i, choice[0])
 	picker.selected = 0
-	picker.tooltip_text = "How many times to do this order. Each time the unit gets back to Mission Briefing it's given the order again (if it's hurt, once it's healed). INF keeps going until you press Cancel in Field while it's waiting to set out."
+	picker.tooltip_text = "How many times to do this order (or, for Wait, how many turns to stay off duty)."
+	picker.tooltip_text += " Each time the unit gets back to Mission Briefing it's given the order again (if it's hurt, once it's healed). INF keeps going until you press Cancel in Field while it's waiting to set out, or press RTB in Central Hub."
 	return picker
 
 

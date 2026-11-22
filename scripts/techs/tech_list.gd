@@ -10,7 +10,8 @@ extends RefCounted
 ## Other rules:
 ##   - A tech's `requires` must be in a LOWER tier (so the trees can never
 ##     deadlock - see TechTrees).
-##   - Every tier has one Workforce tech (+1 Builder limit).
+##   - Tiers 1-6 each have one Workforce tech (+1 Builder limit); tier 7 has
+##     Flight Crews in its place.
 ##   - Initiative I, II and III (+1 initiative each) are in tiers 2, 4 and 6.
 ##   - Default units (Infantry, APC, Chopper) only need their building; every
 ##     other unit has its own unlock tech.
@@ -130,7 +131,7 @@ static func _create_all() -> Array[Tech]:
 	techs.append(_weapons("td_weapons", "TD Weapons", 6, "Tank Destroyer", "tank_destroyer"))
 
 	# --- Tier 7 ----------------------------------------------------------
-	techs.append(_workforce(7))
+	techs.append(_building("flight_crews", "Flight Crews", 7, FlightCrewQuarters.ID, "hangar"))
 	techs.append(_weapons("tank_guns", "Tank Guns", 7, "Tank", "tank"))
 	techs.append(_weapons("flak_guns", "Flak Guns", 7, "Anti-Aircraft Gun", "aa_gun"))
 	techs.append(_weapons("fighter_weapons", "Fighter Weapons", 7, "Fighter", "fighter"))

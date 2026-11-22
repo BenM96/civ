@@ -11,6 +11,6 @@ const NAME := "Builder"
 func _init() -> void:
 	super()
 	unit_name = NAME
-	short_name = "BU"
+	short_name = "B"
 	cost = {ResourceDeposit.Type.GOLD: 1, ResourceDeposit.Type.TITANIUM: 1}
 	allowed_missions = ["build"]

@@ -47,6 +47,9 @@ var ais: Array[AiController] = []
 var local_player: Player
 var orders: Orders
 var turns: TurnManager
+## What the player could still do this turn - drives the Next button and
+## stops auto-skip (see Attention).
+var attention: Attention
 
 var _hover_hex := Vector2i.ZERO
 var _has_hover := false
@@ -92,17 +95,21 @@ func _ready() -> void:
 
 	local_player.unit_event.connect(hud.log_event)
 	local_player.units_changed.connect(_refresh_markers)
-	hud.end_turn_requested.connect(turns.end_turn)
+	hud.end_turn_requested.connect(_on_end_turn_pressed)
+	hud.section_closed.connect(func(section: Hud.Section) -> void: attention.dismiss_section(section))
 	hud.mission_requested.connect(_begin_targeting)
 	hud.cancel_mission_requested.connect(func(unit: Unit) -> void:
 		if _submit(Orders.cancel_mission(unit)) == "":
 			hud.log_event("%s's mission was cancelled" % unit.display_name))
 	hud.focus_requested.connect(func(unit: Unit) -> void: camera.focus_on(map.hex_to_world(unit.hex)))
-	hud.room_move_requested.connect(func(unit: Unit, room_id: String) -> void:
-		var reason := _submit(Orders.move_room(unit, room_id))
+	hud.room_move_requested.connect(func(unit: Unit, room_id: String, wait_turns: int) -> void:
+		var reason := _submit(Orders.move_room(unit, room_id, wait_turns))
 		if reason != "":
 			hud.log_event("Can't move %s: %s" % [unit.display_name, reason]))
 	hud.hub_panel_closed.connect(_cancel_targeting)
+	hud.recall_all_requested.connect(func() -> void:
+		_cancel_targeting()
+		_submit(Orders.recall_all()))
 	hud.auto_end_toggled.connect(turns.set_auto_skip)
 	hud.train_requested.connect(func(bp: UnitBlueprint) -> void:
 		_submit(Orders.train(bp.unit_name)))
@@ -344,6 +351,8 @@ func _setup_turns(start_turn: int) -> void:
 		if not colony.collapsed:
 			active.append(colony)
 	turns.setup(map, local_player, active, ais.duplicate())
+	attention = Attention.new(local_player)
+	turns.attention = attention
 	turns.turn = start_turn
 	turns.auto_skip = auto_skip_turns
 	turns.turn_ending.connect(_cancel_targeting)
@@ -451,6 +460,9 @@ func _end_game(title: String, message: String, color: Color) -> void:
 # --- Input -----------------------------------------------------------------
 
 func _process(_delta: float) -> void:
+	if attention:
+		var issue := attention.first_active()
+		hud.set_next_turn_hint(issue != Attention.Issue.NONE, attention.describe(issue))
 	var h := map.world_to_hex(get_global_mouse_position())
 	var has := map.has_tile(h)
 	if h != _hover_hex or has != _has_hover:
@@ -458,6 +470,18 @@ func _process(_delta: float) -> void:
 		_has_hover = has
 		overlay.set_hover(h, has)
 		_update_hover_info()
+
+
+## End Turn / Next: while something wants the player's attention (see
+## Attention) the button says Next and opens the panel for it; otherwise
+## it ends the turn.
+func _on_end_turn_pressed() -> void:
+	var issue := attention.first_active() if attention else Attention.Issue.NONE
+	if issue == Attention.Issue.NONE:
+		turns.end_turn()
+		return
+	_cancel_targeting()
+	hud.open_section(Attention.SECTIONS[issue])
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -489,7 +513,7 @@ func _on_left_click() -> void:
 		return
 	if _targeting_unit:
 		var unit := _targeting_unit
-		var reason := _submit(Orders.mission(unit, _targeting_kind, _hover_hex, _targeting_repeats))
+		var reason := _submit(Orders.mission(unit, _targeting_kind, _hover_hex, _targeting_repeats, true))
 		if reason == "":
 			_cancel_targeting()
 		else:
@@ -508,7 +532,7 @@ func _begin_targeting(unit: Unit, kind: String, repeats := 1) -> void:
 	if not Orders.needs_target(kind):
 		# Nothing to pick on the map: order it straight away.
 		_cancel_targeting()
-		var reason := _submit(Orders.mission(unit, kind, local_player.hex, repeats))
+		var reason := _submit(Orders.mission(unit, kind, local_player.hex, repeats, true))
 		hud.set_hint("" if reason == "" else "%s: %s" % [unit.display_name, reason])
 		return
 	_targeting_unit = unit

@@ -107,6 +107,10 @@ var last_mission_kind := ""
 ## forever. repeat_target is the tile it was aimed at.
 var repeats_left := 0
 var repeat_target := Vector2i.ZERO
+## Turns left off duty in its quarters before it goes back to Mission
+## Briefing by itself (the Wait button's number - see Player.move_unit_to_room()).
+## 0 means it stays until moved.
+var wait_turns_left := 0
 ## Resources being carried home: ResourceDeposit.Type -> int.
 ## The hub unloads this when the unit returns.
 var cargo: Dictionary = {}
@@ -260,6 +264,7 @@ func set_room(new_room_id: String) -> void:
 	if room_id == new_room_id:
 		return
 	room_id = new_room_id
+	wait_turns_left = 0  # A new room ends any timed wait.
 	state_changed.emit(self)
 
 
@@ -297,6 +302,7 @@ func to_dict() -> Dictionary:
 		"last_mission_kind": last_mission_kind,
 		"repeats_left": repeats_left,
 		"repeat_target": SaveGame.hex_to_data(repeat_target),
+		"wait_turns_left": wait_turns_left,
 		"health": health,
 		"cargo": SaveGame.resources_to_data(cargo),
 		"materials": SaveGame.resources_to_data(materials),
@@ -314,6 +320,7 @@ func load_dict(data: Dictionary) -> void:
 	last_mission_kind = data.get("last_mission_kind", "")  # Older saves lack it.
 	repeats_left = int(data["repeats_left"])
 	repeat_target = SaveGame.hex_from_data(data["repeat_target"])
+	wait_turns_left = int(data["wait_turns_left"])
 	health = int(data["health"])
 	cargo = SaveGame.resources_from_data(data["cargo"])
 	materials = SaveGame.resources_from_data(data.get("materials", {}))  # Older saves lack it.
@@ -414,6 +421,21 @@ func assign_mission(m: Mission) -> void:
 	last_mission_kind = m.get_kind()
 	m.unit = self
 	_set_state(State.DEPLOYING)
+
+
+## RTB: drops the mission of a unit out on the map and heads home with
+## whatever it carries (walking units set off next turn; aircraft fly home
+## at the start of it). Use Player.recall_all().
+func recall() -> void:
+	if state != State.ON_MISSION:
+		return
+	mission = null
+	repeats_left = 0
+	_path.clear()
+	if hex == player.hex:
+		_arrive_home()
+		return
+	_set_state(State.RETURNING)
 
 
 ## Withdraws the mission from a unit that hasn't left yet. Use

@@ -14,6 +14,10 @@ orders to units waiting at your hub; when you press **End Turn**, every
 colony's orders play out at the same time. Units walk out, do their job and
 come home on their own.
 
+The top bar shows each resource as its icon and amount, e.g. the Titanium
+icon then "5 (+1)" (hover over one for its name), then your command points
+(flag) and initiative (lightning bolt).
+
 ### Winning and losing
 
 - **Win:** be the first colony with a command point on every control point
@@ -44,8 +48,8 @@ rival's.
   isn't stored - like biomass, it's worked out each turn from your linked
   command points plus your Initiative techs. In a battle, the colony with
   the most initiative fires first (see Combat).
-- The top bar shows how many you hold and your initiative, e.g.
-  "Command points: 2/5  Initiative: 3".
+- The top bar shows how many you hold by the flag icon (e.g. "2/5") and
+  your initiative by the lightning bolt.
 
 The computer colonies don't go for control points yet.
 
@@ -54,7 +58,7 @@ The computer colonies don't go for control points yet.
 Biomass is food, and it isn't stored: it's a rate. Your **biomass
 production** is what your Greenhouses (3 a turn each) and Biomass extractors
 (1 a turn each) make, less what your units eat (1 each a turn). The top bar
-shows it, e.g. "Biomass: +2 a turn".
+shows it by the Biomass icon, e.g. "+2/turn".
 
 - You can't train a unit you couldn't feed: Training is blocked while the
   new unit (and any already training) would push production below zero.
@@ -134,7 +138,7 @@ now.
 | Regen Lab | Regeneration | Med Bay | 2 | Units in the Med Bay heal 1 HP a turn faster. |
 | Repair Bay | Vehicle Repair | Garage | 2 | One more vehicle is repaired in the Garage at a time. |
 | Machine Shop | Machine Tools | Garage | 2 | Vehicles in the Garage are repaired 1 HP a turn faster. |
-| Flight Crew Quarters | - | Hangar | 3 | Aircraft refit 1 turn faster after a sortie. |
+| Flight Crew Quarters | Flight Crews | Hangar | 3 | Aircraft refit 1 turn faster after a sortie. |
 
 ### The central hub's rooms
 
@@ -143,6 +147,12 @@ bottom bar (or press H, or click your hub) to see them, and drag a unit onto
 another room to move it there. While you drag, rooms the unit can go to
 light up green and the rest get a red cross; the card under the mouse says
 what dropping it there would do, or why it can't go there.
+
+The big red **RTB** (return to base) button at the top of the panel calls
+everyone home: every unit drops its mission and repeats. Units still waiting
+to set out, the QRF and Builders waiting at the hub for resources are stood
+down at once (getting back what they were given for the job); units out on
+the map turn for home with whatever they carry. Units off duty stay put.
 
 Mission Briefing, the Airlock, the QRF room and the Break Room are open from
 the start. The others show a padlock until you build their building.
@@ -160,8 +170,10 @@ the start. The others show a padlock until you build their building.
 
 Units only get to the Airlock and the QRF room by being given a mission.
 Units in the Break Room, Barracks, Hangar or Garage don't need orders, so
-idle turns can be skipped; the **Wait** button in Mission Briefing sends a
-unit there.
+idle turns can be skipped. The **Wait** button in Mission Briefing sends a
+unit there for the number of turns picked in its dropdown (1-5), after
+which it comes back to Mission Briefing by itself; INF keeps it there until
+you drag it out.
 
 ### Healing
 
@@ -304,7 +316,14 @@ once healed, aircraft once refitted) it's given the same order again at the
 end of the turn, and sets out the turn after. If the hub can't pay for it
 yet, the unit waits until it can. If the order can't be given any more (e.g.
 the deposit is gone), it stops repeating. To stop a unit repeating, press
-**Cancel** next to it in **Field** while it's waiting to set out.
+**Cancel** next to it in **Field** while it's waiting to set out, or use
+**RTB** (see The central hub's rooms).
+
+Builders work as a team: when you give one Builder a line job
+(foundations, belts, an extractor or a command point), every Builder
+waiting in Mission Briefing joins it, and so does any Builder that gets
+home or finishes training before it's done - they split the tiles between
+them. A bridge order goes to just the Builder you picked.
 
 | Mission | Who | What it does |
 |---|---|---|
@@ -368,11 +387,17 @@ chasms.
 | Right click / Esc | Cancel targeting |
 | H / M / F / T / B / R | Central Hub, Mission Briefing, In the Field, Training, Buildings, Research panels |
 | Drag a unit card | Move a unit between the hub's rooms (Central Hub panel) |
-| Enter | End turn |
+| Enter | End turn (or Next) |
 | F5 / F9 | Save / load |
 
-**Skip idle turns** (top bar) moves straight on when every unit is already
-busy.
+**Skip idle turns** (top bar) moves straight on to the next turn while
+nothing needs you. Something needs you when units are waiting for orders,
+when you can train a unit (you can afford it and feed it), or when you can
+afford a research. Then the End Turn button says **Next**: clicking it (or
+pressing Enter) opens Mission Briefing, Training or Research, in that
+order. Closing that panel counts it as dealt with, even if you could still
+do something there; it only stops the game again once it newly becomes
+true (another unit comes home, or you can afford something you couldn't).
 
 ## Running the game
 

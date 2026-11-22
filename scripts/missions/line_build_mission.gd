@@ -436,10 +436,15 @@ func _layers(player: Player, h: Vector2i) -> Array[Buildable]:
 
 
 func _expand(player: Player, id: String) -> Array[Buildable]:
+	return _expand_in(player, id)
+
+
+## `id`'s buildable after everything it needs, in build order.
+static func _expand_in(player: Player, id: String) -> Array[Buildable]:
 	var b := player.get_buildable(id)
 	var layers: Array[Buildable] = []
 	for required in b.requires:
-		for layer in _expand(player, required):
+		for layer in _expand_in(player, required):
 			if layer not in layers:
 				layers.append(layer)
 	layers.append(b)
@@ -488,41 +493,69 @@ func _count_jobs(player: Player, map: HexMap, route: Array[Vector2i]) -> int:
 
 ## The tiles from `from` (not included) to the target that the line runs
 ## along, or [] if there's no way. Cheapest route over passable tiles whose
-## jobs can be done, preferring ones already built.
+## jobs can be done, preferring ones already built. A tile costs TILE_COST
+## plus RESOURCE_COST for every resource its missing jobs would take; the
+## search takes tiles cheapest first (in buckets by cost, so it never has to
+## scan for the cheapest) and stops as soon as it reaches the target.
 func plan_route(player: Player, map: HexMap, from: Vector2i, to: Vector2i) -> Array[Vector2i]:
+	var route: Array[Vector2i] = []
+	if from == to:
+		return route
+	var line_layers := _expand_in(player, buildable.line_of)
+	var target_layers := _expand_in(player, buildable.id)
+	var hubs := {}
+	for faction in map.players:
+		hubs[map.players[faction].hex] = true
+	var step_cost := {}  # Hex -> cost to enter it, or -1 if the line can't go there.
 	var dist := {from: 0}
 	var parent := {from: from}
-	var open: Array[Vector2i] = [from]
-	var closed := {}
-	while not open.is_empty():
-		var best_i := 0
-		for i in open.size():
-			if dist[open[i]] < dist[open[best_i]]:
-				best_i = i
-		var current: Vector2i = open.pop_at(best_i)
-		if current == to:
-			var route: Array[Vector2i] = []
-			while current != from:
-				route.push_front(current)
-				current = parent[current]
-			return route
-		closed[current] = true
-		for n in Hex.neighbors(current):
-			if closed.has(n) or not map.is_passable(n) or map.get_player_at(n) != null:
-				continue
-			if _site_problem(player, map, n) != "":
-				continue
-			var step := TILE_COST
-			for layer in _pending_layers(player, map, n):
-				for type in layer.cost:
-					step += RESOURCE_COST * int(layer.cost[type])
-			var d: int = dist[current] + step
-			if not dist.has(n) or d < dist[n]:
-				if not dist.has(n):
-					open.append(n)
-				dist[n] = d
-				parent[n] = current
-	return []
+	var buckets := {0: [from]}  # Cost -> tiles reached at that cost.
+	var waiting := 1
+	var d := 0
+	while waiting > 0:
+		if buckets.has(d):
+			for current: Vector2i in buckets[d]:
+				waiting -= 1
+				if dist[current] != d:
+					continue  # Already reached more cheaply.
+				if current == to:
+					while current != from:
+						route.push_front(current)
+						current = parent[current]
+					return route
+				for n in Hex.neighbors(current):
+					if not step_cost.has(n):
+						step_cost[n] = _step_cost(player, map, n, target_layers if n == to else line_layers, hubs)
+					var step: int = step_cost[n]
+					if step < 0:
+						continue
+					var nd := d + step
+					if not dist.has(n) or nd < dist[n]:
+						dist[n] = nd
+						parent[n] = current
+						if not buckets.has(nd):
+							buckets[nd] = []
+						buckets[nd].append(n)
+						waiting += 1
+			buckets.erase(d)
+		d += 1
+	return route
+
+
+## What entering `h` costs a line whose jobs there are `layers` (see
+## plan_route()), or -1 if the line can't go there.
+static func _step_cost(player: Player, map: HexMap, h: Vector2i, layers: Array[Buildable], hubs: Dictionary) -> int:
+	if hubs.has(h) or not map.is_passable(h):
+		return -1
+	var step := TILE_COST
+	for layer in layers:
+		if layer.is_built_at(map, h, player.id):
+			continue
+		if layer.get_site_reason(map, h) != "":
+			return -1
+		for type in layer.cost:
+			step += RESOURCE_COST * int(layer.cost[type])
+	return step
 
 
 # --- Sharing the work ------------------------------------------------------

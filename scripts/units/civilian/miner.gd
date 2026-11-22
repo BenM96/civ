@@ -11,6 +11,6 @@ const NAME := "Miner"
 func _init() -> void:
 	super()
 	unit_name = NAME
-	short_name = "MI"
+	short_name = "M"
 	cost = {}
 	allowed_missions = ["harvest"]

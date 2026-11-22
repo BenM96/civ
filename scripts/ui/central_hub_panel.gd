@@ -11,6 +11,7 @@ extends HudPanel
 ## first, in healing order; drag one onto another of them to change the order
 ## (a "heal_order" order, via hud.heal_order_requested). Units in training
 ## show as greyed-out cards in the room that holds them, and can't be moved.
+## The big red RTB button at the top recalls every unit (Orders.recall_all()).
 
 const COLUMNS := 4
 const ROOM_WIDTH := 215.0
@@ -63,7 +64,16 @@ func get_button_text() -> String:
 
 
 func fill() -> void:
-	add_note("Drag units between rooms. Hover over a room to see what it's for.")
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 12)
+	var note := Label.new()
+	note.text = "Drag units between rooms. Hover over a room to see what it's for."
+	note.modulate = Color(1, 1, 1, 0.65)
+	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	top.add_child(note)
+	top.add_child(_make_rtu_button())
+	add(top)
 	_room_boxes.clear()
 	var grid := GridContainer.new()
 	grid.columns = COLUMNS
@@ -74,6 +84,25 @@ func fill() -> void:
 		_room_boxes[room.id] = box
 		grid.add_child(box)
 	add(grid)
+
+
+## The big red RTB (return to base) button: every unit drops its mission
+## and comes home (Player.recall_all()).
+func _make_rtu_button() -> Button:
+	var button := UiStyle.make_button("RTB", func() -> void: hud.recall_all_requested.emit())
+	button.custom_minimum_size = Vector2(120, 44)
+	button.add_theme_font_size_override("font_size", 22)
+	button.add_theme_color_override("font_color", Color.WHITE)
+	button.add_theme_color_override("font_hover_color", Color.WHITE)
+	for state in ["normal", "hover", "pressed"]:
+		var style := (button.get_theme_stylebox(state) as StyleBoxFlat).duplicate() as StyleBoxFlat
+		style.bg_color = {"normal": Color(0.72, 0.1, 0.08), "hover": Color(0.88, 0.16, 0.12), "pressed": Color(0.5, 0.06, 0.05)}[state]
+		style.border_color = Color(1.0, 0.55, 0.45)
+		button.add_theme_stylebox_override(state, style)
+	button.tooltip_text = "Return to base: every unit drops what it's doing and comes home.
+Units waiting to set out (and the QRF) are stood down at once and get back what they were given; units out on the map turn for home with anything they carry.
+Repeating orders and the Builders' shared job stop too. Units off duty stay where they are."
+	return button
 
 
 ## A room's box: its name and its unit cards. Takes drops of unit cards.
@@ -304,7 +333,7 @@ func _drop(_at: Vector2, data: Variant, room: Room, onto: Unit) -> void:
 	if queue_index >= 0:
 		hud.heal_order_requested.emit(unit, queue_index)
 	else:
-		hud.room_move_requested.emit(unit, room.id)
+		hud.room_move_requested.emit(unit, room.id, 0)
 
 
 ## Where `unit` goes in the healing queue if dropped on `onto`'s card - both

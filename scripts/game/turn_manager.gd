@@ -4,6 +4,9 @@ extends Node
 ## turn then resolves it for all colonies at once, in this order:
 ##
 ##   1. Orders      - computer players decide (the player already has).
+##                    Most have already: while a turn waits, one AI plans
+##                    each frame (see _process()), so the frame that ends
+##                    the turn doesn't stall planning them all at once.
 ##   2. Set out     - deployed units leave their hubs; units already out
 ##                    re-plan their routes and start work if they've arrived.
 ##   3. Movement    - every unit moves at the same time; units of opposing
@@ -68,6 +71,9 @@ var local_player: Player
 ## Every colony, the player's included.
 var players: Array[Player] = []
 var ais: Array[AiController] = []
+## What the local player could still do this turn (set by the game; see
+## Attention). While it has an open issue, turns aren't auto-skipped.
+var attention: Attention
 
 ## Someone has already won (so it isn't announced again).
 ## Part of the saved game.
@@ -80,6 +86,9 @@ var showing_battles := false
 var _stopped := false
 var _skip_this_turn := false
 var _skip_wait := 0.0
+## AIs that have already given this turn's orders (planned in an earlier
+## frame - see _plan_next_ai()).
+var _planned: Array[AiController] = []
 
 
 func setup(p_map: HexMap, p_local_player: Player, p_players: Array[Player], p_ais: Array[AiController]) -> void:
@@ -87,6 +96,20 @@ func setup(p_map: HexMap, p_local_player: Player, p_players: Array[Player], p_ai
 	local_player = p_local_player
 	players = p_players
 	ais = p_ais
+
+
+## Lets one AI that hasn't yet give this turn's orders. Run once a frame,
+## so the AIs' thinking is spread over the frames while a turn waits. Their
+## orders only depend on their own colony and the map as it stands, and
+## everything still resolves together when the turn ends.
+func _plan_next_ai() -> void:
+	if _stopped:
+		return
+	for ai in ais:
+		if not ai in _planned:
+			ai.take_turn()
+			_planned.append(ai)
+			return
 
 
 ## Stops all further turns (the game is over).
@@ -108,9 +131,11 @@ func end_turn() -> void:
 		return
 	turn_ending.emit()
 
-	# 1. Orders
+	# 1. Orders (from any AI that hasn't planned yet).
 	for ai in ais:
-		ai.take_turn()
+		if not ai in _planned:
+			ai.take_turn()
+	_planned.clear()
 
 	# 2. Set out
 	for player in players:
@@ -203,11 +228,18 @@ func set_auto_skip(enabled: bool) -> void:
 		_skip_this_turn = false
 
 
-## True when no unit needs orders (all busy, or off duty in the hub) and
+## True when nothing needs the player (no unit needs orders, nothing new
+## to train or research that they haven't dismissed - see Attention) and
 ## letting time pass would actually change something (units out, training
-## in progress, or a hub room at work - units healing or refitting).
+## in progress, or a hub room at work - units healing, refitting or off duty
+## for a set time).
 func _no_units_need_orders() -> bool:
-	if local_player.units.is_empty() or not local_player.get_units_needing_orders().is_empty():
+	if local_player.units.is_empty():
+		return false
+	if attention != null:
+		if attention.first_active() != Attention.Issue.NONE:
+			return false
+	elif not local_player.get_units_needing_orders().is_empty():
 		return false
 	if not local_player.get_field_units().is_empty() or not local_player.training_queue.is_empty():
 		return true
@@ -215,6 +247,7 @@ func _no_units_need_orders() -> bool:
 
 
 func _process(delta: float) -> void:
+	_plan_next_ai()
 	if not _skip_this_turn or paused or showing_battles:
 		return
 	if not auto_skip or not _no_units_need_orders():

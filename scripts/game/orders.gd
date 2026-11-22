@@ -14,10 +14,15 @@ extends RefCounted
 ##       repeats: how many times to do it (default 1; REPEAT_FOREVER = forever).
 ##       It's given again each time the unit is back in Mission Briefing
 ##       (see Player.repeat_orders()).
+##       group: true (from the HUD) - a Builder's line job becomes the job all
+##       Builders join (see Player.start_builder_group()).
 ##       kind: "move", "harvest", "guard", "capture", "demolish", "qrf", "sortie",
 ##       "escort:<unit id>" or "build:<buildable id>" (see make_mission())
 ##   {"order": "cancel_mission", "unit": id}
-##   {"order": "move_room", "unit": id, "room": room id}   (see Room)
+##   {"order": "move_room", "unit": id, "room": room id, "turns": n}   (see Room)
+##       turns: off duty in its quarters for that many turns, then back to
+##       Mission Briefing (0 = until moved).
+##   {"order": "recall_all"}   RTB: every unit drops its mission and comes home
 ##   {"order": "heal_order", "unit": id, "index": i}   (healing queue, see Room)
 ##   {"order": "train", "unit_type": "Builder"}
 ##   {"order": "cancel_training", "index": i}
@@ -47,8 +52,10 @@ func _init(p_map: HexMap, p_players: Array[Player]) -> void:
 # --- Making orders ---------------------------------------------------------
 
 ## `repeats` how many times in all; REPEAT_FOREVER to keep going.
-static func mission(unit: Unit, kind: String, target: Vector2i, repeats := 1) -> Dictionary:
-	return {"order": "mission", "unit": unit.id, "kind": kind, "target": [target.x, target.y], "repeats": repeats}
+## `group`: for a Builder's line job, every Builder joins it.
+static func mission(unit: Unit, kind: String, target: Vector2i, repeats := 1, group := false) -> Dictionary:
+	return {"order": "mission", "unit": unit.id, "kind": kind, "target": [target.x, target.y],
+		"repeats": repeats, "group": group}
 
 
 static func cancel_mission(unit: Unit) -> Dictionary:
@@ -56,8 +63,14 @@ static func cancel_mission(unit: Unit) -> Dictionary:
 
 
 ## Moves a unit in the hub to another of the hub's rooms (see Room).
-static func move_room(unit: Unit, room_id: String) -> Dictionary:
-	return {"order": "move_room", "unit": unit.id, "room": room_id}
+## `turns`: for a unit sent off duty, how long before it's back in Mission
+## Briefing by itself (0 = until it's moved).
+static func move_room(unit: Unit, room_id: String, turns := 0) -> Dictionary:
+	return {"order": "move_room", "unit": unit.id, "room": room_id, "turns": turns}
+
+
+static func recall_all() -> Dictionary:
+	return {"order": "recall_all"}
 
 
 ## Whether a mission kind needs a tile picked on the map. Escorts and QRF
@@ -132,6 +145,8 @@ func submit(faction: int, order: Dictionary) -> String:
 				return "can't do that"
 			var repeats := int(order.get("repeats", 1))
 			unit.set_repeats(_to_hex(order.get("target")), repeats - 1 if repeats > 0 else Unit.REPEAT_FOREVER)
+			if order.get("group", false) and unit is Builder and m is LineBuildMission:
+				player.start_builder_group(m.get_kind(), _to_hex(order.get("target")), unit.repeats_left)
 			return ""
 		"cancel_mission":
 			var unit := _own_unit(player, order)
@@ -142,7 +157,10 @@ func submit(faction: int, order: Dictionary) -> String:
 			var unit := _own_unit(player, order)
 			if unit == null:
 				return "no such unit"
-			return player.move_unit_to_room(unit, str(order.get("room", "")))
+			return player.move_unit_to_room(unit, str(order.get("room", "")), int(order.get("turns", 0)))
+		"recall_all":
+			player.recall_all()
+			return ""
 		"heal_order":
 			var unit := _own_unit(player, order)
 			if unit == null:

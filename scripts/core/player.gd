@@ -72,6 +72,11 @@ var tech_trees: TechTrees
 var researched: Array[String] = []
 ## Techs paid for this turn (ids), researched in the Hub step. Saved.
 var research_queue: Array[String] = []
+## The line job every Builder joins (see start_builder_group()): {"kind",
+## "target": [x, y], "repeats"}, or {} for none. Idle Builders - and any
+## that come home or finish training later - are given it until it's done.
+## Saved.
+var builder_group_order: Dictionary = {}
 ## A colony only ever has one Miner (see Miner).
 const MINER_LIMIT := 1
 ## The most Builders a colony may have before any Workforce tech.
@@ -550,7 +555,10 @@ func get_room_move_refusal(unit: Unit, room_id: String) -> String:
 ## The player moves a unit in the hub to another room. A unit with a mission
 ## it hasn't set out on (in the Airlock, or on QRF duty) has it called off,
 ## as with cancel_mission(). Returns "" if it moved, otherwise why not.
-func move_unit_to_room(unit: Unit, room_id: String) -> String:
+## `wait_turns` (for a unit sent off duty to its quarters): after that many
+## turns it goes back to Mission Briefing by itself; 0 keeps it there until
+## it's moved.
+func move_unit_to_room(unit: Unit, room_id: String, wait_turns := 0) -> String:
 	var reason := get_room_move_refusal(unit, room_id)
 	if reason != "":
 		return reason
@@ -559,6 +567,10 @@ func move_unit_to_room(unit: Unit, room_id: String) -> String:
 		cancel_mission(unit)
 		unit_event.emit("%s's mission was called off (%s)" % [unit.display_name, called_off])
 	unit.set_room(room_id)
+	if wait_turns > 0 and get_room(room_id) is QuartersRoom:
+		unit.wait_turns_left = wait_turns
+		unit_event.emit("%s is off duty in the %s for %d turn(s)" % [unit.display_name, get_room(room_id).display_name, wait_turns])
+		return ""
 	unit_event.emit("%s moved to the %s" % [unit.display_name, get_room(room_id).display_name])
 	return ""
 
@@ -787,8 +799,14 @@ func update_network() -> void:
 			if tile and Structure.carries_resources(tile.structure) and tile.structure_owner == id:
 				network[n] = current
 				frontier.append(n)
+	# Redraw only the tiles whose link to the hub changed (lights, flow arrows).
+	for h in network:
+		if _network.get(h) != network[h]:
+			map.mark_dirty(h)
+	for h in _network:
+		if not network.has(h):
+			map.mark_dirty(h)
 	_network = network
-	map.queue_redraw()
 
 	var producing := {}
 	for h in get_producing_extractors():
@@ -962,6 +980,66 @@ func run_hub() -> void:
 	repeat_orders()
 
 
+## Makes the line job `kind` at `target` (e.g. "build:conveyor") the one all
+## Builders work on: every idle Builder in Mission Briefing joins now, and
+## any that come home or finish training join later (_join_builder_group())
+## until it's done. `more` is how many more times each repeats it (see
+## Unit.repeats_left). Only line jobs are shared - Builders split their tiles
+## between them (see LineBuildMission).
+func start_builder_group(kind: String, target: Vector2i, more: int) -> void:
+	builder_group_order = {"kind": kind, "target": [target.x, target.y], "repeats": more}
+	_join_builder_group()
+
+
+## Gives the group job (builder_group_order) to every idle Builder that isn't
+## repeating something of its own. Ends the group once there's nothing left
+## to build, or the job can't be given any more.
+func _join_builder_group() -> void:
+	if builder_group_order.is_empty():
+		return
+	var kind: String = builder_group_order["kind"]
+	var target := Vector2i(int(builder_group_order["target"][0]), int(builder_group_order["target"][1]))
+	var plan := Orders.make_mission(self, kind, target)
+	if not plan is LineBuildMission or plan.get_next_jobs(self, map, hex).is_empty():
+		builder_group_order = {}  # Done (or nothing to share).
+		return
+	for u in units:
+		if not u is Builder or not u.needs_orders() or u.repeats_left != 0:
+			continue
+		var m := Orders.make_mission(self, kind, target)
+		var reason := Orders.get_invalid_reason(self, u, m)
+		if reason == "" and assign_mission(u, m):
+			u.set_repeats(target, int(builder_group_order["repeats"]))
+		elif reason != "":
+			unit_event.emit("Builders stopped joining %s: %s" % [m.get_description(), reason])
+			builder_group_order = {}
+			return
+
+
+## RTB (return to base): every unit drops what it's doing and comes home.
+## Units still waiting to set out (or waiting at the hub, like the QRF or a
+## Builder short of resources) are stood down on the spot, getting back
+## whatever they were given for the job; units out on the map turn for home,
+## bringing back anything they carry. No repeats or group job carry on.
+## Units off duty in their quarters stay there. Returns how many were
+## recalled.
+func recall_all() -> int:
+	builder_group_order = {}
+	var count := 0
+	for u in units.duplicate():
+		u.repeats_left = 0
+		if u.mission == null:
+			continue
+		if u.can_cancel_mission():
+			cancel_mission(u)
+		else:
+			u.recall()
+		count += 1
+	if count > 0:
+		unit_event.emit("RTB: %d unit(s) recalled to the hub" % count)
+	return count
+
+
 ## Gives a repeating unit (see Unit.repeats_left) its last mission again
 ## once it's back in Mission Briefing; it sets out next turn. If the hub
 ## can't pay for it yet, it waits and tries again next turn. If the order
@@ -983,6 +1061,7 @@ func repeat_orders() -> void:
 			unit_event.emit("%s stopped repeating its order: %s" % [u.display_name, reason])
 			continue
 		u.repeats_left = more - 1 if more > 0 else more
+	_join_builder_group()
 
 
 ## "Starvation" step: if biomass production is below zero, one unit starves
@@ -1064,6 +1143,7 @@ func to_dict() -> Dictionary:
 		"building_queue": building_queue.duplicate(),
 		"researched": researched.duplicate(),
 		"research_queue": research_queue.duplicate(),
+		"builder_group_order": builder_group_order.duplicate(),
 		"healing_order": healing,
 		"hex": SaveGame.hex_to_data(hex),
 		"collapsed": collapsed,
@@ -1109,6 +1189,7 @@ func load_dict(data: Dictionary) -> void:
 	research_queue.clear()
 	for tech_id in data["research_queue"]:
 		research_queue.append(str(tech_id))
+	builder_group_order = data["builder_group_order"]
 	for building_id in data["building_queue"]:
 		building_queue.append(str(building_id))
 	for room in rooms:

@@ -33,12 +33,20 @@ var next_unit_id := 1
 ## The control points (see place_control_points()): a colony that has a
 ## command point on every one, each linked to its hub, wins.
 var control_points: Array[Vector2i] = []
+## The map is drawn in blocks (HexMapChunk), each its own node, so a change
+## only redraws the blocks it touches (mark_dirty()). Chunk key -> chunk.
+var _terrain_chunks: Dictionary = {}
+var _feature_chunks: Dictionary = {}
+## What draw calls go to while a chunk is drawing (see draw_chunk()).
+var _canvas: CanvasItem
 
 ## How far from its colony's hub each control point is placed.
 const CONTROL_POINT_MIN_DISTANCE := 5
 const CONTROL_POINT_MAX_DISTANCE := 10
 ## Control points are never closer together than this.
 const CONTROL_POINT_SPACING := 4
+## Chunks are this many tiles across and down (see HexMapChunk).
+const CHUNK_TILES := 8
 
 
 ## Hands out a unit id no other unit in this game has had.
@@ -78,7 +86,7 @@ func generate(seed_override := 0) -> void:
 	_scatter_deposits(rng)
 
 	_rebuild_pathfinding()
-	queue_redraw()
+	_build_chunks()
 	map_generated.emit()
 
 
@@ -130,7 +138,7 @@ func load_dict(data: Dictionary) -> void:
 		tiles[h].control_point = true
 		control_points.append(h)
 	_rebuild_pathfinding()
-	queue_redraw()
+	redraw_all()
 
 
 func _pick_terrain(e: float, d: float) -> Terrain.Type:
@@ -199,7 +207,7 @@ func place_remote_deposits(hub_spots: Array[Vector2i]) -> int:
 		if mine.is_empty():
 			push_warning("No room for any %s deposit on this map" % info.display_name)
 		placed += mine.size()
-	queue_redraw()
+	redraw_all()
 	return placed
 
 
@@ -222,7 +230,7 @@ func place_control_points(hub_spots: Array[Vector2i]) -> void:
 			continue
 		tiles[h].control_point = true
 		control_points.append(h)
-	queue_redraw()
+	redraw_all()
 
 
 func _pick_control_point(spot: Vector2i, hub_spots: Array[Vector2i], rng: RandomNumberGenerator,
@@ -290,7 +298,7 @@ func guarantee_deposits_near(hub_spots: Array[Vector2i], radius: int) -> void:
 				continue
 			var h: Vector2i = choices[rng.randi_range(0, choices.size() - 1)]
 			tiles[h].deposit = ResourceDeposit.create_random(type, h, rng)
-	queue_redraw()
+	redraw_all()
 
 
 ## Removes every deposit on, or right next to, each hub spot, so no colony
@@ -315,7 +323,7 @@ func remove_deposit(h: Vector2i) -> void:
 	var tile := get_tile(h)
 	if tile and tile.deposit:
 		tile.deposit = null
-		queue_redraw()
+		mark_dirty(h)
 
 
 ## Changes a tile's terrain at runtime (e.g. a foundation being laid) and updates
@@ -328,7 +336,7 @@ func set_terrain(h: Vector2i, terrain: Terrain.Type) -> void:
 	var id: int = _point_ids[h]
 	_astar.set_point_weight_scale(id, float(tile.get_move_cost()))
 	_astar.set_point_disabled(id, not tile.is_passable())
-	queue_redraw()
+	mark_dirty(h, true)
 	tile_changed.emit(h)
 
 
@@ -343,7 +351,7 @@ func set_structure(h: Vector2i, type: Structure.Type, owner_faction := Faction.N
 		return
 	tile.structure = type
 	tile.structure_owner = new_owner
-	queue_redraw()
+	mark_dirty(h)
 	tile_changed.emit(h)
 
 
@@ -384,7 +392,7 @@ func get_units_at(h: Vector2i) -> Array[Unit]:
 func add_foundation_anchor(h: Vector2i) -> void:
 	if h not in _foundation_anchors:
 		_foundation_anchors.append(h)
-		queue_redraw()
+		mark_dirty(h)
 
 
 func _connects_foundation(h: Vector2i) -> bool:
@@ -497,27 +505,95 @@ func _rebuild_pathfinding() -> void:
 
 # --- Drawing ---------------------------------------------------------------
 
-func _draw() -> void:
-	var outline := Color(0.2, 0.08, 0.03, 0.35)
+## Makes the chunk nodes (see HexMapChunk) for the current tiles: a terrain
+## layer under a features layer, each split into CHUNK_TILES blocks.
+func _build_chunks() -> void:
+	for chunk: HexMapChunk in _terrain_chunks.values() + _feature_chunks.values():
+		chunk.queue_free()
+	_terrain_chunks.clear()
+	_feature_chunks.clear()
+	var groups := {}  # Chunk key -> Array[Vector2i].
 	for h in tiles:
+		var key := _chunk_key(h)
+		if not groups.has(key):
+			var list: Array[Vector2i] = []
+			groups[key] = list
+		groups[key].append(h)
+	var keys := groups.keys()
+	keys.sort()
+	# Every terrain chunk first, so all features draw over all terrain.
+	for layer in [HexMapChunk.Layer.TERRAIN, HexMapChunk.Layer.FEATURES]:
+		for key: Vector2i in keys:
+			var chunk := HexMapChunk.new()
+			chunk.map = self
+			chunk.layer = layer
+			chunk.hexes = groups[key]
+			add_child(chunk)
+			if layer == HexMapChunk.Layer.TERRAIN:
+				_terrain_chunks[key] = chunk
+			else:
+				_feature_chunks[key] = chunk
+
+
+func _chunk_key(h: Vector2i) -> Vector2i:
+	var o := Hex.axial_to_offset(h)
+	return Vector2i(floori(o.x / float(CHUNK_TILES)), floori(o.y / float(CHUNK_TILES)))
+
+
+## Redraws the whole map (after generating or loading it).
+func redraw_all() -> void:
+	for chunk: HexMapChunk in _terrain_chunks.values() + _feature_chunks.values():
+		chunk.queue_redraw()
+
+
+## Something on `h` changed: redraws the chunks holding it and its
+## neighbours (belts, foundations and bridges draw links into the tiles
+## around them). `terrain` also redraws the ground there.
+func mark_dirty(h: Vector2i, terrain := false) -> void:
+	var around := Hex.neighbors(h)
+	around.append(h)
+	for n in around:
+		var key := _chunk_key(n)
+		if _feature_chunks.has(key):
+			_feature_chunks[key].queue_redraw()
+		if terrain and _terrain_chunks.has(key):
+			_terrain_chunks[key].queue_redraw()
+
+
+## Draws one chunk's tiles onto it (HexMapChunk._draw() calls this).
+func draw_chunk(chunk: HexMapChunk) -> void:
+	_canvas = chunk
+	if chunk.layer == HexMapChunk.Layer.TERRAIN:
+		_draw_terrain(chunk.hexes)
+	else:
+		_draw_features(chunk.hexes)
+	_canvas = null
+
+
+func _draw_terrain(hexes: Array[Vector2i]) -> void:
+	var outline := Color(0.2, 0.08, 0.03, 0.35)
+	for h in hexes:
 		var tile: HexTile = tiles[h]
 		var center := Hex.to_pixel(h, hex_size)
 		var points := Hex.corners(center, hex_size)
-		draw_colored_polygon(points, Terrain.get_color(tile.terrain))
+		_canvas.draw_colored_polygon(points, Terrain.get_color(tile.terrain))
 		points.append(points[0])
-		draw_polyline(points, outline, 1.0)
+		_canvas.draw_polyline(points, outline, 1.0)
 		_draw_decoration(tile.terrain, center, h)
-	for h in tiles:
+
+
+func _draw_features(hexes: Array[Vector2i]) -> void:
+	for h in hexes:
 		if tiles[h].terrain == Terrain.Type.BRIDGE:
 			_draw_bridge(h)
 		elif tiles[h].terrain == Terrain.Type.FOUNDATION:
 			_draw_foundation(h)
-	for h in tiles:
+	for h in hexes:
 		var tile: HexTile = tiles[h]
 		if tile.has_deposit():
 			_draw_deposit(tile.deposit, Hex.to_pixel(h, hex_size))
 	# Belt links, then extractor rigs on top of their deposits.
-	for h in tiles:
+	for h in hexes:
 		var owner_faction := _belt_owner(h)
 		if owner_faction == Faction.NONE:
 			continue
@@ -525,10 +601,12 @@ func _draw() -> void:
 		# hub included); a hub tile only draws its half of links to belts.
 		if Structure.carries_resources(tiles[h].structure) or _has_belt_neighbour(h, owner_faction):
 			_draw_belt_links(h, owner_faction)
-	for h in tiles:
+	for h in hexes:
 		if tiles[h].structure == Structure.Type.EXTRACTOR:
 			_draw_extractor(h)
-	for h in control_points:
+	for h in hexes:
+		if not tiles[h].control_point:
+			continue
 		if tiles[h].structure == Structure.Type.COMMAND_POINT:
 			_draw_command_point(h)
 		else:
@@ -581,16 +659,16 @@ func _draw_belt_links(h: Vector2i, owner_faction: int) -> void:
 		if _connects_belt(n, owner_faction):
 			ends.append(c + (Hex.to_pixel(n, s) - c) * 0.5)
 	if is_belt:
-		draw_circle(c, 0.17 * s, frame)
+		_canvas.draw_circle(c, 0.17 * s, frame)
 	for e in ends:
-		draw_line(c, e, frame, 0.3 * s)
+		_canvas.draw_line(c, e, frame, 0.3 * s)
 	if is_belt:
-		draw_circle(c, 0.12 * s, surface)
+		_canvas.draw_circle(c, 0.12 * s, surface)
 	for e in ends:
-		draw_line(c, e, surface, 0.2 * s)
+		_canvas.draw_line(c, e, surface, 0.2 * s)
 		var side := (e - c).orthogonal().normalized() * 0.1 * s
-		draw_line(c + side, e + side, rail, 1.5)
-		draw_line(c - side, e - side, rail, 1.5)
+		_canvas.draw_line(c + side, e + side, rail, 1.5)
+		_canvas.draw_line(c - side, e - side, rail, 1.5)
 	# Flow chevrons on the segment towards the hub.
 	var next_hex: Vector2i = players[owner_faction].get_network_parent(h) if lit else h
 	if lit and next_hex != h:
@@ -599,7 +677,7 @@ func _draw_belt_links(h: Vector2i, owner_faction: int) -> void:
 		var perp := dir.orthogonal()
 		for t in [0.3, 0.75]:
 			var tip := c.lerp(target, t) + dir * 0.05 * s
-			draw_polyline(PackedVector2Array([
+			_canvas.draw_polyline(PackedVector2Array([
 				tip - dir * 0.08 * s + perp * 0.07 * s, tip, tip - dir * 0.08 * s - perp * 0.07 * s,
 			]), faction_color.lightened(0.6), 2.0)
 
@@ -616,27 +694,27 @@ func _draw_extractor(h: Vector2i) -> void:
 	var left := c + Vector2(-0.26, 0.24) * s
 	var right := c + Vector2(0.26, 0.24) * s
 	# Base platform, edged in the owner's colour.
-	draw_rect(Rect2(c + Vector2(-0.34, 0.2) * s, Vector2(0.68, 0.13) * s), dark)
-	draw_rect(Rect2(c + Vector2(-0.34, 0.2) * s, Vector2(0.68, 0.13) * s),
+	_canvas.draw_rect(Rect2(c + Vector2(-0.34, 0.2) * s, Vector2(0.68, 0.13) * s), dark)
+	_canvas.draw_rect(Rect2(c + Vector2(-0.34, 0.2) * s, Vector2(0.68, 0.13) * s),
 		Faction.get_color(tile.structure_owner), false, 2.5)
 	# Tower legs and cross braces.
 	for leg in [left, right]:
-		draw_line(leg, top, dark, 4.0)
-		draw_line(leg, top, metal, 2.0)
+		_canvas.draw_line(leg, top, dark, 4.0)
+		_canvas.draw_line(leg, top, metal, 2.0)
 	for t in [0.35, 0.65]:
-		draw_line(left.lerp(top, t), right.lerp(top, t), metal, 1.5)
+		_canvas.draw_line(left.lerp(top, t), right.lerp(top, t), metal, 1.5)
 	# Drill shaft.
-	draw_line(top, c + Vector2(0, 0.2) * s, Color(0.95, 0.95, 0.95), 1.5)
+	_canvas.draw_line(top, c + Vector2(0, 0.2) * s, Color(0.95, 0.95, 0.95), 1.5)
 	# Hopper showing the resource being mined.
 	var res_color := tile.deposit.get_color() if tile.has_deposit() else Color(0.5, 0.5, 0.5)
-	draw_rect(Rect2(c + Vector2(-0.11, 0.0) * s, Vector2(0.22, 0.16) * s), res_color)
-	draw_rect(Rect2(c + Vector2(-0.11, 0.0) * s, Vector2(0.22, 0.16) * s), dark, false, 1.5)
+	_canvas.draw_rect(Rect2(c + Vector2(-0.11, 0.0) * s, Vector2(0.22, 0.16) * s), res_color)
+	_canvas.draw_rect(Rect2(c + Vector2(-0.11, 0.0) * s, Vector2(0.22, 0.16) * s), dark, false, 1.5)
 	# Status light.
 	var light := Color(0.55, 0.55, 0.55)
 	if tile.has_deposit():
 		light = Color(0.35, 1.0, 0.4) if _is_supply_connected(h, tile.structure_owner) else Color(1.0, 0.3, 0.25)
-	draw_circle(top, 0.09 * s, dark)
-	draw_circle(top, 0.065 * s, light)
+	_canvas.draw_circle(top, 0.09 * s, dark)
+	_canvas.draw_circle(top, 0.065 * s, light)
 
 
 ## An unclaimed control point: a gold ring round the tile and a white
@@ -647,8 +725,8 @@ func _draw_control_point(h: Vector2i) -> void:
 	var gold := Color(1.0, 0.82, 0.3)
 	var ring := Hex.corners(c, s * 0.8)
 	ring.append(ring[0])
-	draw_polyline(ring, Color(0.15, 0.1, 0.05, 0.6), 5.0, true)
-	draw_polyline(ring, gold, 2.5, true)
+	_canvas.draw_polyline(ring, Color(0.15, 0.1, 0.05, 0.6), 5.0, true)
+	_canvas.draw_polyline(ring, gold, 2.5, true)
 	_draw_flag(c, s, Color(0.95, 0.95, 0.9), gold)
 
 
@@ -663,32 +741,32 @@ func _draw_command_point(h: Vector2i) -> void:
 	var dark := Color(0.2, 0.21, 0.25)
 	var ring := Hex.corners(c, s * 0.8)
 	ring.append(ring[0])
-	draw_polyline(ring, Color(0.15, 0.1, 0.05, 0.6), 5.0, true)
-	draw_polyline(ring, owner_color, 2.5, true)
+	_canvas.draw_polyline(ring, Color(0.15, 0.1, 0.05, 0.6), 5.0, true)
+	_canvas.draw_polyline(ring, owner_color, 2.5, true)
 	# Bunker.
 	var bunker := PackedVector2Array([
 		c + Vector2(-0.36, 0.3) * s, c + Vector2(-0.26, 0.02) * s,
 		c + Vector2(0.26, 0.02) * s, c + Vector2(0.36, 0.3) * s])
-	draw_colored_polygon(bunker, Color(0.62, 0.64, 0.68))
+	_canvas.draw_colored_polygon(bunker, Color(0.62, 0.64, 0.68))
 	bunker.append(bunker[0])
-	draw_polyline(bunker, dark, 2.0, true)
-	draw_rect(Rect2(c + Vector2(-0.16, 0.1) * s, Vector2(0.32, 0.07) * s), dark)
+	_canvas.draw_polyline(bunker, dark, 2.0, true)
+	_canvas.draw_rect(Rect2(c + Vector2(-0.16, 0.1) * s, Vector2(0.32, 0.07) * s), dark)
 	_draw_flag(c, s, owner_color, Color(0.85, 0.85, 0.88))
 	var light := Color(0.35, 1.0, 0.4) if _is_supply_connected(h, tile.structure_owner) else Color(1.0, 0.3, 0.25)
-	draw_circle(c + Vector2(-0.22, -0.05) * s, 0.08 * s, dark)
-	draw_circle(c + Vector2(-0.22, -0.05) * s, 0.055 * s, light)
+	_canvas.draw_circle(c + Vector2(-0.22, -0.05) * s, 0.08 * s, dark)
+	_canvas.draw_circle(c + Vector2(-0.22, -0.05) * s, 0.055 * s, light)
 
 
 ## A flagpole rising from the middle of the tile with a pennant.
 func _draw_flag(c: Vector2, s: float, flag_color: Color, pole_color: Color) -> void:
 	var foot := c + Vector2(0.06, 0.05) * s
 	var top := c + Vector2(0.06, -0.55) * s
-	draw_line(foot, top, Color(0.1, 0.08, 0.06), 3.5)
-	draw_line(foot, top, pole_color, 1.8)
+	_canvas.draw_line(foot, top, Color(0.1, 0.08, 0.06), 3.5)
+	_canvas.draw_line(foot, top, pole_color, 1.8)
 	var pennant := PackedVector2Array([top, top + Vector2(0.34, 0.1) * s, top + Vector2(0, 0.22) * s])
-	draw_colored_polygon(pennant, flag_color)
+	_canvas.draw_colored_polygon(pennant, flag_color)
 	pennant.append(pennant[0])
-	draw_polyline(pennant, Color(0.1, 0.08, 0.06), 1.5, true)
+	_canvas.draw_polyline(pennant, Color(0.1, 0.08, 0.06), 1.5, true)
 
 
 func _draw_decoration(terrain: Terrain.Type, c: Vector2, h: Vector2i) -> void:
@@ -700,36 +778,36 @@ func _draw_decoration(terrain: Terrain.Type, c: Vector2, h: Vector2i) -> void:
 		Terrain.Type.REGOLITH:
 			if hash_value % 3 == 0:
 				# Small impact crater.
-				draw_circle(c + jitter, 0.2 * s, Color(0.6, 0.28, 0.13, 0.6))
-				draw_arc(c + jitter, 0.2 * s, 0, TAU, 14, Color(1.0, 0.7, 0.45, 0.45), 1.5)
+				_canvas.draw_circle(c + jitter, 0.2 * s, Color(0.6, 0.28, 0.13, 0.6))
+				_canvas.draw_arc(c + jitter, 0.2 * s, 0, TAU, 14, Color(1.0, 0.7, 0.45, 0.45), 1.5)
 			else:
-				draw_circle(c + jitter + Vector2(-0.2, 0.15) * s, 0.05 * s, Color(0.45, 0.2, 0.1, 0.6))
-				draw_circle(c + jitter + Vector2(0.18, -0.1) * s, 0.04 * s, Color(0.45, 0.2, 0.1, 0.6))
+				_canvas.draw_circle(c + jitter + Vector2(-0.2, 0.15) * s, 0.05 * s, Color(0.45, 0.2, 0.1, 0.6))
+				_canvas.draw_circle(c + jitter + Vector2(0.18, -0.1) * s, 0.04 * s, Color(0.45, 0.2, 0.1, 0.6))
 		Terrain.Type.DUST_PLAINS:
 			var speck := Color(1.0, 0.8, 0.6, 0.35)
 			for offset in [Vector2(-0.3, -0.1), Vector2(0.05, 0.25), Vector2(0.3, -0.2)]:
-				draw_circle(c + jitter + offset * s, 0.035 * s, speck)
+				_canvas.draw_circle(c + jitter + offset * s, 0.035 * s, speck)
 		Terrain.Type.DUNES:
 			var ridge := Color(1.0, 0.78, 0.5, 0.7)
 			var shade := Color(0.7, 0.38, 0.17, 0.7)
 			for y in [-0.25, 0.1]:
 				var base := c + Vector2(0, y * s) + jitter * 0.5
-				draw_arc(base, 0.35 * s, PI * 1.15, PI * 1.85, 10, ridge, 2.0)
-				draw_arc(base + Vector2(0, 0.06 * s), 0.35 * s, PI * 1.15, PI * 1.85, 10, shade, 1.5)
+				_canvas.draw_arc(base, 0.35 * s, PI * 1.15, PI * 1.85, 10, ridge, 2.0)
+				_canvas.draw_arc(base + Vector2(0, 0.06 * s), 0.35 * s, PI * 1.15, PI * 1.85, 10, shade, 1.5)
 		Terrain.Type.HIGHLANDS:
 			var rock := Color(0.42, 0.2, 0.1)
 			for offset in [Vector2(-0.25, 0.15), Vector2(0.22, 0.05), Vector2(-0.02, -0.25)]:
 				var b: Vector2 = c + offset * s
-				draw_colored_polygon(PackedVector2Array([
+				_canvas.draw_colored_polygon(PackedVector2Array([
 					b + Vector2(-0.14, 0.08) * s, b + Vector2(-0.05, -0.12) * s,
 					b + Vector2(0.08, -0.08) * s, b + Vector2(0.14, 0.08) * s,
 				]), rock)
 		Terrain.Type.MESA:
-			draw_colored_polygon(PackedVector2Array([
+			_canvas.draw_colored_polygon(PackedVector2Array([
 				c + Vector2(-0.55, 0.35) * s, c + Vector2(-0.32, -0.25) * s,
 				c + Vector2(0.32, -0.25) * s, c + Vector2(0.55, 0.35) * s,
 			]), Color(0.4, 0.18, 0.09))
-			draw_line(c + Vector2(-0.32, -0.25) * s, c + Vector2(0.32, -0.25) * s,
+			_canvas.draw_line(c + Vector2(-0.32, -0.25) * s, c + Vector2(0.32, -0.25) * s,
 				Color(0.85, 0.5, 0.28), 3.0)
 		Terrain.Type.RUBBLE:
 			# Broken concrete slabs and twisted metal.
@@ -743,14 +821,14 @@ func _draw_decoration(terrain: Terrain.Type, c: Vector2, h: Vector2i) -> void:
 					b + Vector2(-r, r * 0.4), b + Vector2(-r * 0.6, -r * 0.7),
 					b + Vector2(r * 0.7, -r * 0.5), b + Vector2(r, r * 0.5),
 				])
-				draw_colored_polygon(poly, slab_dark)
-				draw_colored_polygon(PackedVector2Array([poly[0], poly[1], poly[2]]), slab)
+				_canvas.draw_colored_polygon(poly, slab_dark)
+				_canvas.draw_colored_polygon(PackedVector2Array([poly[0], poly[1], poly[2]]), slab)
 			var rebar := Color(0.25, 0.2, 0.2)
-			draw_line(c + Vector2(-0.35, -0.15) * s, c + Vector2(-0.15, -0.32) * s, rebar, 1.5)
-			draw_line(c + Vector2(0.1, 0.32) * s, c + Vector2(0.32, 0.28) * s, rebar, 1.5)
+			_canvas.draw_line(c + Vector2(-0.35, -0.15) * s, c + Vector2(-0.15, -0.32) * s, rebar, 1.5)
+			_canvas.draw_line(c + Vector2(0.1, 0.32) * s, c + Vector2(0.32, 0.28) * s, rebar, 1.5)
 		Terrain.Type.CHASM, Terrain.Type.BRIDGE:
 			var crack := Color(0.12, 0.05, 0.03)
-			draw_polyline(PackedVector2Array([
+			_canvas.draw_polyline(PackedVector2Array([
 				c + Vector2(-0.6, -0.1) * s, c + Vector2(-0.2, 0.1) * s,
 				c + Vector2(0.1, -0.12) * s, c + Vector2(0.6, 0.08) * s,
 			]), crack, 0.18 * s)
@@ -769,12 +847,12 @@ func _draw_bridge(h: Vector2i) -> void:
 	var deck := Color(0.62, 0.45, 0.28)
 	var plank := Color(0.42, 0.29, 0.17)
 	var rail := Color(0.8, 0.82, 0.86)
-	draw_circle(c, 0.22 * s, girder)
+	_canvas.draw_circle(c, 0.22 * s, girder)
 	for e in ends:
-		draw_line(c, e, girder, 0.42 * s)
-	draw_circle(c, 0.17 * s, deck)
+		_canvas.draw_line(c, e, girder, 0.42 * s)
+	_canvas.draw_circle(c, 0.17 * s, deck)
 	for e in ends:
-		draw_line(c, e, deck, 0.32 * s)
+		_canvas.draw_line(c, e, deck, 0.32 * s)
 	for e in ends:
 		var dir := (e - c).normalized()
 		var side := dir.orthogonal() * 0.16 * s
@@ -783,10 +861,10 @@ func _draw_bridge(h: Vector2i) -> void:
 		var d := step
 		while d < length:
 			var p := c + dir * d
-			draw_line(p - side, p + side, plank, 1.0)
+			_canvas.draw_line(p - side, p + side, plank, 1.0)
 			d += step
-		draw_line(c + side, e + side, rail, 2.0)
-		draw_line(c - side, e - side, rail, 2.0)
+		_canvas.draw_line(c + side, e + side, rail, 2.0)
+		_canvas.draw_line(c - side, e - side, rail, 2.0)
 
 
 ## Paved strips from the tile centre towards every connected neighbour.
@@ -800,14 +878,14 @@ func _draw_foundation(h: Vector2i) -> void:
 	for n in Hex.neighbors(h):
 		if _connects_foundation(n):
 			ends.append(c + (Hex.to_pixel(n, s) - c) * 0.5)
-	draw_circle(c, 0.17 * s, edge)
+	_canvas.draw_circle(c, 0.17 * s, edge)
 	for e in ends:
-		draw_line(c, e, edge, 0.34 * s)
-	draw_circle(c, 0.13 * s, surface)
+		_canvas.draw_line(c, e, edge, 0.34 * s)
+	_canvas.draw_circle(c, 0.13 * s, surface)
 	for e in ends:
-		draw_line(c, e, surface, 0.24 * s)
+		_canvas.draw_line(c, e, surface, 0.24 * s)
 	for e in ends:
-		draw_dashed_line(c, e, stripe, 1.5, 0.12 * s)
+		_canvas.draw_dashed_line(c, e, stripe, 1.5, 0.12 * s)
 
 
 func _draw_deposit(deposit: ResourceDeposit, c: Vector2) -> void:
@@ -815,8 +893,8 @@ func _draw_deposit(deposit: ResourceDeposit, c: Vector2) -> void:
 	var color := deposit.get_color()
 	# Dark backing disc + coloured ring so every deposit stands out from the
 	# terrain, whatever shade of orange it sits on.
-	draw_circle(c, 0.44 * s, Color(0.15, 0.06, 0.03, 0.55))
-	draw_circle(c, 0.44 * s, Color(color, 0.12))
-	draw_arc(c, 0.44 * s, 0, TAU, 24, Color(color, 0.9), 2.0, true)
+	_canvas.draw_circle(c, 0.44 * s, Color(0.15, 0.06, 0.03, 0.55))
+	_canvas.draw_circle(c, 0.44 * s, Color(color, 0.12))
+	_canvas.draw_arc(c, 0.44 * s, 0, TAU, 24, Color(color, 0.9), 2.0, true)
 	# The icon itself is drawn by the resource's own file (scripts/resources/).
-	ResourceDeposit.get_info(deposit.type).draw_icon(self, c, s)
+	ResourceDeposit.get_info(deposit.type).draw_icon(_canvas, c, s)

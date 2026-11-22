@@ -3,8 +3,10 @@ extends Room
 ## Where off-duty units of one type wait, and where units of that type are
 ## held while they train: the Break Room, Barracks, Hangar and Garage. Units
 ## waiting here don't need orders; drag them to Mission Briefing when you
-## want them again. All but the Break Room need their building first, and
-## units of that type can't be trained until it's built.
+## want them again, or send them with Wait and a number of turns, after
+## which they come back by themselves (Unit.wait_turns_left). All but the
+## Break Room need their building first, and units of that type can't be
+## trained until it's built.
 ##
 ## Units that refit after every trip out (Unit.refit_turns - air units)
 ## come straight here when they get home and refit: one turn off
@@ -38,7 +40,7 @@ func get_leave_refusal(unit: Unit) -> String:
 
 func has_work(player: Player) -> bool:
 	for unit in player.get_units_in_room(id):
-		if unit.refit_turns_left > 0:
+		if unit.refit_turns_left > 0 or unit.wait_turns_left > 0:
 			return true
 	return super(player)
 
@@ -47,7 +49,11 @@ func get_activity_text(unit: Unit) -> String:
 	if unit.refit_turns_left > 0:
 		return "Refitting - %d turn(s) left" % unit.refit_turns_left
 	var healing := get_healing_text(unit)
-	return healing if healing != "" else "Off duty"
+	if healing != "":
+		return healing
+	if unit.wait_turns_left > 0:
+		return "Off duty - back in Mission Briefing in %d turn(s)" % unit.wait_turns_left
+	return "Off duty"
 
 
 func holds_training(blueprint: UnitBlueprint) -> bool:
@@ -68,3 +74,13 @@ func process_turn(player: Player) -> void:
 		unit.heal(unit.max_health)
 		unit.set_room(MissionBriefingRoom.ID)
 		player.unit_event.emit("%s has finished refitting and is in Mission Briefing" % unit.display_name)
+	# Timed waits (the Wait button's number) count down; then back to work.
+	for unit in player.get_units_in_room(id):
+		if unit.wait_turns_left <= 0 or unit.state != Unit.State.IN_HUB or unit.refit_turns_left > 0:
+			continue
+		unit.wait_turns_left -= 1
+		if unit.wait_turns_left > 0:
+			unit.state_changed.emit(unit)  # Show the new count.
+			continue
+		unit.set_room(MissionBriefingRoom.ID)
+		player.unit_event.emit("%s is back from off duty and ready for orders" % unit.display_name)

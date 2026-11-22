@@ -26,11 +26,15 @@ signal cancel_mission_requested(unit: Unit)
 ## Asks the game to centre the camera on a unit.
 signal focus_requested(unit: Unit)
 ## Asks to move a unit in the hub to another of its rooms (see Room).
-signal room_move_requested(unit: Unit, room_id: String)
+signal room_move_requested(unit: Unit, room_id: String, turns: int)
+## RTB: every unit is to drop its mission and come home.
+signal recall_all_requested
 ## Asks to move a unit to `index` in its room's healing queue (see Room).
 signal heal_order_requested(unit: Unit, index: int)
 ## Emitted when the section panel closes.
 signal hub_panel_closed
+## A section stopped being shown (closed, or another one opened instead).
+signal section_closed(section: Section)
 signal train_requested(blueprint: UnitBlueprint)
 signal cancel_training_requested(index: int)
 ## Asks to build a hub building (see Building), by id.
@@ -51,6 +55,7 @@ signal popup_closed
 enum Section { NONE, HUB, BRIEFING, FIELD, TRAINING, BUILDINGS, RESEARCH }
 
 const END_TURN_TEXT := "End Turn (Enter)"
+const NEXT_TEXT := "Next (Enter)"
 const MAX_LOG_LINES := 8
 const BOTTOM_BAR_HEIGHT := 78.0
 const PANEL_WIDTH := 380.0
@@ -71,6 +76,7 @@ var _turn_label: Label
 var _inventory_labels: Dictionary = {}
 ## "Command points: 1/5" - progress towards victory.
 var _command_points_label: Label
+var _initiative_label: Label
 var _hint_label: Label
 var _help_label: Label
 var _end_turn_button: Button
@@ -157,6 +163,8 @@ func open_section(section: Section) -> void:
 	if section == Section.NONE:
 		close_section()
 		return
+	if _section != Section.NONE and _section != section:
+		section_closed.emit(_section)
 	_section = section
 	_section_panel.visible = true
 	refresh()
@@ -165,7 +173,9 @@ func open_section(section: Section) -> void:
 func close_section() -> void:
 	if _section == Section.NONE:
 		return
+	var closed := _section
 	_section = Section.NONE
+	section_closed.emit(closed)
 	_section_panel.visible = false
 	_update_section_buttons()
 	hub_panel_closed.emit()
@@ -183,31 +193,73 @@ func set_turn(turn: int) -> void:
 	refresh()
 
 
+## Adds an icon and its number label to the top bar, a little apart from
+## what's before. `tooltip` (if given) is shown on both.
+func _add_icon_item(row: HBoxContainer, icon: TopBarIcon, label: Label, tooltip := "") -> void:
+	var gap := Control.new()
+	gap.custom_minimum_size.x = 8
+	row.add_child(gap)
+	var item := HBoxContainer.new()
+	item.add_theme_constant_override("separation", 3)
+	item.add_child(icon)
+	item.add_child(label)
+	row.add_child(item)
+	if tooltip != "":
+		icon.tooltip_text = tooltip
+		label.tooltip_text = tooltip
+
+
 ## Shows every resource type, including ones the hub has none of yet, plus
-## the net change per turn, e.g. "Titanium: 5 (+1)". Resources that aren't
-## stored show only their production, e.g. "Biomass: +2 a turn" (red below
-## zero, when units are starving).
+## the net change per turn, e.g. "5 (+1)" by the Titanium icon. Resources
+## that aren't stored show only their production, e.g. "+2/turn" by the
+## Biomass icon (red below zero, when units are starving). The names are in
+## the hover text.
 func set_inventory(inventory: Dictionary, income: Dictionary = {}) -> void:
 	for type in _inventory_labels:
 		var label: Label = _inventory_labels[type]
 		var type_name := ResourceDeposit.get_type_name(type)
 		if not ResourceDeposit.get_info(type).stored:
 			var rate: float = income.get(type, 0.0)
-			label.text = "%s: %s a turn" % [type_name, ResourceDeposit.format_change(rate)]
+			label.text = "%s/turn" % ResourceDeposit.format_change(rate)
 			label.add_theme_color_override("font_color",
 				STARVING_COLOR if rate < 0 else ResourceDeposit.get_type_color(type))
 			label.tooltip_text = "Biomass made each turn (Greenhouses, Biomass extractors) less what your units eat. It isn't stored.\nBelow zero, one unit starves every turn - the most injured first, the Miner and Builders last." if rate >= 0 \
 				else "Your units eat more biomass than the colony makes: one unit will starve at the end of every turn until this is back to zero or above.\nBuild a Greenhouse (Buildings, B) or connect a Biomass extractor."
+			label.tooltip_text = "%s: %s a turn\n%s" % [type_name, ResourceDeposit.format_change(rate), label.tooltip_text]
+			_set_icon_tooltip(label)
 			continue
-		label.text = "%s: %d" % [type_name, inventory.get(type, 0)]
+		label.text = str(inventory.get(type, 0))
 		if not is_zero_approx(income.get(type, 0.0)):
 			label.text += " (%s)" % ResourceDeposit.format_change(income[type])
+		label.tooltip_text = "%s: %d in the stockpile" % [type_name, inventory.get(type, 0)]
+		if not is_zero_approx(income.get(type, 0.0)):
+			label.tooltip_text += ", %s a turn" % ResourceDeposit.format_change(income[type])
+		_set_icon_tooltip(label)
 
 
 ## Progress towards victory: linked command points held of the map's
 ## control points - and our initiative (see Player.get_initiative()).
 func set_command_points(held: int, total: int, initiative: int) -> void:
-	_command_points_label.text = "Command points: %d/%d  Initiative: %d" % [held, total, initiative]
+	_command_points_label.text = "%d/%d" % [held, total]
+	_initiative_label.text = str(initiative)
+
+
+## Gives a resource's icon the same hover text as its number.
+func _set_icon_tooltip(label: Label) -> void:
+	var icon := label.get_parent().get_child(0) as Control
+	icon.tooltip_text = label.tooltip_text
+
+
+## Shows "Next" on the End Turn button while something wants the player's
+## attention (see Attention), with `why` as its tooltip; otherwise End Turn.
+func set_next_turn_hint(show_next: bool, why: String) -> void:
+	var text := NEXT_TEXT if show_next else END_TURN_TEXT
+	if _end_turn_button.text != text:
+		_end_turn_button.text = text
+	if show_next:
+		_end_turn_button.tooltip_text = why + "\nClick to see it. Closing that panel counts it as dealt with."
+	else:
+		_end_turn_button.tooltip_text = "End the turn: every colony's orders play out at once."
 
 
 ## Makes sure the player notices that one of their units has starved (see
@@ -536,26 +588,28 @@ func _build_top_bar(root: Control) -> void:
 	_turn_label = Label.new()
 	_turn_label.add_theme_font_size_override("font_size", 20)
 	top_row.add_child(_turn_label)
-	# One coloured label per resource, in a fixed order.
+	# One icon and coloured number per resource, in a fixed order (the name
+	# is in the hover text).
 	for type in [ResourceDeposit.Type.BIOMASS, ResourceDeposit.Type.TITANIUM, ResourceDeposit.Type.SEDIMENT,
 			ResourceDeposit.Type.GOLD, ResourceDeposit.Type.ELECTRUM]:
-		var gap := Control.new()
-		gap.custom_minimum_size.x = 4
-		top_row.add_child(gap)
 		var label := Label.new()
 		label.add_theme_font_size_override("font_size", 15)
 		label.add_theme_color_override("font_color", ResourceDeposit.get_type_color(type))
-		top_row.add_child(label)
+		label.mouse_filter = Control.MOUSE_FILTER_PASS  # So the tooltip shows.
+		_add_icon_item(top_row, TopBarIcon.new(TopBarIcon.Kind.RESOURCE, type), label)
 		_inventory_labels[type] = label
-	var gap_cp := Control.new()
-	gap_cp.custom_minimum_size.x = 8
-	top_row.add_child(gap_cp)
 	_command_points_label = Label.new()
 	_command_points_label.add_theme_font_size_override("font_size", 15)
 	_command_points_label.add_theme_color_override("font_color", Color(1.0, 0.82, 0.3))
-	_command_points_label.mouse_filter = Control.MOUSE_FILTER_PASS  # So the tooltip shows.
-	_command_points_label.tooltip_text = "Command points you hold on the map's control points (gold-ringed tiles with a flag), linked to your hub by belts.\nHold every one at the end of a turn to win.\n\nInitiative: +1 for each linked command point, plus the Initiative techs. Not stored. In a battle the colony with the most initiative fires first (ties at random)."
-	top_row.add_child(_command_points_label)
+	_command_points_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	_add_icon_item(top_row, TopBarIcon.new(TopBarIcon.Kind.COMMAND_POINT), _command_points_label,
+		"Command points you hold on the map's control points (gold-ringed tiles with a flag), linked to your hub by belts.\nHold every one at the end of a turn to win.")
+	_initiative_label = Label.new()
+	_initiative_label.add_theme_font_size_override("font_size", 15)
+	_initiative_label.add_theme_color_override("font_color", Color(0.55, 0.85, 1.0))
+	_initiative_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	_add_icon_item(top_row, TopBarIcon.new(TopBarIcon.Kind.INITIATIVE), _initiative_label,
+		"Initiative: +1 for each linked command point, plus the Initiative techs. Not stored.\nIn a battle the colony with the most initiative fires first (ties at random).")
 	# Hint (shown while choosing a target; replaces the controls help)
 	_hint_label = Label.new()
 	_hint_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS

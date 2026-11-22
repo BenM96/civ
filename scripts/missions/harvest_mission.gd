@@ -104,7 +104,7 @@ func work() -> void:
 		var deposit := _deposit()
 		_harvested = deposit.extract(ResourceDeposit.get_info(deposit.type).harvest_amount)
 		unit.add_cargo(deposit.type, _harvested)
-		unit.map.queue_redraw()  # Deposit may now be depleted.
+		unit.map.mark_dirty(deposit.coord)  # Deposit may now be depleted.
 		complete()
 
 

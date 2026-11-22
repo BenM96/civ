@@ -6,6 +6,10 @@ extends Camera2D
 @export var zoom_factor := 1.15
 @export var min_zoom := 0.35
 @export var max_zoom := 2.5
+## The longest frame the keyboard pan moves for. A frame that takes longer
+## (the game was busy) moves the camera this much instead of jumping it the
+## whole way, so panning stays smooth.
+const MAX_PAN_STEP_SECONDS := 1.0 / 30.0
 
 var _bounds := Rect2()
 var _dragging := false
@@ -32,7 +36,8 @@ func _process(delta: float) -> void:
 	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN):
 		dir.y += 1
 	if dir != Vector2.ZERO:
-		position += dir.normalized() * pan_speed * delta / zoom.x
+		var step := minf(delta, MAX_PAN_STEP_SECONDS)
+		position += dir.normalized() * pan_speed * step / zoom.x
 		_clamp()
 
 

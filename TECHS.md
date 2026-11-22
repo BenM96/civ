@@ -76,7 +76,7 @@ Techs are researched with Electrum from **Research (R)**. Each game deals every 
 
 | Tech | What it does | Also needs |
 |---|---|---|
-| **Workforce VII** | +1 Builder limit. | - |
+| **Flight Crews** | Lets you build a Flight Crew Quarters. | Hangar (tier 2) |
 | **Tank Guns** | Tank does +1 damage to everything. | Tank (tier 4) |
 | **Flak Guns** | Anti-Aircraft Gun does +1 damage to everything. | Anti-Aircraft Gun (tier 4) |
 | **Fighter Weapons** | Fighter does +1 damage to everything. | Fighter (tier 4) |
