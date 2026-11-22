@@ -106,9 +106,8 @@ tier 7.
 
 Each **Workforce** tech raises your Worker limit by 1 (you start limited to
 2 Workers, counting any in training). Each **Weapons** tech gives one unit
-+1 damage against every type. The computer colonies skip the tech rules for
-now: they can build and train everything they use without research (but
-get no Weapons, Drives or Drilling bonuses).
++1 damage against every type. The computer colonies follow the same rules
+and research techs too (see Units).
 
 ### Buildings
 
@@ -212,9 +211,13 @@ Each icon shows the unit's short name, e.g. W, I, AA.
 | Fighter | Air | F | 3 Gold, 3 Titanium | 5 | Sortie |
 | Bomber | Air | B | 3 Gold, 4 Titanium | 5 | Sortie |
 
-The computer colonies only train Workers and Infantry for now. Once they
-have 3 Workers they build a Barracks, then a Med Bay; when they're short of
-biomass to grow they build more Greenhouses.
+The computer colonies follow the plan in `scripts/ai/aiStratergy.txt`: train
+Workers up to their limit, build Titanium, Sediment and Gold extractors and
+then any extractor nearest first, train an army to use up their biomass,
+build what hub buildings they can, keep a Worker fetching Electrum and
+research what they can afford. A third of their army stays home on QRF; the
+rest attack the nearest rival together, Infantry demolishing its structures
+with armour as escorts, while aircraft fly sorties at enemy units.
 
 ### Combat
 

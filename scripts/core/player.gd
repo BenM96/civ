@@ -224,29 +224,12 @@ func has_tech(tech_id: String) -> bool:
 	return tech_id in researched
 
 
-## Computer colonies skip the tech rules for now: everything that's
-## unlocked or limited by a tech counts as researched for them. (Combat and
-## economy bonuses still need real research, which they don't do.)
-func is_tech_exempt() -> bool:
-	return is_ai
-
-
 ## Whether what `tech` unlocks is available to us.
 func _has_unlock(tech: Tech) -> bool:
-	return is_tech_exempt() or has_tech(tech.id)
+	return has_tech(tech.id)
 
 
-## The techs whose limit bonuses apply to us (all of them if exempt).
-func _limit_techs() -> Array[Tech]:
-	if is_tech_exempt():
-		return TechList.all()
-	var result: Array[Tech] = []
-	for tech_id in researched:
-		result.append(TechList.get_tech(tech_id))
-	return result
-
-
-## The techs we've actually researched.
+## The techs we've researched.
 func _researched_techs() -> Array[Tech]:
 	var result: Array[Tech] = []
 	for tech_id in researched:
@@ -259,7 +242,7 @@ func _researched_techs() -> Array[Tech]:
 func get_building_limit(building_id: String) -> int:
 	var type := get_building_type(building_id)
 	var limit := type.max_count if type else 0
-	for tech in _limit_techs():
+	for tech in _researched_techs():
 		limit += tech.building_limit_bonus.get(building_id, 0)
 	return limit
 
@@ -268,7 +251,7 @@ func get_building_limit(building_id: String) -> int:
 ## raised by the Workforce techs.
 func get_worker_limit() -> int:
 	var limit := BASE_WORKER_LIMIT
-	for tech in _limit_techs():
+	for tech in _researched_techs():
 		limit += tech.worker_limit_bonus
 	return limit
 

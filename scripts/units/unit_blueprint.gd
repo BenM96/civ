@@ -94,3 +94,8 @@ func get_cost_growth_text() -> String:
 
 func create_unit() -> Unit:
 	return _unit_script.new()
+
+
+## Damage one shot does to a unit of `type` (before any Weapons tech).
+func get_damage(type: Unit.UnitType) -> int:
+	return _damage.get(type, 0)
