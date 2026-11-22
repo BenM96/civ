@@ -40,7 +40,10 @@ func fill() -> void:
 			grid.free()
 			continue
 		shown += 1
-		add_heading(Unit.get_type_name(type))
+		var heading := Unit.get_type_name(type)
+		if type == Unit.UnitType.CIVILIAN:
+			heading += "  -  Workers %d/%d" % [player.count_workers(), player.get_worker_limit()]
+		add_heading(heading)
 		add(grid)
 	if shown == 0:
 		add_note("Nothing to train yet. Research techs and build the buildings that house units.")
