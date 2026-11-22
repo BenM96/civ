@@ -1,7 +1,8 @@
 class_name TrainingPanel
 extends HudPanel
 ## A Train button for every unit the hub can train (with its current price),
-## grouped by unit type, and the training queue with Cancel buttons.
+## grouped by unit type - only units whose tech we have and whose building
+## the hub has built, and the training queue with Cancel buttons.
 
 const COLUMNS := 3
 
@@ -26,19 +27,23 @@ func get_button_text() -> String:
 
 func fill() -> void:
 	add_note("Hover over a unit to see what it does and how hard it hits.")
+	var shown := 0
 	for type in [Unit.UnitType.CIVILIAN, Unit.UnitType.INFANTRY, Unit.UnitType.ARMOUR, Unit.UnitType.AIR]:
 		var grid := GridContainer.new()
 		grid.columns = COLUMNS
 		grid.add_theme_constant_override("h_separation", 6)
 		grid.add_theme_constant_override("v_separation", 6)
 		for blueprint in player.blueprints:
-			if blueprint.unit_type == type:
+			if blueprint.unit_type == type and player.has_unit_tech(blueprint) and player.has_training_building(blueprint):
 				grid.add_child(_make_train_button(blueprint))
 		if grid.get_child_count() == 0:
 			grid.free()
 			continue
+		shown += 1
 		add_heading(Unit.get_type_name(type))
 		add(grid)
+	if shown == 0:
+		add_note("Nothing to train yet. Research techs and build the buildings that house units.")
 
 	add_separator()
 	add_heading("Queue (%d)" % player.training_queue.size())
@@ -60,7 +65,8 @@ func fill() -> void:
 
 
 ## "Tank Destroyer" over "3 Gold, 3 Titanium - 5 turns"; trains one when
-## pressed. Over "Needs a Garage" instead if the hub hasn't built that yet.
+## pressed. Over why not instead if it can't be trained now (e.g. the
+## Worker limit).
 func _make_train_button(bp: UnitBlueprint) -> Button:
 	var cost := player.get_training_cost(bp)
 	var needs := player.get_training_refusal(bp)

@@ -1,7 +1,8 @@
 class_name BuildingsPanel
 extends HudPanel
-## The hub's buildings (see Building): every type the hub can build, with
-## its price, how many it has of the most it may have, and a Build button
+## The hub's buildings (see Building): every type the hub can build (only
+## ones whose tech we have), with its price, how many it has of the most it
+## may have, and a Build button
 ## (via hud.build_building_requested); the ones under construction (finished
 ## at the end of the turn) with Cancel buttons; and the ones it has built.
 
@@ -32,13 +33,13 @@ func fill() -> void:
 	add_note("Paid for now, ready at the end of the turn. Hover for details.")
 	var grid := _grid()
 	for type in player.building_types:
-		if player.count_planned_buildings(type.id) < player.get_building_limit(type.id):
+		if player.has_building_tech(type.id) and player.count_planned_buildings(type.id) < player.get_building_limit(type.id):
 			grid.add_child(_make_build_row(type))
 	if grid.get_child_count() > 0:
 		add(grid)
 	else:
 		grid.free()
-		add_note("Everything has been built.")
+		add_note("Nothing to build. Research techs to unlock more buildings.")
 
 	if not player.building_queue.is_empty():
 		add_separator()

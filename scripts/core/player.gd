@@ -162,13 +162,19 @@ func get_building_type(building_id: String) -> Building:
 	return null
 
 
+## Whether we have the tech (if any) that lets the hub build `building_id`.
+func has_building_tech(building_id: String) -> bool:
+	var tech := TechList.unlocking_building(building_id)
+	return tech == null or _has_unlock(tech)
+
+
 ## Why the hub can't order a `building_id` right now, or "" if it can.
 func get_building_refusal(building_id: String) -> String:
 	var type := get_building_type(building_id)
 	if type == null:
 		return "no such building"
 	var tech := TechList.unlocking_building(building_id)
-	if tech and not _has_unlock(tech):
+	if not has_building_tech(building_id):
 		return "needs the %s tech" % tech.display_name
 	var limit := get_building_limit(building_id)
 	if count_planned_buildings(building_id) >= limit:
@@ -663,18 +669,37 @@ func get_training_cost(blueprint: UnitBlueprint) -> Dictionary:
 	return blueprint.cost_for(built)
 
 
+## Whether we have the tech (if any) that unlocks `blueprint`.
+func has_unit_tech(blueprint: UnitBlueprint) -> bool:
+	var tech := TechList.unlocking_unit(blueprint.unit_name)
+	return tech == null or _has_unlock(tech)
+
+
+## Whether the room that holds `blueprint` while training (its quarters)
+## is open, i.e. its building has been built.
+func has_training_building(blueprint: UnitBlueprint) -> bool:
+	return get_missing_training_building(blueprint) == ""
+
+
+## The building `blueprint` needs before it can train, or "" if none.
+func get_missing_training_building(blueprint: UnitBlueprint) -> String:
+	for room in rooms:
+		if room.holds_training(blueprint) and not is_room_open(room):
+			return room.required_building
+	return ""
+
+
 ## Why `blueprint` can't be trained at all right now (e.g. "needs a
 ## Barracks"), or "" if it can - not counting whether we can afford it. A
 ## unit needs the room that holds it while training (its quarters) to be
 ## built, and its unlock tech if it has one (see TechList); Workers are
 ## capped by get_worker_limit().
 func get_training_refusal(blueprint: UnitBlueprint) -> String:
-	var tech := TechList.unlocking_unit(blueprint.unit_name)
-	if tech and not _has_unlock(tech):
-		return "needs the %s tech" % tech.display_name
-	for room in rooms:
-		if room.holds_training(blueprint) and not is_room_open(room):
-			return "needs a %s" % Building.get_name_for(room.required_building)
+	if not has_unit_tech(blueprint):
+		return "needs the %s tech" % TechList.unlocking_unit(blueprint.unit_name).display_name
+	var missing := get_missing_training_building(blueprint)
+	if missing != "":
+		return "needs a %s" % Building.get_name_for(missing)
 	if blueprint.unit_name == WORKER_NAME and count_workers() >= get_worker_limit():
 		return "Worker limit reached (%d)" % get_worker_limit()
 	# Never train a unit we couldn't feed (counting the ones already training).
