@@ -59,15 +59,22 @@ func fill() -> void:
 		add(row)
 
 
-## "Tank Destroyer" over "3 Gold, 3 Titanium - 5 turns"; trains one when pressed.
+## "Tank Destroyer" over "3 Gold, 3 Titanium - 5 turns"; trains one when
+## pressed. Over "Needs a Garage" instead if the hub hasn't built that yet.
 func _make_train_button(bp: UnitBlueprint) -> Button:
 	var cost := player.get_training_cost(bp)
-	var button := UiStyle.make_button("%s\n%s - %d turns" % [
-		bp.unit_name, ResourceDeposit.format_cost(cost), bp.train_turns],
+	var needs := player.get_training_refusal(bp)
+	var second_line := "%s - %d turns" % [ResourceDeposit.format_cost(cost), bp.train_turns] \
+		if needs == "" else needs.left(1).to_upper() + needs.substr(1)
+	var button := UiStyle.make_button("%s\n%s" % [bp.unit_name, second_line],
 		func() -> void: hud.train_requested.emit(bp))
 	button.custom_minimum_size.x = (panel_width - 16 - 6 * (COLUMNS - 1)) / COLUMNS
 	button.add_theme_font_size_override("font_size", 13)
-	button.disabled = not player.can_afford(cost)
-	button.tooltip_text = ("Not enough resources.\n" if button.disabled else "") \
-		+ bp.get_info_text() + "\n" + bp.get_cost_growth_text()
+	button.disabled = needs != "" or not player.can_afford(cost)
+	var why := ""
+	if needs != "":
+		why = "Can't train yet: %s.\n" % needs
+	elif button.disabled:
+		why = "Not enough resources.\n"
+	button.tooltip_text = why + bp.get_info_text() + "\n" + bp.get_cost_growth_text()
 	return button

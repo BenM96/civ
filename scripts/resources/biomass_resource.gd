@@ -1,8 +1,10 @@
 class_name BiomassResource
 extends ResourceType
-## Food. Every unit eats it each turn and a colony whose stock falls below
-## zero loses. The hub's Greenhouse grows some; the rest comes from extractors (Workers
-## can harvest it, but the AI never does).
+## Food. It isn't stored: what the hub's Greenhouses and Biomass extractors
+## make each turn is the colony's biomass production, set against what its
+## units eat (see Player.get_biomass_production()). While production is
+## below zero, one unit starves each turn (see Player.starve()). Only
+## extractors can mine it - there's nowhere to keep a hand-harvested load.
 
 
 func _init() -> void:
@@ -13,7 +15,8 @@ func _init() -> void:
 	max_amount = 120
 	spawn_chance = 0.07
 	terrains = [Terrain.Type.REGOLITH, Terrain.Type.DUST_PLAINS, Terrain.Type.DUNES, Terrain.Type.HIGHLANDS]
-	harvest_amount = 1
+	stored = false
+	can_harvest = false
 	extractor_output = 1.0
 
 

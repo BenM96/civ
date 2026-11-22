@@ -3,7 +3,8 @@ extends Room
 ## Where off-duty units of one type wait, and where units of that type are
 ## held while they train: the Break Room, Barracks, Hangar and Garage. Units
 ## waiting here don't need orders; drag them to Mission Briefing when you
-## want them again.
+## want them again. All but the Break Room need their building first, and
+## units of that type can't be trained until it's built.
 ##
 ## Units that refit after every trip out (Unit.refit_turns - air units)
 ## come straight here when they get home and refit: one turn off
@@ -14,10 +15,11 @@ extends Room
 var unit_type := Unit.UnitType.INFANTRY
 
 
-func _init(p_id: String, p_name: String, p_unit_type: Unit.UnitType) -> void:
+func _init(p_id: String, p_name: String, p_unit_type: Unit.UnitType, p_required_building := "") -> void:
 	id = p_id
 	display_name = p_name
 	unit_type = p_unit_type
+	required_building = p_required_building
 	var kind := Unit.get_type_name(unit_type).to_lower()
 	description = "Off-duty %s units wait here (they don't need orders), and new %s units are held here while they train.\nOnly %s units are allowed in." % [kind, kind, kind]
 
@@ -38,22 +40,24 @@ func has_work(player: Player) -> bool:
 	for unit in player.get_units_in_room(id):
 		if unit.refit_turns_left > 0:
 			return true
-	return false
+	return super(player)
 
 
 func get_activity_text(unit: Unit) -> String:
 	if unit.refit_turns_left > 0:
 		return "Refitting - %d turn(s) left" % unit.refit_turns_left
-	return "Off duty"
+	var healing := get_healing_text(unit)
+	return healing if healing != "" else "Off duty"
 
 
 func holds_training(blueprint: UnitBlueprint) -> bool:
 	return blueprint.unit_type == unit_type
 
 
-## Refitting units get a turn closer; finished ones are repaired and go to
-## Mission Briefing.
+## Heals (if this room heals - the Garage); refitting units get a turn
+## closer, and finished ones are repaired and go to Mission Briefing.
 func process_turn(player: Player) -> void:
+	super(player)
 	for unit in player.get_units_in_room(id):
 		if unit.refit_turns_left <= 0 or unit.state != Unit.State.IN_HUB:
 			continue

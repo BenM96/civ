@@ -28,6 +28,10 @@ var min_distance_from_hubs := 0
 var min_spacing := 0
 
 # --- What it yields ---------------------------------------------------------
+## Whether the hub keeps a stockpile of it. If not (Biomass), it isn't
+## stored at all: what buildings and extractors make of it each turn is just
+## a rate, set against what the units eat (see Player.get_biomass_production()).
+var stored := true
 ## Whether Workers can harvest it by hand. If not, only extractors get it.
 var can_harvest := true
 ## Taken from the deposit per Harvest trip by a Worker (whole units).

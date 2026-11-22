@@ -15,8 +15,11 @@ extends RefCounted
 ##       "escort:<unit id>" or "build:<buildable id>" (see make_mission())
 ##   {"order": "cancel_mission", "unit": id}
 ##   {"order": "move_room", "unit": id, "room": room id}   (see Room)
+##   {"order": "heal_order", "unit": id, "index": i}   (healing queue, see Room)
 ##   {"order": "train", "unit_type": "Worker"}
 ##   {"order": "cancel_training", "index": i}
+##   {"order": "build_building", "building": building id}   (see Building)
+##   {"order": "cancel_building", "index": i}
 ##   {"order": "debug_resources"}   TESTING ONLY - remove before release
 ##
 ## To add a new kind of action: add an order here (a helper and a case in
@@ -62,6 +65,21 @@ static func cancel_training(index: int) -> Dictionary:
 	return {"order": "cancel_training", "index": index}
 
 
+## Moves a unit to `index` (0 = first) in its room's healing queue.
+static func heal_order(unit: Unit, index: int) -> Dictionary:
+	return {"order": "heal_order", "unit": unit.id, "index": index}
+
+
+## Pays for a hub building, finished at the end of the turn.
+static func build_building(building_id: String) -> Dictionary:
+	return {"order": "build_building", "building": building_id}
+
+
+## Calls off a building still under construction (refunded).
+static func cancel_building(index: int) -> Dictionary:
+	return {"order": "cancel_building", "index": index}
+
+
 ## TESTING ONLY - remove before release (with its case in submit() and the
 ## HUD's "+50 all" button). Gives the colony DEBUG_RESOURCE_AMOUNT of every
 ## resource.
@@ -102,10 +120,22 @@ func submit(faction: int, order: Dictionary) -> String:
 			if unit == null:
 				return "no such unit"
 			return player.move_unit_to_room(unit, str(order.get("room", "")))
+		"heal_order":
+			var unit := _own_unit(player, order)
+			if unit == null:
+				return "no such unit"
+			return player.move_in_healing_queue(unit, int(order.get("index", 0)))
+		"build_building":
+			return player.order_building(str(order.get("building", "")))
+		"cancel_building":
+			return "" if player.cancel_building(int(order.get("index", -1))) else "nothing to cancel"
 		"train":
 			var bp := player.get_blueprint(str(order.get("unit_type", "")))
 			if bp == null:
 				return "unknown unit type"
+			var needs := player.get_training_refusal(bp)
+			if needs != "":
+				return needs
 			var cost := player.get_training_cost(bp)
 			if not player.can_afford(cost):
 				return "need %s" % ResourceDeposit.format_cost(cost)

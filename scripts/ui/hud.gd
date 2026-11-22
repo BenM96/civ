@@ -27,10 +27,16 @@ signal cancel_mission_requested(unit: Unit)
 signal focus_requested(unit: Unit)
 ## Asks to move a unit in the hub to another of its rooms (see Room).
 signal room_move_requested(unit: Unit, room_id: String)
+## Asks to move a unit to `index` in its room's healing queue (see Room).
+signal heal_order_requested(unit: Unit, index: int)
 ## Emitted when the section panel closes.
 signal hub_panel_closed
 signal train_requested(blueprint: UnitBlueprint)
 signal cancel_training_requested(index: int)
+## Asks to build a hub building (see Building), by id.
+signal build_building_requested(building_id: String)
+## Asks to call off a building under construction (Player.building_queue).
+signal cancel_building_requested(index: int)
 signal auto_end_toggled(enabled: bool)
 ## TESTING ONLY - remove before release. The "+50 all" button was pressed.
 signal debug_resources_requested
@@ -44,6 +50,17 @@ const END_TURN_TEXT := "End Turn (Enter)"
 const MAX_LOG_LINES := 8
 const BOTTOM_BAR_HEIGHT := 78.0
 const PANEL_WIDTH := 380.0
+## Biomass below zero, and the starvation popup.
+const STARVING_COLOR := Color(1.0, 0.4, 0.35)
+## A wilted sprout in a cracked pot, for the starvation popup.
+const WILTED_SVG := """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">
+<path d="M18 40h28l-4 18H22z" fill="#8a4a32" stroke="#c9785a" stroke-width="2"/>
+<path d="M30 42l3 6-3 4 2 5" fill="none" stroke="#2a1410" stroke-width="2"/>
+<path d="M32 40c0-10 2-16 8-20" fill="none" stroke="#9a8a4a" stroke-width="3" stroke-linecap="round"/>
+<path d="M40 20c6 2 8 8 7 14-5-2-8-7-7-14z" fill="#8a7a3a"/>
+<path d="M33 30c-6-1-10 2-12 7 6 1 10-2 12-7z" fill="#7a6a32"/>
+<circle cx="47" cy="38" r="1.6" fill="#8a7a3a"/>
+</svg>"""
 
 var _turn_label: Label
 ## ResourceDeposit.Type -> Label
@@ -67,10 +84,11 @@ var _section := Section.NONE
 
 var _player: Player
 var _game_over := false
-## The hint shown is a drag-and-drop one (see show_drop_hint()).
-var _drop_hint_shown := false
 ## The popup covering the screen, or null.
 var _popup: Control = null
+## Popups waiting for the open one to close (e.g. a starvation notice and a
+## winner on the same turn), shown in turn: Callables that show them.
+var _waiting_popups: Array[Callable] = []
 
 
 func _ready() -> void:
@@ -158,26 +176,149 @@ func set_turn(turn: int) -> void:
 
 
 ## Shows every resource type, including ones the hub has none of yet, plus
-## the net change per turn, e.g. "Titanium: 5 (+1)" or "Biomass: 40 (-2)".
+## the net change per turn, e.g. "Titanium: 5 (+1)". Resources that aren't
+## stored show only their production, e.g. "Biomass: +2 a turn" (red below
+## zero, when units are starving).
 func set_inventory(inventory: Dictionary, income: Dictionary = {}) -> void:
 	for type in _inventory_labels:
 		var label: Label = _inventory_labels[type]
-		label.text = "%s: %d" % [ResourceDeposit.get_type_name(type), inventory.get(type, 0)]
+		var type_name := ResourceDeposit.get_type_name(type)
+		if not ResourceDeposit.get_info(type).stored:
+			var rate: float = income.get(type, 0.0)
+			label.text = "%s: %s a turn" % [type_name, ResourceDeposit.format_change(rate)]
+			label.add_theme_color_override("font_color",
+				STARVING_COLOR if rate < 0 else ResourceDeposit.get_type_color(type))
+			label.tooltip_text = "Biomass made each turn (Greenhouses, Biomass extractors) less what your units eat. It isn't stored.\nBelow zero, one unit starves every turn - the most injured first, Workers last." if rate >= 0 \
+				else "Your units eat more biomass than the colony makes: one unit will starve at the end of every turn until this is back to zero or above.\nBuild a Greenhouse (Buildings, B) or connect a Biomass extractor."
+			continue
+		label.text = "%s: %d" % [type_name, inventory.get(type, 0)]
 		if not is_zero_approx(income.get(type, 0.0)):
 			label.text += " (%s)" % ResourceDeposit.format_change(income[type])
+
+
+## Makes sure the player notices that one of their units has starved (see
+## Player.starve() for `report`): a red flash, then a popup that springs in
+## explaining why it happened and how to fix it. Blocks the map until closed
+## with Understood (`popup_closed` is emitted then).
+func show_starvation(report: Dictionary) -> void:
+	if _game_over:
+		return
+	if _popup:
+		_waiting_popups.append(show_starvation.bind(report))
+		return
+	close_section()
+	var shade := ColorRect.new()
+	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.color = Color(0.6, 0.05, 0.02, 0.0)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP  # Block clicks to the map.
+	add_child(shade)
+	_popup = shade
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.add_child(center)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", UiStyle.box_style(Color(0.12, 0.05, 0.05, 0.98), STARVING_COLOR, 3, 10))
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 12)
+	panel.add_child(box)
+
+	var icon := TextureRect.new()
+	icon.texture = UiStyle.svg_texture(WILTED_SVG)
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	box.add_child(icon)
+	var title := Label.new()
+	title.text = "A Unit Has Starved"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 34)
+	title.add_theme_color_override("font_color", STARVING_COLOR)
+	box.add_child(title)
+	var who := Label.new()
+	who.text = "%s has starved to death." % report["unit"]
+	who.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	who.add_theme_font_size_override("font_size", 20)
+	box.add_child(who)
+	var body := Label.new()
+	body.text = _starvation_text(report)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size.x = 480
+	box.add_child(body)
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_child(buttons)
+	var ok := UiStyle.make_button("Understood", func() -> void:
+		var out := shade.create_tween()
+		out.tween_property(shade, "modulate:a", 0.0, 0.2)
+		out.tween_callback(shade.queue_free)
+		_close_popup())
+	ok.custom_minimum_size.x = 160
+	buttons.add_child(ok)
+
+	# The animation: the screen flashes red and settles to a dark shade while
+	# the popup springs in, then the icon shudders.
+	panel.modulate.a = 0.0
+	panel.scale = Vector2(0.6, 0.6)
+	panel.resized.connect(func() -> void: panel.pivot_offset = panel.size / 2.0)
+	var flash := shade.create_tween()
+	flash.tween_property(shade, "color", Color(0.75, 0.05, 0.02, 0.55), 0.12)
+	flash.tween_property(shade, "color", Color(0.08, 0.0, 0.0, 0.65), 0.45)
+	var pop := shade.create_tween().set_parallel()
+	pop.tween_property(panel, "modulate:a", 1.0, 0.25).set_delay(0.1)
+	pop.tween_property(panel, "scale", Vector2.ONE, 0.45).set_delay(0.1) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	icon.resized.connect(func() -> void: icon.pivot_offset = icon.size / 2.0)
+	var shake := shade.create_tween()
+	shake.tween_interval(0.5)
+	for angle in [0.18, -0.15, 0.1, -0.06, 0.0]:
+		shake.tween_property(icon, "rotation", angle, 0.07)
+
+
+## Why the unit starved and what to do about it.
+func _starvation_text(report: Dictionary) -> String:
+	var production: float = report["production"]
+	var eaten: int = report["eaten"]
+	var made := production + eaten
+	var lines: PackedStringArray = []
+	lines.append("Your colony makes %s biomass a turn, but your %d units eat %d: you're %s short." % [
+		ResourceDeposit.format_amount(made), report["units"], eaten, ResourceDeposit.format_amount(-production)])
+	lines.append("Every turn biomass production is below zero, another unit starves - the most injured first, Workers last.")
+	var after: float = report["after"]
+	if after >= 0:
+		lines.append("With one less unit to feed, production is back to %s a turn, so nobody else will starve - for now." % ResourceDeposit.format_change(after))
+	else:
+		lines.append("Production is still %s a turn: another unit will starve at the end of next turn." % ResourceDeposit.format_change(after))
+	lines.append("To grow more food, build a Greenhouse (Buildings, B) or connect a Biomass extractor to your hub with conveyor belts.")
+	return "\n\n".join(lines)
 
 
 ## Covers the screen with a final message and a Play Again button.
 func show_game_over(title: String, message: String, color: Color) -> void:
 	_game_over = true
 	_end_turn_button.disabled = true
+	_waiting_popups.clear()
+	if _popup:
+		_popup.queue_free()
+		_popup = null
 	_show_popup(title, message, color, false)
 
 
 ## Announces the winner. Unlike game over, the player can close it with
 ## Keep Playing and carry on; `popup_closed` is emitted when they do.
 func show_winner(title: String, message: String, color: Color) -> void:
+	if _popup:
+		_waiting_popups.append(show_winner.bind(title, message, color))
+		return
 	_show_popup(title, message, color, true)
+
+
+## A popup that can be closed was closed: show the next one waiting, or
+## let play carry on (`popup_closed`) once there are none.
+func _close_popup() -> void:
+	_popup = null
+	if not _waiting_popups.is_empty():
+		_waiting_popups.pop_front().call()
+	else:
+		popup_closed.emit()
 
 
 ## Replays a battle (see Combat) on a screen of its own and waits for it to
@@ -207,22 +348,16 @@ func set_tile_info(text: String) -> void:
 
 
 func set_hint(text: String) -> void:
-	_drop_hint_shown = false
 	_hint_label.text = text
 	_hint_label.visible = text != ""
 	_help_label.visible = text == ""
 
 
-## Shows, while a unit is being dragged between rooms, what dropping it here
-## would do (or why it can't go here). Cleared when the drag ends.
-func show_drop_hint(text: String) -> void:
-	set_hint(text)
-	_drop_hint_shown = text != ""
-
-
+## A drag in the Central Hub lights up rooms; redraw the panel when it ends
+## to clear them (whether or not the unit was dropped anywhere).
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_DRAG_END and _drop_hint_shown:
-		set_hint("")
+	if what == NOTIFICATION_DRAG_END and _section == Section.HUB:
+		refresh.call_deferred()
 
 
 func log_event(message: String) -> void:
@@ -273,8 +408,6 @@ func _update_section_buttons() -> void:
 ## Always has Play Again; `can_continue` adds Keep Playing, which closes it.
 func _show_popup(title: String, message: String, color: Color, can_continue: bool) -> void:
 	close_section()
-	if _popup:
-		_popup.queue_free()
 	var shade := ColorRect.new()
 	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	shade.color = Color(0, 0, 0, 0.6)
@@ -308,9 +441,8 @@ func _show_popup(title: String, message: String, color: Color, can_continue: boo
 	box.add_child(buttons)
 	if can_continue:
 		buttons.add_child(UiStyle.make_button("Keep Playing", func() -> void:
-			_popup.queue_free()
-			_popup = null
-			popup_closed.emit()))
+			shade.queue_free()
+			_close_popup()))
 	buttons.add_child(UiStyle.make_button("Play Again", func() -> void: get_tree().reload_current_scene()))
 
 

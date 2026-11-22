@@ -14,14 +14,20 @@ extends Node
 ##   4. Layout      - units sharing a tile are laid out side by side.
 ##   5. Work        - units that spent the turn at their site build,
 ##                    harvest or demolish. Units killed in combat don't.
-##   6. Production  - training, extractors, hub buildings (Greenhouse biomass),
-##                    hub rooms (the Med Bay heals).
-##   7. Upkeep      - every unit eats 1 biomass; a colony below 0 starves
-##                    (the player loses; a rival is eliminated).
-##   8. Victory     - the first colony to hold AMOUNT_TO_WIN of WIN_RESOURCE
-##                    (Unobtainium) wins (once
-##                    per game; play can carry on afterwards).
-##   9. Next turn   - refresh supply networks, advance the turn counter and
+##   6. Production  - extractors deliver, hub buildings make resources
+##                    (Greenhouse biomass).
+##   7. Hub         - buildings ordered this turn are finished, training
+##                    progresses and the hub rooms work on their units
+##                    (the Med Bay and Garage heal, the Hangar refits).
+##   8. Starvation  - a colony whose biomass production is below zero (it
+##                    makes less than its units eat) loses one unit: the
+##                    most injured first, Workers last (see Player.starve()).
+##   9. Victory     - the first colony to hold AMOUNT_TO_WIN of WIN_RESOURCE
+##                    (Unobtainium) wins (once per game; play can carry on
+##                    afterwards). A colony with no units left and none in
+##                    training is eliminated (the player loses; a rival
+##                    collapses, and outlasting every rival wins).
+##  10. Next turn   - refresh supply networks, advance the turn counter and
 ##                    decide whether the next turn can be auto-skipped.
 ##
 ## To add something that happens every turn, add it as a step in end_turn().
@@ -35,9 +41,12 @@ signal event_logged(message: String)
 ## Battles were fought this turn: one report each (see Combat), for the game
 ## to replay. Emitted after the turn has fully resolved.
 signal battles_fought(reports: Array[Dictionary])
-## Colonies whose biomass fell below zero. The game decides what happens
-## (see remove_colony() and stop()).
-signal colonies_starved(starved: Array[Player])
+## A unit starved this turn (see Player.starve() for `report`). Emitted
+## after the turn has fully resolved, after battles_fought.
+signal unit_starved(player: Player, report: Dictionary)
+## Colonies with no units left and none in training. The game decides what
+## happens (see remove_colony() and stop()).
+signal colonies_eliminated(eliminated: Array[Player])
 ## The first colony (or colonies, if tied) to hold AMOUNT_TO_WIN of
 ## WIN_RESOURCE. Only ever happens once per game.
 signal win_goal_reached(winners: Array[Player])
@@ -125,24 +134,37 @@ func end_turn() -> void:
 	for player in players:
 		player.produce()
 
-	# 7. Upkeep
-	var starved: Array[Player] = []
+	# 7. Hub
 	for player in players:
-		if player.feed_units():
-			starved.append(player)
+		player.run_hub()
 
-	# 8. Victory
+	# 8. Starvation
+	var starvations: Array = []  # [player, report] pairs.
+	for player in players:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = hash([map.last_seed, turn, player.id, "starve"])  # Repeatable.
+		var report := player.starve(rng)
+		if not report.is_empty():
+			starvations.append([player, report])
+
+	# 9. Victory
 	var winners := _winners()
+	var eliminated: Array[Player] = []
+	for player in players:
+		if player.is_wiped_out():
+			eliminated.append(player)
 
-	# 9. Next turn
+	# 10. Next turn
 	for player in players:
 		player.finish_turn()
 	turn += 1
 	turn_started.emit(turn)
 	if not battles.is_empty():
 		battles_fought.emit(battles)
-	if not starved.is_empty():
-		colonies_starved.emit(starved)  # May end the game (stop()).
+	for entry: Array in starvations:
+		unit_starved.emit(entry[0], entry[1])
+	if not eliminated.is_empty():
+		colonies_eliminated.emit(eliminated)  # May end the game (stop()).
 	if _stopped:
 		return
 	if not winners.is_empty():

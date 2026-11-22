@@ -6,12 +6,15 @@ extends RefCounted
 ##
 ## Each turn (just before the turn resolves, so its orders depart at the same
 ## time as everyone else's), in order of priority:
-##   1. Grow - if its biomass income is at least MIN_BIOMASS_INCOME_TO_GROW,
-##      it wants another unit: whichever is cheapest right now (a Worker on a
+##   1. Grow - if its biomass income is at least MIN_BIOMASS_INCOME_TO_GROW:
+##      once it has WORKERS_BEFORE_INFANTRY it first wants the hub buildings
+##      in AI_BUILDINGS (a Barracks, then a Med Bay), saving up for each.
+##      Otherwise it wants another unit: whichever is cheapest right now (a Worker on a
 ##      tie; only Workers until it has WORKERS_BEFORE_INFANTRY). It trains it if it can pay; otherwise idle workers go and
 ##      harvest what it costs. (If something it costs can't be gathered
 ##      anywhere in range, it builds extractors instead.)
-##   2. Extractors - with less biomass income than that, it builds extractors,
+##   2. Food - with less biomass income than that, it builds another
+##      Greenhouse (up to the limit), and extractors,
 ##      nearest deposit first (Biomass deposits first while its biomass
 ##      income is negative), in stages: "Build Foundations" to the deposit,
 ##      then "Build Conveyor Belts", then "Build Extractor" - so it only has
@@ -26,8 +29,8 @@ extends RefCounted
 ##   3. Attack - idle Infantry go and demolish other colonies' extractors and
 ##      belts, nearest first. With none left to demolish, they guard a tile
 ##      next to the nearest enemy hub (killing workers who come and go).
-## Workers never harvest Biomass by hand - it only comes from the hub's
-## Greenhouse and extractors.
+## Biomass isn't stored or harvested: it's a rate per turn, from the hub's
+## Greenhouses and extractors, and the AI never trains a unit it can't feed.
 
 ## Biomass income per turn (buildings + extractors - unit upkeep) at which the AI
 ## trains more units rather than building extractors.
@@ -37,6 +40,8 @@ const MIN_BIOMASS_INCOME_TO_GROW := 1
 const WORKERS_BEFORE_INFANTRY := 3
 ## The units the AI trains. (It doesn't use the other unit types yet.)
 const AI_UNIT_TYPES: Array[String] = ["Worker", "Infantry"]
+## Hub buildings the AI builds, in order, once it has its Workers.
+const AI_BUILDINGS: Array[String] = [BarracksBuilding.ID, MedBayBuilding.ID]
 ## Workers only travel this far (hex distance) to harvest.
 const MAX_HARVEST_DISTANCE := 12
 ## Extractors are only planned on deposits this close to the hub.
@@ -69,7 +74,11 @@ func take_turn() -> void:
 	_needed = {}
 	_needed_first = {}
 	_release_waiting_builders()
-	var growing := _biomass_income() >= MIN_BIOMASS_INCOME_TO_GROW and _plan_growth()
+	var growing: bool
+	if _biomass_income() >= MIN_BIOMASS_INCOME_TO_GROW:
+		growing = _plan_building() or _plan_growth()
+	else:
+		growing = _plan_greenhouse()
 	if not growing:
 		_plan_extractors()
 	_plan_harvesting()
@@ -78,21 +87,60 @@ func take_turn() -> void:
 
 ## Biomass gained per turn after every unit has eaten.
 func _biomass_income() -> float:
-	return player.get_net_income()[ResourceDeposit.Type.BIOMASS]
+	return player.get_biomass_production()
 
 
 # --- 1. Growth -------------------------------------------------------------
 
+## Once it has its Workers, the AI wants these hub buildings, in order: a
+## Barracks (to train Infantry), then a Med Bay. Orders the next one if it
+## can pay. Returns true if it's saving up for one instead (_needed set to
+## what's missing), so growth waits.
+func _plan_building() -> bool:
+	if _worker_count() < WORKERS_BEFORE_INFANTRY:
+		return false
+	for building_id in AI_BUILDINGS:
+		if player.count_planned_buildings(building_id) == 0:
+			return _order_or_save_for(building_id)
+	return false
+
+
+## Too little biomass to grow: builds another Greenhouse while the hub has
+## room for one (cheaper than an extractor). Returns true if it's saving up
+## for one; false if it ordered one or can't, so extractors get planned too.
+func _plan_greenhouse() -> bool:
+	if player.count_planned_buildings(Greenhouse.ID) >= Greenhouse.MAX:
+		return false
+	return _order_or_save_for(Greenhouse.ID)
+
+
+## Orders a hub building if we can pay. Returns true if we're saving up for
+## it instead (_needed set to what's missing), false if it was ordered or
+## what it costs can't be gathered.
+func _order_or_save_for(building_id: String) -> bool:
+	if _order(Orders.build_building(building_id)):
+		return false
+	var short := _shortfall(player.get_building_type(building_id).cost)
+	if short.is_empty() or not _can_gather_all(short):
+		return false
+	_needed = short
+	return true
+
+
 ## Trains the cheapest unit if we can pay; otherwise sets _needed to what it
 ## costs so workers gather it. Returns false if growing isn't possible (what
-## it costs can't be gathered), so the AI builds extractors instead.
+## it costs can't be gathered, or there isn't the biomass to feed another
+## unit), so the AI builds extractors instead.
 func _plan_growth() -> bool:
 	var bp := _cheapest_unit()
+	if bp == null:
+		return false
 	# One at a time: the next is bought once the current one has finished.
 	if player.training_queue.is_empty() and _order(Orders.train(bp.unit_name)):
 		bp = _cheapest_unit()  # Gather for the one after.
+		if bp == null:
+			return false
 	var short := _shortfall(player.get_training_cost(bp))
-	short.erase(ResourceDeposit.Type.BIOMASS)
 	if short.is_empty():
 		return true  # Can pay; trained as soon as the queue is free.
 	if not _can_gather_all(short):
@@ -108,7 +156,7 @@ func _cheapest_unit() -> UnitBlueprint:
 	var best_total := 1 << 30
 	var workers_only := _worker_count() < WORKERS_BEFORE_INFANTRY
 	for bp in player.blueprints:
-		if not bp.unit_name in AI_UNIT_TYPES:
+		if not bp.unit_name in AI_UNIT_TYPES or player.get_training_refusal(bp) != "":
 			continue
 		if workers_only and bp.unit_name != "Worker":
 			continue

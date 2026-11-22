@@ -1,10 +1,14 @@
 class_name BuildingsPanel
 extends HudPanel
-## The buildings inside the hub. (Building new ones will come here later.)
+## The hub's buildings (see Building): every type the hub can build, with
+## its price, how many it has of the most it may have, and a Build button
+## (via hud.build_building_requested); the ones under construction (finished
+## at the end of the turn) with Cancel buttons; and the ones it has built.
 
 
 func _init(p_hud: Hud) -> void:
 	super(p_hud)
+	panel_width = 880.0
 	title = "Buildings"
 	button_text = "Buildings"
 	tooltip = "Buildings in your hub (B)"
@@ -19,18 +23,106 @@ func _init(p_hud: Hud) -> void:
 
 
 func get_button_text() -> String:
-	var built := player.buildings.size() if player else 0
-	return "Buildings  (%d)" % built if built > 0 else button_text
+	var building := player.building_queue.size() if player else 0
+	return "Buildings  (%d building)" % building if building > 0 else button_text
 
 
 func fill() -> void:
-	add_heading("In your hub (%d)" % player.buildings.size())
+	add_heading("Available to build")
+	add_note("Paid for now, ready at the end of the turn. Hover for details.")
+	var grid := _grid()
+	for type in player.building_types:
+		if player.count_planned_buildings(type.id) < type.max_count:
+			grid.add_child(_make_build_row(type))
+	if grid.get_child_count() > 0:
+		add(grid)
+	else:
+		grid.free()
+		add_note("Everything has been built.")
+
+	if not player.building_queue.is_empty():
+		add_separator()
+		add_heading("Under construction (%d)" % player.building_queue.size())
+		for i in player.building_queue.size():
+			var type := player.get_building_type(player.building_queue[i])
+			var row := HBoxContainer.new()
+			var label := Label.new()
+			label.text = "%s - ready at the end of the turn" % type.display_name
+			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(label)
+			var index := i
+			var cancel := UiStyle.make_button("Cancel", func() -> void: hud.cancel_building_requested.emit(index))
+			cancel.tooltip_text = "Call it off and get back %s." % ResourceDeposit.format_cost(type.cost)
+			row.add_child(cancel)
+			add(row)
+
+	add_separator()
+	add_heading("Built (%d)" % player.buildings.size())
 	if player.buildings.is_empty():
 		add_note("No buildings yet.")
-	for building in player.buildings:
+		return
+	var built := _grid()
+	for type in player.building_types:
+		var count := player.count_buildings(type.id)
+		if count == 0:
+			continue
 		var label := Label.new()
-		var output := building.get_output_text()
-		label.text = building.display_name + ("  (%s)" % output if output != "" else "")
-		label.tooltip_text = building.description
+		label.text = "%s  %d/%d" % [type.display_name, count, type.max_count]
+		var output := type.get_output_text()
+		if output != "":
+			label.text += "  (%s%s)" % [output, " each" if count > 1 else ""]
+		label.tooltip_text = type.description
 		label.mouse_filter = Control.MOUSE_FILTER_PASS  # So the tooltip shows.
-		add(label)
+		label.custom_minimum_size.x = _column_width()
+		built.add_child(label)
+	add(built)
+
+
+func _grid() -> GridContainer:
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 16)
+	grid.add_theme_constant_override("v_separation", 6)
+	return grid
+
+
+func _column_width() -> float:
+	return (panel_width - 16 - 16) / 2.0
+
+
+## "Surgical Ward  0/2" and what it does, with a "Build - 5 Sediment,
+## 2 Titanium" button (disabled, saying why, if it can't be built now).
+func _make_build_row(type: Building) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.x = _column_width()
+	var text := VBoxContainer.new()
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_constant_override("separation", 0)
+	text.tooltip_text = type.description
+	text.mouse_filter = Control.MOUSE_FILTER_PASS
+	row.add_child(text)
+	var name_label := Label.new()
+	name_label.text = "%s  %d/%d" % [type.display_name, player.count_planned_buildings(type.id), type.max_count]
+	name_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	text.add_child(name_label)
+	var about := Label.new()
+	about.text = type.description.get_slice("\n", 0)
+	about.add_theme_font_size_override("font_size", 12)
+	about.modulate = Color(1, 1, 1, 0.65)
+	about.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	about.mouse_filter = Control.MOUSE_FILTER_PASS
+	text.add_child(about)
+
+	var reason := player.get_building_refusal(type.id)
+	var button := UiStyle.make_button("Build\n%s" % ResourceDeposit.format_cost(type.cost),
+		func() -> void: hud.build_building_requested.emit(type.id))
+	button.custom_minimum_size.x = 160
+	button.add_theme_font_size_override("font_size", 13)
+	button.disabled = reason != ""
+	button.tooltip_text = ("Can't build yet: %s.\n\n" % reason if reason != "" else "") + type.description
+	row.add_child(button)
+	if type.requires != "" and player.count_buildings(type.requires) == 0:
+		name_label.text += "  (needs a %s)" % Building.get_name_for(type.requires)
+		name_label.modulate = Color(1, 1, 1, 0.55)
+	return row

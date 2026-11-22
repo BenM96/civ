@@ -58,6 +58,9 @@ var _targeting_unit: Unit = null
 var _targeting_kind := "move"
 ## Set once someone wins or loses; stops input.
 var _game_over := false
+## A starvation report (see Player.starve()) waiting for this turn's battle
+## replays to finish before its popup shows; {} if none.
+var _pending_starvation: Dictionary = {}
 
 
 func _ready() -> void:
@@ -100,6 +103,17 @@ func _ready() -> void:
 		_submit(Orders.train(bp.unit_name)))
 	hud.cancel_training_requested.connect(func(index: int) -> void:
 		_submit(Orders.cancel_training(index)))
+	hud.build_building_requested.connect(func(building_id: String) -> void:
+		var reason := _submit(Orders.build_building(building_id))
+		if reason != "":
+			hud.log_event("Can't build that: %s" % reason))
+	hud.cancel_building_requested.connect(func(index: int) -> void:
+		_submit(Orders.cancel_building(index)))
+	hud.heal_order_requested.connect(func(unit: Unit, index: int) -> void:
+		var reason := _submit(Orders.heal_order(unit, index))
+		if reason != "":
+			hud.log_event("Can't reorder %s: %s" % [unit.display_name, reason])
+		hud.refresh())
 	# TESTING ONLY - remove before release.
 	hud.debug_resources_requested.connect(func() -> void:
 		if _submit(Orders.debug_resources()) == "":
@@ -327,7 +341,8 @@ func _setup_turns(start_turn: int) -> void:
 		hud.set_turn(turn)
 		_refresh_markers())
 	turns.battles_fought.connect(_show_battles)
-	turns.colonies_starved.connect(_on_colonies_starved)
+	turns.unit_starved.connect(_on_unit_starved)
+	turns.colonies_eliminated.connect(_on_colonies_eliminated)
 	turns.win_goal_reached.connect(_on_win_goal_reached)
 	hud.popup_closed.connect(func() -> void: turns.paused = false)
 
@@ -347,6 +362,7 @@ func _show_battles(reports: Array[Dictionary]) -> void:
 		if await hud.play_battle(report, map):
 			break
 	turns.showing_battles = false
+	_show_pending_starvation()
 
 
 ## Someone reached the win goal first: say who won. Play can carry on.
@@ -378,23 +394,45 @@ func _on_win_goal_reached(winners: Array[Player]) -> void:
 	hud.show_winner(title, message, color)
 
 
-## The local player starving is a loss (even if others starved on the same
-## turn). Any other starving colony is eliminated; once only the local
-## player's is left, they win.
-func _on_colonies_starved(starved: Array[Player]) -> void:
-	if local_player in starved:
-		_end_game("Colony Lost",
-			"Your biomass fell below zero on turn %d and your units could no longer be fed." % turns.turn,
-			Color(1.0, 0.4, 0.35))
-		hud.log_event("Biomass has run out - your colony has starved.")
+## One of the local player's units starved (see Player.starve()): make sure
+## they notice, with a popup explaining why. Waits until this turn's battles
+## have been replayed.
+func _on_unit_starved(player: Player, report: Dictionary) -> void:
+	if player != local_player:
 		return
-	for colony in starved:
+	_pending_starvation = report
+	if not turns.showing_battles:
+		_show_pending_starvation()
+
+
+func _show_pending_starvation() -> void:
+	if _pending_starvation.is_empty() or _game_over:
+		_pending_starvation = {}
+		return
+	var report := _pending_starvation
+	_pending_starvation = {}
+	_cancel_targeting()
+	turns.paused = true  # Until the popup is closed.
+	hud.show_starvation(report)
+
+
+## Losing every unit (with none in training) knocks a colony out: for the
+## local player that's a loss (even if others went on the same turn). Any
+## other colony collapses; once only the local player's is left, they win.
+func _on_colonies_eliminated(eliminated: Array[Player]) -> void:
+	if local_player in eliminated:
+		_end_game("Colony Lost",
+			"Your colony has no units left (turn %d)." % turns.turn,
+			Color(1.0, 0.4, 0.35))
+		hud.log_event("Your last unit is gone - your colony is lost.")
+		return
+	for colony in eliminated:
 		turns.remove_colony(colony)
 		colony.collapse()
-		hud.log_event("The %s has run out of biomass and collapsed." % Faction.get_display_name(colony.id).to_lower())
+		hud.log_event("The %s has lost every unit and collapsed." % Faction.get_display_name(colony.id).to_lower())
 	if turns.players.size() == 1 and local_player in turns.players:
 		_end_game("Victory",
-			"Every rival colony has run out of biomass and collapsed. Mars is yours (turn %d)." % turns.turn,
+			"Every rival colony has collapsed. Mars is yours (turn %d)." % turns.turn,
 			Color(0.45, 0.95, 0.4))
 
 

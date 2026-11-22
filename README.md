@@ -18,15 +18,31 @@ come home on their own.
 
 - **Win:** be the first colony to hold 50 Unobtainium at the end of a turn.
   You can keep playing afterwards.
-- **Lose:** your Biomass drops below zero. Every unit eats 1 Biomass a turn and
-  your hub's Greenhouse grows 3, so more units need more food.
-- A rival that starves collapses. Outlast every rival and you also win.
+- **Lose:** your colony has no units left and none in training.
+- A rival with no units left (and none in training) collapses. Outlast every
+  rival and you also win.
+
+### Biomass and starvation
+
+Biomass is food, and it isn't stored: it's a rate. Your **biomass
+production** is what your Greenhouses (3 a turn each) and Biomass extractors
+(1 a turn each) make, less what your units eat (1 each a turn). The top bar
+shows it, e.g. "Biomass: +2 a turn".
+
+- You can't train a unit you couldn't feed: Training is blocked while the
+  new unit (and any already training) would push production below zero.
+- If production does go below zero (say an extractor is captured, demolished
+  or runs dry), **one unit starves to death at the end of every turn** until
+  it's back to zero or above. The most injured unit goes first (ties at
+  random, so healthy ones go at random), and Workers only once nobody else
+  is left. A popup tells you each time, with how short you are and how to
+  fix it.
 
 ### Resources
 
 | Resource | Used for |
 |---|---|
-| Biomass | Feeding your units |
+| Biomass | Feeding your units (production per turn, not stored - see above) |
 | Gold | Training units |
 | Titanium | Training units, conveyor belts, extractors, bridges |
 | Sediment | Foundations, extractors, bridges |
@@ -40,31 +56,63 @@ extractor connected by belts - Workers can't harvest it by hand.
 ### Buildings
 
 Buildings live inside your hub rather than on the map. Open **Buildings** on
-the bottom bar (or press B) to see what your hub has. Every colony starts
-with a **Greenhouse**, which grows 3 Biomass a turn.
+the bottom bar (or press B) to see what you can build and what your hub
+has. A building is paid for when you order it and is ready at the end of
+the turn (you can cancel it before then for a full refund). Every building
+costs 5 Sediment and 2 Titanium for now.
+
+| Building | Needs | Most | What it does |
+|---|---|---|---|
+| Greenhouse | - | 3 | Grows 3 Biomass a turn. Every colony starts with one. |
+| Barracks | - | 1 | Opens the Barracks room. Needed to train infantry. |
+| Garage | - | 1 | Opens the Garage room. Needed to train armour; repairs damaged armour. |
+| Hangar | - | 1 | Opens the Hangar room. Needed to train air units. |
+| Med Bay | - | 1 | Opens the Med Bay room, which heals infantry and civilians. |
+| Surgical Ward | Med Bay | 2 | One more unit heals in the Med Bay at a time. |
+| Regen Lab | Med Bay | 2 | Units in the Med Bay heal 1 HP a turn faster. |
+| Repair Bay | Garage | 2 | One more vehicle is repaired in the Garage at a time. |
+| Machine Shop | Garage | 2 | Vehicles in the Garage are repaired 1 HP a turn faster. |
+| Flight Crew Quarters | Hangar | 3 | Aircraft refit 1 turn faster after a sortie. |
 
 ### The central hub's rooms
 
 Every unit at home is in one of the hub's rooms. Open **Central Hub** on the
 bottom bar (or press H, or click your hub) to see them, and drag a unit onto
-another room to move it there. A room that won't take a unit refuses the
-drop and says why in the top bar.
+another room to move it there. While you drag, rooms the unit can go to
+light up green and the rest get a red cross; the card under the mouse says
+what dropping it there would do, or why it can't go there.
+
+Mission Briefing, the Airlock, the QRF room and the Break Room are open from
+the start. The others show a padlock until you build their building.
 
 | Room | What it's for |
 |---|---|
 | Mission Briefing | Idle units wait here for orders. Only units in Mission Briefing can be given a mission. Units come here when they get home. |
 | Airlock | Units given a mission wait here to leave at the end of the turn. Drag one out to call its mission off. |
-| Med Bay | Units heal 1 HP a turn. Units that come home hurt go here, and move on to Mission Briefing once healed. Only injured units are allowed in. |
+| Med Bay | Heals injured infantry and civilians (see Healing). Only injured infantry and civilians are allowed in. |
 | Quick Reaction Force | Units on the QRF mission stand by here (see Missions). Drag one out to take it off QRF duty. |
 | Break Room | Off-duty civilian units (Workers). Workers in training are shown here. |
 | Barracks | The same, for infantry. |
-| Hangar | The same, for air units. Aircraft back from a sortie refit here for 10 turns and can't leave until they're done. |
-| Garage | The same, for armour units. |
+| Hangar | The same, for air units. Aircraft back from a sortie refit here for 10 turns (less with Flight Crew Quarters) and can't leave until they're done. |
+| Garage | The same, for armour units. Also repairs damaged armour (see Healing). |
 
 Units only get to the Airlock and the QRF room by being given a mission.
 Units in the Break Room, Barracks, Hangar or Garage don't need orders, so
 idle turns can be skipped; the **Wait** button in Mission Briefing sends a
 unit there.
+
+### Healing
+
+Injured infantry and civilians heal in the **Med Bay**, and damaged armour is
+repaired in the **Garage**. Units that come home hurt go straight there (if
+you've built it), and move on to Mission Briefing once fully healed. If you
+haven't built one, they go to Mission Briefing and stay hurt.
+
+Only one unit heals at a time, 1 HP a turn; the rest wait their turn. The
+ones waiting are listed at the top of the room in healing order. Drag a unit
+onto another one in the queue to put it in that place. Surgical Wards
+and Repair Bays heal more units at once; Regen Labs and Machine Shops heal
+faster. Aircraft are repaired by refitting in the Hangar.
 
 ### Units
 
@@ -72,7 +120,8 @@ Train units from **Training** on the bottom bar. Each Worker you build
 doubles the price of the next; every other unit adds 1 of each resource to
 the price of the next of its kind (Infantry: 1 Gold + 1 Titanium, then
 2 + 2, 3 + 3...). Every unit you have ever built counts. Losing units
-doesn't make the next one cheaper.
+doesn't make the next one cheaper. Infantry need a Barracks, armour a Garage
+and air units a Hangar before you can train them (see Buildings).
 
 Each unit has a type, which decides its icon's shape, how much damage it
 takes, how it moves and fights, and which room it waits in:
@@ -102,7 +151,9 @@ Each icon shows the unit's short name, e.g. W, I, AA.
 | Fighter | Air | F | 3 Gold, 3 Titanium | 5 | Sortie |
 | Bomber | Air | B | 3 Gold, 4 Titanium | 5 | Sortie |
 
-The computer colonies only train Workers and Infantry for now.
+The computer colonies only train Workers and Infantry for now. Once they
+have 3 Workers they build a Barracks, then a Med Bay; when they're short of
+biomass to grow they build more Greenhouses.
 
 ### Combat
 
@@ -152,7 +203,7 @@ fought:
    hub, then walk home. Aircraft fly home at the start of the next turn.
 
 Units still sharing a tile next turn fight another round. Damaged units
-show a health bar, and heal in the hub's Med Bay once they get home.
+show a health bar, and heal in the hub once they get home (see Healing).
 
 After each turn the camera moves to every battle and replays it shot by
 shot. **Skip** jumps to the end of one battle; **Skip all battles** skips
@@ -193,12 +244,14 @@ QRF room. If it breaks in battle, it drops QRF duty and comes home.
 
 ### Building an economy
 
-Harvesting by hand brings back 1 resource per trip. For a steady income:
+Harvesting by hand brings back 1 resource per trip (not Biomass or
+Unobtainium - only extractors get those). For a steady income:
 
 1. Lay **foundations** from your hub out to a deposit, and on the deposit.
 2. Build **conveyor belts** on the foundations, including on the deposit.
 3. Build an **extractor** on top of the belt on the deposit. A Biomass
-   or Unobtainium extractor delivers 1 per turn; Titanium, Sediment and Gold
+   extractor adds 1 to your biomass production while its deposit lasts; an
+   Unobtainium extractor delivers 1 per turn; Titanium, Sediment and Gold
    extractors deliver 0.2 per turn (1 every 5 turns).
 
 Each resource's numbers (deposit sizes, where it appears, what a Worker
@@ -249,7 +302,7 @@ Open the project folder in Godot 4.7 and press Play (F5 in the editor).
   also share `armour/armour_unit.gd` / `air/air_unit.gd`. Register new
   units in the list in `Player._init()`.
 - Buildings inside the hub (e.g. the Greenhouse) each have a file in
-  `scripts/buildings/`; register new ones in `Building.create()`.
+  `scripts/buildings/`; register new ones in `Building.create_all()`.
 - The hub's rooms each have a file in `scripts/rooms/`, holding what
   happens to the units in them; register new ones in `Room.create_all()`.
 - The HUD (`scripts/ui/hud.gd`) is the frame; each bottom-bar panel

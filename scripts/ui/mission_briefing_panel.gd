@@ -122,7 +122,7 @@ func _mission_choices(unit: Unit) -> Array:
 						other.display_name, other.display_name], true])
 	if unit.can_take("sortie"):
 		choices.append(["sortie", "Sortie",
-			"Pick any tile but a hub. Once everyone else has moved, flies straight there and fights whoever is near; flies home next turn, then refits in the Hangar for %d turns." % unit.refit_turns, true])
+			"Pick any tile but a hub. Once everyone else has moved, flies straight there and fights whoever is near; flies home next turn, then refits in the Hangar for %d turns." % player.get_refit_turns(unit), true])
 	if unit.can_take("qrf"):
 		choices.append(["qrf", "QRF (quick reaction force)",
 			"Stand by in the QRF room. After everyone else has moved each turn, head for the nearest enemy on one of our extractors or belts; come back when they've gone. Stays on duty until you drag it out of the QRF room.", true])

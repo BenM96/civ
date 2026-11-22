@@ -2,8 +2,14 @@ class_name CentralHubPanel
 extends HudPanel
 ## The hub's rooms (see Room), each showing the units in it as cards with
 ## what they're doing there. Drag a card onto another room to move the unit
-## there (a "move_room" order, via hud.room_move_requested); a room that
-## won't take that unit refuses the drop, and says why. Units in training
+## there (a "move_room" order, via hud.room_move_requested). While dragging,
+## rooms the unit can go to light up green and the rest get a red cross; the
+## card under the mouse says what dropping it would do, or why it can't.
+##
+## Rooms the hub hasn't built yet are shown locked (padlock) and take nobody.
+## In rooms that heal (Med Bay, Garage) the units waiting to heal are listed
+## first, in healing order; drag one onto another of them to change the order
+## (a "heal_order" order, via hud.heal_order_requested). Units in training
 ## show as greyed-out cards in the room that holds them, and can't be moved.
 
 const COLUMNS := 4
@@ -15,6 +21,24 @@ const ROOM_COLOR := Color(0.14, 0.1, 0.1, 0.95)
 const ROOM_BORDER := Color(1, 1, 1, 0.12)
 ## Mission Briefing stands out: it's where units get their orders.
 const BRIEFING_BORDER := Color(0.4, 0.85, 1.0, 0.7)
+const LOCKED_COLOR := Color(0.09, 0.07, 0.07, 0.95)
+## While dragging: rooms the unit may go to, and the hint text colours.
+const CAN_DROP_COLOR := Color(0.35, 0.95, 0.45)
+const CANT_DROP_COLOR := Color(1.0, 0.4, 0.35)
+
+const PADLOCK_SVG := """<svg xmlns="http://www.w3.org/2000/svg" width="14" height="16">
+<path d="M3.5 7V5a3.5 3.5 0 0 1 7 0v2" fill="none" stroke="#c9c2bd" stroke-width="2"/>
+<rect x="1" y="7" width="12" height="9" rx="1.5" fill="#c9c2bd"/>
+<rect x="6" y="10" width="2" height="3.5" rx="1" fill="#2a1a14"/>
+</svg>"""
+const CROSS_SVG := """<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48">
+<path d="M10 10L38 38M38 10L10 38" stroke="#ff5a4a" stroke-width="7" stroke-linecap="round" stroke-opacity="0.85"/>
+</svg>"""
+
+## Room id -> its box, for lighting up drop targets while dragging.
+var _room_boxes: Dictionary = {}
+## The second line of the card being dragged: what dropping it here would do.
+var _drag_hint: Label = null
 
 
 func _init(p_hud: Hud) -> void:
@@ -40,12 +64,15 @@ func get_button_text() -> String:
 
 func fill() -> void:
 	add_note("Drag units between rooms. Hover over a room to see what it's for.")
+	_room_boxes.clear()
 	var grid := GridContainer.new()
 	grid.columns = COLUMNS
 	grid.add_theme_constant_override("h_separation", GAP)
 	grid.add_theme_constant_override("v_separation", GAP)
 	for room in player.rooms:
-		grid.add_child(_make_room(room))
+		var box := _make_room(room) if player.is_room_open(room) else _make_locked_room(room)
+		_room_boxes[room.id] = box
+		grid.add_child(box)
 	add(grid)
 
 
@@ -53,22 +80,28 @@ func fill() -> void:
 func _make_room(room: Room) -> PanelContainer:
 	var box := PanelContainer.new()
 	box.custom_minimum_size = Vector2(ROOM_WIDTH, 110)
-	var border := BRIEFING_BORDER if room.id == MissionBriefingRoom.ID else ROOM_BORDER
-	box.add_theme_stylebox_override("panel", UiStyle.box_style(ROOM_COLOR, border, 1, 6))
+	box.add_theme_stylebox_override("panel", _room_style(room))
 	box.tooltip_text = room.description
-	box.set_drag_forwarding(Callable(), _can_drop.bind(room), _drop.bind(room))
+	box.set_drag_forwarding(Callable(), _can_drop.bind(room, null), _drop.bind(room, null))
 	var column := VBoxContainer.new()
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE  # Drops land on the box.
 	column.add_theme_constant_override("separation", 4)
 	box.add_child(column)
 
-	var units := player.get_units_in_room(room.id)
+	# Units waiting to heal first, in healing order; then everyone else.
+	var units := room.get_healing_queue(player)
+	for unit in player.get_units_in_room(room.id):
+		if not unit in units:
+			units.append(unit)
 	var training: Array[int] = []
 	for i in player.training_queue.size():
 		if room.holds_training(player.training_queue[i].blueprint):
 			training.append(i)
 	var heading := UiStyle.heading(room.display_name + ("  (%d)" % units.size() if not units.is_empty() else ""))
 	column.add_child(heading)
+	if not room.heals.is_empty():
+		var slots := room.get_heal_slots(player)
+		column.add_child(_small_text("Heals %d at a time, +%d HP a turn" % [slots, room.get_heal_rate(player)]))
 	for unit in units:
 		column.add_child(_make_unit_card(unit, room))
 	for i in training:
@@ -78,13 +111,50 @@ func _make_room(room: Room) -> PanelContainer:
 	return box
 
 
+## A room the hub hasn't built yet: dimmed, with a padlock and what to build.
+func _make_locked_room(room: Room) -> PanelContainer:
+	var box := PanelContainer.new()
+	box.custom_minimum_size = Vector2(ROOM_WIDTH, 110)
+	box.add_theme_stylebox_override("panel", UiStyle.box_style(LOCKED_COLOR, ROOM_BORDER, 1, 6))
+	var lock_text := player.get_room_lock_text(room)
+	box.tooltip_text = "Locked: %s (Buildings panel, B).\n\n%s" % [lock_text, room.description]
+	box.set_drag_forwarding(Callable(), _can_drop.bind(room, null), _drop.bind(room, null))
+	var column := VBoxContainer.new()
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override("separation", 4)
+	box.add_child(column)
+	var top := HBoxContainer.new()
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var lock := TextureRect.new()
+	lock.texture = UiStyle.svg_texture(PADLOCK_SVG)
+	lock.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(lock)
+	var heading := UiStyle.heading(room.display_name)
+	heading.modulate = Color(1, 1, 1, 0.5)
+	top.add_child(heading)
+	column.add_child(top)
+	var note := _small_text("Locked - %s." % lock_text)
+	note.custom_minimum_size.x = ROOM_WIDTH - 20
+	column.add_child(note)
+	return box
+
+
+func _room_style(room: Room) -> StyleBoxFlat:
+	var border := BRIEFING_BORDER if room.id == MissionBriefingRoom.ID else ROOM_BORDER
+	return UiStyle.box_style(ROOM_COLOR, border, 1, 6)
+
+
 ## A draggable card for a unit: name, HP and what it's doing.
 func _make_unit_card(unit: Unit, room: Room) -> PanelContainer:
 	var card := _card(unit.body_color)
-	card.tooltip_text = "%s (%s)\n%s\nDrag to another room to move it." % [
+	var tip := "%s (%s)\n%s\nDrag to another room to move it." % [
 		unit.display_name, Unit.get_type_name(unit.unit_type), unit.get_status_text()]
+	if unit in room.get_healing_queue(player):
+		tip += "\nDrag onto another injured unit here to move it to that place in the healing queue."
+	card.tooltip_text = tip
 	card.mouse_default_cursor_shape = Control.CURSOR_DRAG
-	card.set_drag_forwarding(_drag_unit.bind(unit, card), _can_drop.bind(room), _drop.bind(room))
+	card.set_drag_forwarding(_drag_unit.bind(unit, card), _can_drop.bind(room, unit), _drop.bind(room, unit))
 	var lines: VBoxContainer = card.get_child(0)
 	var top := HBoxContainer.new()
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -111,7 +181,7 @@ func _make_training_card(index: int, room: Room) -> PanelContainer:
 	var card := _card(Color(0.5, 0.5, 0.5))
 	card.modulate = Color(1, 1, 1, 0.55)
 	card.tooltip_text = "Being trained. It joins Mission Briefing when it's ready."
-	card.set_drag_forwarding(Callable(), _can_drop.bind(room), _drop.bind(room))
+	card.set_drag_forwarding(Callable(), _can_drop.bind(room, null), _drop.bind(room, null))
 	var lines: VBoxContainer = card.get_child(0)
 	var name_label := Label.new()
 	name_label.text = "%s (in training)" % order.blueprint.unit_name
@@ -160,12 +230,42 @@ func _activity_text(unit: Unit) -> String:
 
 func _drag_unit(_at: Vector2, unit: Unit, card: Control) -> Variant:
 	var preview := _card(unit.body_color)
+	var lines: VBoxContainer = preview.get_child(0)
 	var label := Label.new()
 	label.text = unit.display_name
-	preview.get_child(0).add_child(label)
-	preview.modulate = Color(1, 1, 1, 0.85)
+	lines.add_child(label)
+	_drag_hint = Label.new()
+	_drag_hint.add_theme_font_size_override("font_size", 13)
+	_drag_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_drag_hint.custom_minimum_size.x = 260
+	_drag_hint.text = "Drop on a room"
+	_drag_hint.modulate = Color(1, 1, 1, 0.7)
+	lines.add_child(_drag_hint)
+	preview.modulate = Color(1, 1, 1, 0.92)
 	card.set_drag_preview(preview)
+	_show_drop_targets(unit)
 	return {"hub_unit": unit.id}
+
+
+## Lights up every room `unit` could be dropped in (green) and crosses out
+## the rest. (The HUD rebuilds the panel when the drag ends, clearing it.)
+func _show_drop_targets(unit: Unit) -> void:
+	for room_id in _room_boxes:
+		var box: PanelContainer = _room_boxes[room_id]
+		if room_id == unit.room_id:
+			continue
+		if player.get_room_move_refusal(unit, room_id) == "":
+			var style: StyleBoxFlat = (box.get_theme_stylebox("panel") as StyleBoxFlat).duplicate()
+			style.border_color = CAN_DROP_COLOR
+			style.set_border_width_all(3)
+			style.bg_color = style.bg_color.lerp(CAN_DROP_COLOR, 0.12)
+			box.add_theme_stylebox_override("panel", style)
+		else:
+			var cross := TextureRect.new()
+			cross.texture = UiStyle.svg_texture(CROSS_SVG)
+			cross.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+			cross.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			box.add_child(cross)
 
 
 func _dragged_unit(data: Variant) -> Unit:
@@ -174,23 +274,57 @@ func _dragged_unit(data: Variant) -> Unit:
 	return null
 
 
-func _can_drop(_at: Vector2, data: Variant, room: Room) -> bool:
+## `onto` is the unit whose card it's over, if any (for reordering healing).
+func _can_drop(_at: Vector2, data: Variant, room: Room, onto: Unit) -> bool:
 	var unit := _dragged_unit(data)
 	if unit == null:
 		return false
+	var queue_index := _healing_swap_index(unit, room, onto)
+	if queue_index >= 0:
+		_set_drag_hint("Move to %s in the healing queue (%s's place)" % [
+			_ordinal(queue_index + 1), onto.display_name], true)
+		return true
 	if unit.room_id == room.id:
-		hud.show_drop_hint("")
+		_set_drag_hint("Already in the %s" % room.display_name, false)
 		return false
 	var reason := player.get_room_move_refusal(unit, room.id)
 	if reason != "":
-		hud.show_drop_hint("Can't move %s to the %s: %s." % [unit.display_name, room.display_name, reason])
+		_set_drag_hint("Can't go to the %s: %s" % [room.display_name, reason], false)
 		return false
 	var note := " (calls off its mission)" if unit.mission else ""
-	hud.show_drop_hint("Drop to move %s to the %s%s." % [unit.display_name, room.display_name, note])
+	_set_drag_hint("Move to the %s%s" % [room.display_name, note], true)
 	return true
 
 
-func _drop(_at: Vector2, data: Variant, room: Room) -> void:
+func _drop(_at: Vector2, data: Variant, room: Room, onto: Unit) -> void:
 	var unit := _dragged_unit(data)
-	if unit:
+	if unit == null:
+		return
+	var queue_index := _healing_swap_index(unit, room, onto)
+	if queue_index >= 0:
+		hud.heal_order_requested.emit(unit, queue_index)
+	else:
 		hud.room_move_requested.emit(unit, room.id)
+
+
+## Where `unit` goes in the healing queue if dropped on `onto`'s card - both
+## waiting to heal in this room - or -1 if that isn't a reorder.
+func _healing_swap_index(unit: Unit, room: Room, onto: Unit) -> int:
+	if onto == null or onto == unit or unit.room_id != room.id:
+		return -1
+	var queue := room.get_healing_queue(player)
+	if not unit in queue:
+		return -1
+	return queue.find(onto)
+
+
+func _set_drag_hint(text: String, ok: bool) -> void:
+	if not is_instance_valid(_drag_hint):
+		return
+	_drag_hint.text = text
+	_drag_hint.modulate = Color.WHITE
+	_drag_hint.add_theme_color_override("font_color", CAN_DROP_COLOR if ok else CANT_DROP_COLOR)
+
+
+static func _ordinal(n: int) -> String:
+	return Room._ordinal(n)

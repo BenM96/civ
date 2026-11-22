@@ -50,7 +50,8 @@ var is_ai := false
 ## Where the hub stands on the map. Units set out from and return here.
 var hex: Vector2i
 var map: HexMap
-## Starved and eliminated: no units, no turns, left standing as a ruin.
+## Eliminated (lost every unit with none in training): no units, no turns,
+## left standing as a ruin.
 var collapsed := false
 
 ## What the hub is called on the map.
@@ -58,6 +59,11 @@ const HUB_NAME := "Central Hub"
 
 ## Buildings inside the hub, in the order they were added.
 var buildings: Array[Building] = []
+## Buildings paid for this turn (their ids), finished at the end of the turn
+## (see run_hub()).
+var building_queue: Array[String] = []
+## One of every building type, for looking up names, costs and limits.
+var building_types: Array[Building] = Building.create_all()
 ## The hub's rooms (see Room). Every unit in the hub is in one of them.
 var rooms: Array[Room] = Room.create_all()
 var units: Array[Unit] = []
@@ -121,13 +127,77 @@ func add_building(building: Building) -> void:
 	buildings_changed.emit()
 
 
-## How many of the hub's buildings have this id, e.g. "greenhouse".
+## How many of the hub's finished buildings have this id, e.g. "greenhouse".
 func count_buildings(building_id: String) -> int:
 	var count := 0
 	for b in buildings:
 		if b.id == building_id:
 			count += 1
 	return count
+
+
+## Finished plus under construction: what counts towards the limit.
+func count_planned_buildings(building_id: String) -> int:
+	return count_buildings(building_id) + building_queue.count(building_id)
+
+
+## One of every building type by id (for names, costs, limits), or null.
+func get_building_type(building_id: String) -> Building:
+	for b in building_types:
+		if b.id == building_id:
+			return b
+	return null
+
+
+## Why the hub can't order a `building_id` right now, or "" if it can.
+func get_building_refusal(building_id: String) -> String:
+	var type := get_building_type(building_id)
+	if type == null:
+		return "no such building"
+	if count_planned_buildings(building_id) >= type.max_count:
+		return "the hub already has the most it can (%d)" % type.max_count
+	if type.requires != "" and count_buildings(type.requires) == 0:
+		return "needs a %s first" % Building.get_name_for(type.requires)
+	if not can_afford(type.cost):
+		return "need %s" % ResourceDeposit.format_cost(type.cost)
+	return ""
+
+
+## Pays for a new building; it's finished at the end of the turn. Returns ""
+## if it was ordered, otherwise why not.
+func order_building(building_id: String) -> String:
+	var reason := get_building_refusal(building_id)
+	if reason != "":
+		return reason
+	var type := get_building_type(building_id)
+	_change_resources(type.cost, -1)
+	building_queue.append(building_id)
+	unit_event.emit("Started building a %s (%s) - ready at the end of the turn" % [type.display_name, ResourceDeposit.format_cost(type.cost)])
+	buildings_changed.emit()
+	return ""
+
+
+## Calls off a building still under construction, refunding it in full.
+func cancel_building(index: int) -> bool:
+	if index < 0 or index >= building_queue.size():
+		return false
+	var type := get_building_type(building_queue[index])
+	building_queue.remove_at(index)
+	_change_resources(type.cost, 1)
+	unit_event.emit("Cancelled the %s (refunded %s)" % [type.display_name, ResourceDeposit.format_cost(type.cost)])
+	buildings_changed.emit()
+	return true
+
+
+func _finish_buildings() -> void:
+	if building_queue.is_empty():
+		return
+	for building_id in building_queue:
+		var building := Building.create(building_id)
+		buildings.append(building)
+		unit_event.emit("The %s is finished" % building.display_name)
+	building_queue.clear()
+	buildings_changed.emit()
 
 
 ## What every building in the hub produces in a turn: Type -> int.
@@ -229,12 +299,46 @@ func get_units_in_room(room_id: String) -> Array[Unit]:
 
 
 ## Where an off-duty `unit` waits: the Break Room, Barracks, Hangar or Garage
-## for its type. Null if the hub has none for it.
+## for its type. Null if the hub has none for it (or it isn't built yet).
 func get_quarters_for(unit: Unit) -> Room:
 	for room in rooms:
-		if room is QuartersRoom and room.get_refusal(unit) == "":
+		if room is QuartersRoom and room.get_refusal(unit) == "" and is_room_open(room):
 			return room
 	return null
+
+
+## Whether the hub has built what `room` needs (see Room.required_building).
+func is_room_open(room: Room) -> bool:
+	return room.required_building == "" or count_buildings(room.required_building) > 0
+
+
+## Why `room` is locked (e.g. "build a Barracks to open it"), or "" if it's open.
+func get_room_lock_text(room: Room) -> String:
+	if is_room_open(room):
+		return ""
+	return "build a %s to open it" % Building.get_name_for(room.required_building)
+
+
+## The open room that heals units like `unit`, or null if there's none.
+func get_healing_room_for(unit: Unit) -> Room:
+	for room in rooms:
+		if room.heals_unit(unit) and is_room_open(room):
+			return room
+	return null
+
+
+## Moves `unit` to `index` (0 = first) in its room's healing queue. Returns
+## "" if it moved, otherwise why not.
+func move_in_healing_queue(unit: Unit, index: int) -> String:
+	if unit.player != self or not unit.is_in_hub():
+		return "%s isn't in the hub" % unit.display_name
+	return get_room(unit.room_id).move_in_healing_queue(self, unit, index)
+
+
+## Turns `unit` refits for after a trip out: its own refit_turns, less one
+## for each Flight Crew Quarters (never below 1).
+func get_refit_turns(unit: Unit) -> int:
+	return maxi(1, unit.refit_turns - count_buildings(FlightCrewQuarters.ID))
 
 
 ## Why the player can't move `unit` into the room `room_id` right now, or ""
@@ -256,6 +360,8 @@ func get_room_move_refusal(unit: Unit, room_id: String) -> String:
 		var stuck := current.get_leave_refusal(unit)
 		if stuck != "":
 			return stuck
+	if not is_room_open(room):
+		return "the %s isn't built yet - %s" % [room.display_name, get_room_lock_text(room)]
 	return room.get_refusal(unit)
 
 
@@ -275,10 +381,15 @@ func move_unit_to_room(unit: Unit, room_id: String) -> String:
 	return ""
 
 
-## The room a unit coming home goes to: the Med Bay if it's hurt, otherwise
-## Mission Briefing.
+## The room a unit coming home goes to: the room that heals it (the Med Bay
+## or the Garage) if it's hurt and the hub has one, otherwise Mission
+## Briefing.
 func _room_for_returning(unit: Unit) -> String:
-	return MedBayRoom.ID if unit.is_injured() else MissionBriefingRoom.ID
+	if unit.is_injured():
+		var healer := get_healing_room_for(unit)
+		if healer:
+			return healer.id
+	return MissionBriefingRoom.ID
 
 
 func get_field_units() -> Array[Unit]:
@@ -336,7 +447,11 @@ func take_back_materials(unit: Unit) -> Dictionary:
 	return returned
 
 
+## Adds to the stockpile. Resources that aren't stored (Biomass - see
+## ResourceType.stored) are ignored: they count as production instead.
 func add_resource(type: ResourceDeposit.Type, amount: int) -> void:
+	if not ResourceDeposit.get_info(type).stored:
+		return
 	inventory[type] = get_resource(type) + amount
 	inventory_changed.emit()
 
@@ -383,10 +498,28 @@ func get_training_cost(blueprint: UnitBlueprint) -> Dictionary:
 	return blueprint.cost_for(built)
 
 
-## Pays for and queues a new unit. Returns false if we can't afford it.
+## Why `blueprint` can't be trained at all right now (e.g. "needs a
+## Barracks"), or "" if it can - not counting whether we can afford it. A
+## unit needs the room that holds it while training (its quarters) to be
+## built.
+func get_training_refusal(blueprint: UnitBlueprint) -> String:
+	for room in rooms:
+		if room.holds_training(blueprint) and not is_room_open(room):
+			return "needs a %s" % Building.get_name_for(room.required_building)
+	# Never train a unit we couldn't feed (counting the ones already training).
+	var after := get_biomass_production() - blueprint.upkeep
+	for order in training_queue:
+		after -= order.blueprint.upkeep
+	if after < 0:
+		return "not enough biomass (would be %s a turn)" % ResourceDeposit.format_change(after)
+	return ""
+
+
+## Pays for and queues a new unit. Returns false if we can't afford it or
+## haven't the building it needs.
 func queue_training(blueprint: UnitBlueprint) -> bool:
 	var cost := get_training_cost(blueprint)
-	if not can_afford(cost):
+	if not can_afford(cost) or get_training_refusal(blueprint) != "":
 		return false
 	_change_resources(cost, -1)
 	training_queue.append(TrainingOrder.new(blueprint, cost))
@@ -491,6 +624,12 @@ func get_producing_extractors() -> Array[Vector2i]:
 	return result
 
 
+## Biomass made per turn (Greenhouses and Biomass extractors) less what every
+## unit eats. Below zero, a unit starves each turn (see starve()).
+func get_biomass_production() -> float:
+	return get_net_income()[ResourceDeposit.Type.BIOMASS]
+
+
 ## Biomass eaten per turn by all of this hub's units.
 func get_upkeep() -> int:
 	var total := 0
@@ -574,23 +713,70 @@ func units_work() -> void:
 		unit.do_work()
 
 
-## "Production" step: training progresses, extractors deliver, the hub's
-## buildings produce (e.g. a Greenhouse grows biomass) and its rooms do
-## their work (e.g. the Med Bay heals). (After movement, so a freshly trained
-## unit just waits in the garrison.)
+## "Production" step: extractors deliver and the hub's buildings make
+## resources (e.g. a Greenhouse grows biomass).
 func produce() -> void:
-	_process_training()
 	_process_extractors()
 	for building in buildings:
 		building.produce(self)
+
+
+## "Hub" step: buildings ordered this turn are finished, training progresses
+## and the rooms work on their units (the Med Bay and Garage heal, the
+## Hangar refits). (After movement, so a freshly trained unit just waits in
+## the hub. After production, so a new Greenhouse first grows next turn.)
+func run_hub() -> void:
+	_finish_buildings()
+	_process_training()
 	for room in rooms:
 		room.process_turn(self)
 
 
-## "Upkeep" step: every unit eats. Returns true if biomass went below zero.
-func feed_units() -> bool:
-	add_resource(ResourceDeposit.Type.BIOMASS, -get_upkeep())
-	return get_resource(ResourceDeposit.Type.BIOMASS) < 0
+## "Starvation" step: if biomass production is below zero, one unit starves
+## to death - the most injured non-Worker first (ties at random, so healthy
+## ones go at random), and Workers only once nobody else is left. Returns
+## what happened (for the event log and the starvation popup):
+## {"unit": its name, "production": before it died, "after": production now,
+## "eaten": what the units ate, "units": how many there were}, or {} if
+## nobody starved.
+func starve(rng: RandomNumberGenerator) -> Dictionary:
+	var production := get_biomass_production()
+	if production >= 0 or units.is_empty():
+		return {}
+	var others: Array[Unit] = []
+	var workers: Array[Unit] = []
+	for u in units:
+		if u is Worker:
+			workers.append(u)
+		else:
+			others.append(u)
+	var victim := _most_injured(others if not others.is_empty() else workers, rng)
+	var report := {"unit": victim.display_name, "production": production,
+		"eaten": get_upkeep(), "units": units.size()}
+	remove_unit(victim)
+	report["after"] = get_biomass_production()
+	unit_event.emit("%s has starved to death - biomass production is %s a turn" % [
+		victim.display_name, ResourceDeposit.format_change(production)])
+	return report
+
+
+## The unit with the lowest share of its HP left; a random one of those tied.
+static func _most_injured(candidates: Array[Unit], rng: RandomNumberGenerator) -> Unit:
+	var lowest := INF
+	var tied: Array[Unit] = []
+	for u in candidates:
+		var share := float(u.health) / u.max_health
+		if share < lowest - 0.0001:
+			lowest = share
+			tied.clear()
+		if share < lowest + 0.0001:
+			tied.append(u)
+	return tied[rng.randi_range(0, tied.size() - 1)]
+
+
+## Out of the game: no units left and none in training (see TurnManager).
+func is_wiped_out() -> bool:
+	return units.is_empty() and training_queue.is_empty()
 
 
 ## End of turn: deposits may have run dry or structures changed, so refresh
@@ -613,11 +799,17 @@ func to_dict() -> Dictionary:
 	var progress := []
 	for h in _extractor_progress:
 		progress.append([h.x, h.y, _extractor_progress[h]])
+	var healing := {}
+	for room in rooms:
+		if not room.healing_order.is_empty():
+			healing[room.id] = room.healing_order.duplicate()
 	return {
 		"extractor_progress": progress,
 		"id": id,
 		"is_ai": is_ai,
 		"buildings": buildings.map(func(b: Building) -> String: return b.id),
+		"building_queue": building_queue.duplicate(),
+		"healing_order": healing,
 		"hex": SaveGame.hex_to_data(hex),
 		"collapsed": collapsed,
 		"inventory": SaveGame.resources_to_data(inventory),
@@ -651,18 +843,23 @@ func load_dict(data: Dictionary) -> void:
 	for unit_name in data["units_named"]:
 		_units_ever_had[unit_name] = int(data["units_named"][unit_name])
 	buildings.clear()
-	# Older saves have no buildings: the hub grew biomass by itself, which
-	# a Greenhouse does now.
-	for building_id in data.get("buildings", [Greenhouse.ID]):
+	for building_id in data["buildings"]:
 		var building := Building.create(str(building_id))
 		if building:
 			buildings.append(building)
+	building_queue.clear()
+	for building_id in data["building_queue"]:
+		building_queue.append(str(building_id))
+	for room in rooms:
+		room.healing_order.clear()
+		for unit_id in data["healing_order"].get(room.id, []):
+			room.healing_order.append(int(unit_id))
 	buildings_changed.emit()
 	if data["collapsed"]:
 		collapse()
 
 
-## Eliminated (starved): every unit dies and the hub stops working. The
+## Eliminated (wiped out): every unit dies and the hub stops working. The
 ## TurnManager stops running its turns separately.
 func collapse() -> void:
 	collapsed = true
@@ -705,18 +902,20 @@ func _on_unit_mission_failed(unit: Unit, _mission: Mission, reason: String) -> v
 
 
 ## Home: unloads what it harvested, puts back any materials its job didn't
-## use, and goes to Mission Briefing (or the Med Bay if it's hurt).
+## use, and goes to Mission Briefing (or the Med Bay / Garage if it's hurt).
 func _on_unit_returned(unit: Unit) -> void:
 	var quarters := get_quarters_for(unit)
 	if unit.refit_turns > 0 and quarters:
 		# Refits (and is repaired) in its quarters, e.g. an aircraft in the Hangar.
-		unit.refit_turns_left = unit.refit_turns
+		unit.refit_turns_left = get_refit_turns(unit)
 		unit.set_room(quarters.id)
-		unit_event.emit("%s is back and refitting in the %s (%d turns)" % [unit.display_name, quarters.display_name, unit.refit_turns])
+		unit_event.emit("%s is back and refitting in the %s (%d turns)" % [unit.display_name, quarters.display_name, unit.refit_turns_left])
 	else:
 		unit.set_room(_room_for_returning(unit))
-		if unit.room_id == MedBayRoom.ID:
-			unit_event.emit("%s came home injured and went to the Med Bay" % unit.display_name)
+		if unit.room_id != MissionBriefingRoom.ID:
+			unit_event.emit("%s came home injured and went to the %s" % [unit.display_name, get_room(unit.room_id).display_name])
+		elif unit.is_injured():
+			unit_event.emit("%s came home injured, but the hub has nowhere to treat it" % unit.display_name)
 	var parts: PackedStringArray = []
 	if unit.has_cargo():
 		parts.append("delivered %s" % unit.get_cargo_text())
