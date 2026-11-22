@@ -1,7 +1,7 @@
 class_name HudPanel
 extends RefCounted
 ## One section of the HUD's bottom bar (Central Hub, Mission Briefing, Field,
-## Training, Buildings):
+## Training, Buildings, Research):
 ## its button and the panel it opens above the bar. Hud owns the panel frame
 ## and calls fill() whenever it needs redrawing; each section only adds its
 ## own rows to `list`.

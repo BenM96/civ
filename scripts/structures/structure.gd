@@ -40,3 +40,12 @@ static func get_display_name(type: Type) -> String:
 static func carries_resources(type: Type) -> bool:
 	var b := get_buildable(type)
 	return b != null and b.carries_resources
+
+
+## The display name of a structure from its buildable id, e.g.
+## "command_point" -> "Command Point".
+static func get_name_for_id(buildable_id: String) -> String:
+	for b in _create_all():
+		if b.id == buildable_id:
+			return b.display_name
+	return buildable_id

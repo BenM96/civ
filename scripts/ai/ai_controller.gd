@@ -109,7 +109,7 @@ func _plan_building() -> bool:
 ## room for one (cheaper than an extractor). Returns true if it's saving up
 ## for one; false if it ordered one or can't, so extractors get planned too.
 func _plan_greenhouse() -> bool:
-	if player.count_planned_buildings(Greenhouse.ID) >= Greenhouse.MAX:
+	if player.count_planned_buildings(Greenhouse.ID) >= player.get_building_limit(Greenhouse.ID):
 		return false
 	return _order_or_save_for(Greenhouse.ID)
 

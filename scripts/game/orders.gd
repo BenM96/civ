@@ -20,6 +20,8 @@ extends RefCounted
 ##   {"order": "cancel_training", "index": i}
 ##   {"order": "build_building", "building": building id}   (see Building)
 ##   {"order": "cancel_building", "index": i}
+##   {"order": "research", "tech": tech id}   (see Tech, TechTrees)
+##   {"order": "cancel_research", "tech": tech id}
 ##   {"order": "debug_resources"}   TESTING ONLY - remove before release
 ##
 ## To add a new kind of action: add an order here (a helper and a case in
@@ -80,6 +82,16 @@ static func cancel_building(index: int) -> Dictionary:
 	return {"order": "cancel_building", "index": index}
 
 
+## Pays for a tech, researched at the end of the turn (see Player.research_tech()).
+static func research(tech_id: String) -> Dictionary:
+	return {"order": "research", "tech": tech_id}
+
+
+## Calls off research paid for this turn (refunded).
+static func cancel_research(tech_id: String) -> Dictionary:
+	return {"order": "cancel_research", "tech": tech_id}
+
+
 ## TESTING ONLY - remove before release (with its case in submit() and the
 ## HUD's "+50 all" button). Gives the colony DEBUG_RESOURCE_AMOUNT of every
 ## resource.
@@ -129,6 +141,10 @@ func submit(faction: int, order: Dictionary) -> String:
 			return player.order_building(str(order.get("building", "")))
 		"cancel_building":
 			return "" if player.cancel_building(int(order.get("index", -1))) else "nothing to cancel"
+		"research":
+			return player.research_tech(str(order.get("tech", "")))
+		"cancel_research":
+			return "" if player.cancel_research(str(order.get("tech", ""))) else "not being researched"
 		"train":
 			var bp := player.get_blueprint(str(order.get("unit_type", "")))
 			if bp == null:
@@ -165,6 +181,10 @@ static func get_invalid_reason(player: Player, unit: Unit, m: Mission) -> String
 		return "%s must be in Mission Briefing to get orders" % unit.display_name
 	if not unit.can_take(m.get_kind()):
 		return "%s can't %s" % [unit.display_name, m.get_kind().get_slice(":", 0)]
+	if m.get_kind().begins_with("build:"):
+		var locked := player.get_buildable_refusal(player.get_buildable(m.get_kind().trim_prefix("build:")))
+		if locked != "":
+			return locked
 	m.unit = unit  # Lets the mission plan its route (e.g. a bridge's work site).
 	var reason := m.get_invalid_reason(unit)
 	if reason != "":

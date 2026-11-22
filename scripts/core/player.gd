@@ -23,6 +23,8 @@ signal training_changed
 signal network_changed
 ## Emitted when a building is added to (or removed from) the hub.
 signal buildings_changed
+## Emitted when research is started, cancelled or finished.
+signal research_changed
 ## A newly linked extractor started delivering (lets the game report rivals).
 signal extractor_connected(h: Vector2i, type: ResourceDeposit.Type)
 
@@ -64,6 +66,16 @@ var buildings: Array[Building] = []
 var building_queue: Array[String] = []
 ## One of every building type, for looking up names, costs and limits.
 var building_types: Array[Building] = Building.create_all()
+## This game's tech trees, shared by every colony (set by Game).
+var tech_trees: TechTrees
+## Techs researched (ids), in the order they finished. Saved.
+var researched: Array[String] = []
+## Techs paid for this turn (ids), researched in the Hub step. Saved.
+var research_queue: Array[String] = []
+## The most Workers a colony may have before any Workforce tech.
+const BASE_WORKER_LIMIT := 2
+## The unit the Worker limit applies to (see get_worker_limit()).
+const WORKER_NAME := "Worker"
 ## The hub's rooms (see Room). Every unit in the hub is in one of them.
 var rooms: Array[Room] = Room.create_all()
 var units: Array[Unit] = []
@@ -155,8 +167,12 @@ func get_building_refusal(building_id: String) -> String:
 	var type := get_building_type(building_id)
 	if type == null:
 		return "no such building"
-	if count_planned_buildings(building_id) >= type.max_count:
-		return "the hub already has the most it can (%d)" % type.max_count
+	var tech := TechList.unlocking_building(building_id)
+	if tech and not _has_unlock(tech):
+		return "needs the %s tech" % tech.display_name
+	var limit := get_building_limit(building_id)
+	if count_planned_buildings(building_id) >= limit:
+		return "the hub already has the most it can (%d)" % limit
 	if type.requires != "" and count_buildings(type.requires) == 0:
 		return "needs a %s first" % Building.get_name_for(type.requires)
 	if not can_afford(type.cost):
@@ -199,6 +215,171 @@ func _finish_buildings() -> void:
 		unit_event.emit("The %s is finished" % building.display_name)
 	building_queue.clear()
 	buildings_changed.emit()
+
+
+# --- Research (see Tech, TechList, TechTrees) --------------------------------
+
+## Whether `tech_id` has been researched (finished, not just paid for).
+func has_tech(tech_id: String) -> bool:
+	return tech_id in researched
+
+
+## Computer colonies skip the tech rules for now: everything that's
+## unlocked or limited by a tech counts as researched for them. (Combat and
+## economy bonuses still need real research, which they don't do.)
+func is_tech_exempt() -> bool:
+	return is_ai
+
+
+## Whether what `tech` unlocks is available to us.
+func _has_unlock(tech: Tech) -> bool:
+	return is_tech_exempt() or has_tech(tech.id)
+
+
+## The techs whose limit bonuses apply to us (all of them if exempt).
+func _limit_techs() -> Array[Tech]:
+	if is_tech_exempt():
+		return TechList.all()
+	var result: Array[Tech] = []
+	for tech_id in researched:
+		result.append(TechList.get_tech(tech_id))
+	return result
+
+
+## The techs we've actually researched.
+func _researched_techs() -> Array[Tech]:
+	var result: Array[Tech] = []
+	for tech_id in researched:
+		result.append(TechList.get_tech(tech_id))
+	return result
+
+
+## The most of `building_id` the hub may have: its base max_count, raised
+## by techs (e.g. Hydroponics for Greenhouses).
+func get_building_limit(building_id: String) -> int:
+	var type := get_building_type(building_id)
+	var limit := type.max_count if type else 0
+	for tech in _limit_techs():
+		limit += tech.building_limit_bonus.get(building_id, 0)
+	return limit
+
+
+## The most Workers we may have (alive and in training): BASE_WORKER_LIMIT,
+## raised by the Workforce techs.
+func get_worker_limit() -> int:
+	var limit := BASE_WORKER_LIMIT
+	for tech in _limit_techs():
+		limit += tech.worker_limit_bonus
+	return limit
+
+
+## Workers we have, alive and in training.
+func count_workers() -> int:
+	var count := units.filter(func(u: Unit) -> bool: return u is Worker).size()
+	for order in training_queue:
+		if order.blueprint.unit_name == WORKER_NAME:
+			count += 1
+	return count
+
+
+## Extra damage a unit called `unit_name` does to every target (Weapons techs).
+func get_damage_bonus(unit_name: String) -> int:
+	var bonus := 0
+	for tech in _researched_techs():
+		if tech.damage_bonus_unit == unit_name:
+			bonus += 1
+	return bonus
+
+
+## Extra movement points for every land unit (All-Terrain Drives).
+func get_movement_bonus() -> int:
+	var bonus := 0
+	for tech in _researched_techs():
+		bonus += tech.movement_bonus
+	return bonus
+
+
+## What one of our extractors on a deposit of `type` delivers per turn: the
+## resource's own rate plus any tech bonus (Advanced Drilling).
+func get_extractor_output(type: ResourceDeposit.Type) -> float:
+	var output := ExtractorBuildable.output_for(type)
+	for tech in _researched_techs():
+		output += tech.extractor_bonus.get(type, 0.0)
+	return output
+
+
+## Why Workers can't build `buildable` yet (a tech it needs), or "".
+func get_buildable_refusal(buildable: Buildable) -> String:
+	var tech := TechList.unlocking_buildable(buildable.id)
+	if tech and not _has_unlock(tech):
+		return "needs the %s tech" % tech.display_name
+	return ""
+
+
+## Why `tech_id` can't be researched right now, or "" if it can: it must be
+## the next one on its tree (the one before researched, not just paid for),
+## its prerequisite researched, and the Electrum to hand.
+func get_research_refusal(tech_id: String) -> String:
+	var tech := TechList.get_tech(tech_id)
+	if tech == null or tech_trees == null:
+		return "no such tech"
+	if has_tech(tech_id):
+		return "already researched"
+	if tech_id in research_queue:
+		return "being researched - done at the end of the turn"
+	var previous := tech_trees.get_previous(tech_id)
+	if previous != "" and not has_tech(previous):
+		return "research %s first" % TechList.get_tech(previous).display_name
+	if tech.requires != "" and not has_tech(tech.requires):
+		return "needs the %s tech" % TechList.get_tech(tech.requires).display_name
+	var cost := get_research_cost(tech_id)
+	if not can_afford(cost):
+		return "need %s" % ResourceDeposit.format_cost(cost)
+	return ""
+
+
+## What researching `tech_id` costs: its place on its tree, in Electrum.
+func get_research_cost(tech_id: String) -> Dictionary:
+	return {ResourceDeposit.Type.ELECTRUM: tech_trees.get_cost_of(tech_id)}
+
+
+## Pays for a tech; it's researched at the end of the turn. Returns "" if
+## it was started, otherwise why not.
+func research_tech(tech_id: String) -> String:
+	var reason := get_research_refusal(tech_id)
+	if reason != "":
+		return reason
+	var cost := get_research_cost(tech_id)
+	_change_resources(cost, -1)
+	research_queue.append(tech_id)
+	unit_event.emit("Started researching %s (%s) - done at the end of the turn" % [
+		TechList.get_tech(tech_id).display_name, ResourceDeposit.format_cost(cost)])
+	research_changed.emit()
+	return ""
+
+
+## Calls off research paid for this turn, refunding it in full.
+func cancel_research(tech_id: String) -> bool:
+	if not tech_id in research_queue:
+		return false
+	research_queue.erase(tech_id)
+	var cost := get_research_cost(tech_id)
+	_change_resources(cost, 1)
+	unit_event.emit("Cancelled researching %s (refunded %s)" % [
+		TechList.get_tech(tech_id).display_name, ResourceDeposit.format_cost(cost)])
+	research_changed.emit()
+	return true
+
+
+func _finish_research() -> void:
+	if research_queue.is_empty():
+		return
+	for tech_id in research_queue:
+		researched.append(tech_id)
+		unit_event.emit("Research complete: %s - %s" % [
+			TechList.get_tech(tech_id).display_name, TechList.get_tech(tech_id).get_effect_text()])
+	research_queue.clear()
+	research_changed.emit()
 
 
 ## What every building in the hub produces in a turn: Type -> int.
@@ -502,11 +683,17 @@ func get_training_cost(blueprint: UnitBlueprint) -> Dictionary:
 ## Why `blueprint` can't be trained at all right now (e.g. "needs a
 ## Barracks"), or "" if it can - not counting whether we can afford it. A
 ## unit needs the room that holds it while training (its quarters) to be
-## built.
+## built, and its unlock tech if it has one (see TechList); Workers are
+## capped by get_worker_limit().
 func get_training_refusal(blueprint: UnitBlueprint) -> String:
+	var tech := TechList.unlocking_unit(blueprint.unit_name)
+	if tech and not _has_unlock(tech):
+		return "needs the %s tech" % tech.display_name
 	for room in rooms:
 		if room.holds_training(blueprint) and not is_room_open(room):
 			return "needs a %s" % Building.get_name_for(room.required_building)
+	if blueprint.unit_name == WORKER_NAME and count_workers() >= get_worker_limit():
+		return "Worker limit reached (%d)" % get_worker_limit()
 	# Never train a unit we couldn't feed (counting the ones already training).
 	var after := get_biomass_production() - blueprint.upkeep
 	for order in training_queue:
@@ -597,7 +784,7 @@ func update_network() -> void:
 			var deposit := map.get_tile(h).deposit
 			extractor_connected.emit(h, deposit.type)
 			unit_event.emit("Extractor at (%d, %d) is connected: %s %s per turn"
-				% [h.x, h.y, ResourceDeposit.format_change(ExtractorBuildable.output_for(deposit.type)), deposit.get_display_name()])
+				% [h.x, h.y, ResourceDeposit.format_change(get_extractor_output(deposit.type)), deposit.get_display_name()])
 	for h in _producing:
 		if not producing.has(h) and map.get_tile(h).has_deposit():
 			unit_event.emit("Extractor at (%d, %d) lost its connection to the hub" % [h.x, h.y])
@@ -673,7 +860,7 @@ func get_income() -> Dictionary:
 	var income := {}
 	for h in get_producing_extractors():
 		var type := map.get_tile(h).deposit.type
-		income[type] = income.get(type, 0.0) + ExtractorBuildable.output_for(type)
+		income[type] = income.get(type, 0.0) + get_extractor_output(type)
 	return income
 
 
@@ -689,7 +876,7 @@ func _process_extractors() -> void:
 			_extractor_progress.erase(h)
 	for h in get_producing_extractors():
 		var deposit := map.get_tile(h).deposit
-		var rate := ResourceDeposit.get_info(deposit.type).extractor_output_hundredths()
+		var rate := roundi(get_extractor_output(deposit.type) * 100)
 		var progress: int = _extractor_progress.get(h, 0) + rate
 		var whole := progress / 100
 		_extractor_progress[h] = progress % 100
@@ -743,6 +930,7 @@ func produce() -> void:
 ## Hangar refits). (After movement, so a freshly trained unit just waits in
 ## the hub. After production, so a new Greenhouse first grows next turn.)
 func run_hub() -> void:
+	_finish_research()
 	_finish_buildings()
 	_process_training()
 	for room in rooms:
@@ -826,6 +1014,8 @@ func to_dict() -> Dictionary:
 		"is_ai": is_ai,
 		"buildings": buildings.map(func(b: Building) -> String: return b.id),
 		"building_queue": building_queue.duplicate(),
+		"researched": researched.duplicate(),
+		"research_queue": research_queue.duplicate(),
 		"healing_order": healing,
 		"hex": SaveGame.hex_to_data(hex),
 		"collapsed": collapsed,
@@ -865,6 +1055,12 @@ func load_dict(data: Dictionary) -> void:
 		if building:
 			buildings.append(building)
 	building_queue.clear()
+	researched.clear()
+	for tech_id in data["researched"]:
+		researched.append(str(tech_id))
+	research_queue.clear()
+	for tech_id in data["research_queue"]:
+		research_queue.append(str(tech_id))
 	for building_id in data["building_queue"]:
 		building_queue.append(str(building_id))
 	for room in rooms:

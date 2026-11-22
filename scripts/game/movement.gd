@@ -117,7 +117,7 @@ static func _fly(map: HexMap, air: Array[Unit], outbreaks: Array, battle_hexes: 
 static func _run_ticks(map: HexMap, units: Array[Unit], outbreaks: Array, battle_hexes: Dictionary) -> void:
 	var ticks := 0
 	for u in units:
-		ticks = maxi(ticks, u.max_movement)
+		ticks = maxi(ticks, u.get_max_movement())
 	for tick in range(1, ticks + 1):
 		var movers: Array[Unit] = []
 		for u in units:

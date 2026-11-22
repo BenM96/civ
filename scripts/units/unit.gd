@@ -134,9 +134,19 @@ func _ready() -> void:
 	health = max_health
 
 
-## HP taken off `target` by one shot from this unit.
+## HP taken off `target` by one shot from this unit: its damage against
+## that type, plus 1 for each of its colony's Weapons techs for this unit.
 func get_damage_against(target: Unit) -> int:
-	return damage.get(target.unit_type, 0)
+	var bonus := player.get_damage_bonus(unit_name) if player else 0
+	return damage.get(target.unit_type, 0) + bonus
+
+
+## Movement points a turn: max_movement, plus its colony's All-Terrain
+## Drives techs for land units (aircraft fly sorties instead).
+func get_max_movement() -> int:
+	if flies or player == null:
+		return max_movement
+	return max_movement + player.get_movement_bonus()
 
 
 ## Loses `amount` HP (a hit in battle). Dying is up to Combat.
@@ -412,7 +422,7 @@ func can_cancel_mission() -> bool:
 ## "Set out" step, before anyone moves: refresh movement, leave the hub if
 ## deployed, and let the mission re-plan its route.
 func start_turn() -> void:
-	movement_left = max_movement
+	movement_left = get_max_movement()
 	engaged = false
 	moved_this_turn = false
 	if state == State.DEPLOYING:
@@ -529,8 +539,8 @@ func get_next_step_tick() -> int:
 	var cost := tile.get_move_cost()
 	if not _can_enter(cost, movement_left):
 		return -1  # Not enough movement left; carry on next turn.
-	var spent := max_movement - movement_left
-	return mini(spent + cost, max_movement)
+	var spent := get_max_movement() - movement_left
+	return mini(spent + cost, get_max_movement())
 
 
 ## The tile this unit's next step goes to. Only valid while it has a path.
@@ -611,19 +621,19 @@ func estimate_turns(path: Array[Vector2i]) -> int:
 	if path.is_empty():
 		return 0
 	var turns := 1
-	var mp := max_movement
+	var mp := get_max_movement()
 	for h in path:
 		var step := map.get_tile(h).get_move_cost()
 		if not _can_enter(step, mp):
 			turns += 1
-			mp = max_movement
+			mp = get_max_movement()
 		mp = maxi(mp - step, 0)
 	return turns
 
 
 ## Whether a unit with `mp` movement left may enter a tile costing `step`.
 func _can_enter(step: int, mp: int) -> bool:
-	return mp > 0 and (step <= mp or mp == max_movement)
+	return mp > 0 and (step <= mp or mp == get_max_movement())
 
 
 # --- Presentation ----------------------------------------------------------

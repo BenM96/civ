@@ -5,7 +5,7 @@ extends CanvasLayer
 ## Layout:
 ##   - Top bar: turn, resources, hint/help, auto-end toggle, End Turn.
 ##   - Bottom bar: a button per section (Central Hub, Mission Briefing, Field,
-##     Training, Buildings).
+##     Training, Buildings, Research).
 ##     Clicking one opens that section in a panel just above the bar;
 ##     clicking it again closes it.
 ##   - Event log (top right) and hovered-tile info (bottom right).
@@ -37,6 +37,10 @@ signal cancel_training_requested(index: int)
 signal build_building_requested(building_id: String)
 ## Asks to call off a building under construction (Player.building_queue).
 signal cancel_building_requested(index: int)
+## Asks to research a tech (see Tech), by id.
+signal research_requested(tech_id: String)
+## Asks to call off research paid for this turn.
+signal cancel_research_requested(tech_id: String)
 signal auto_end_toggled(enabled: bool)
 ## TESTING ONLY - remove before release. The "+50 all" button was pressed.
 signal debug_resources_requested
@@ -44,7 +48,7 @@ signal debug_resources_requested
 signal popup_closed
 
 ## The bottom-bar sections, in the order their buttons appear.
-enum Section { NONE, HUB, BRIEFING, FIELD, TRAINING, BUILDINGS }
+enum Section { NONE, HUB, BRIEFING, FIELD, TRAINING, BUILDINGS, RESEARCH }
 
 const END_TURN_TEXT := "End Turn (Enter)"
 const MAX_LOG_LINES := 8
@@ -105,6 +109,7 @@ func _make_panels() -> void:
 	_panels[Section.FIELD] = FieldPanel.new(self)
 	_panels[Section.TRAINING] = TrainingPanel.new(self)
 	_panels[Section.BUILDINGS] = BuildingsPanel.new(self)
+	_panels[Section.RESEARCH] = ResearchPanel.new(self)
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
@@ -125,7 +130,7 @@ func set_player(player: Player) -> void:
 	if _player == player:
 		return
 	if _player:
-		for s in [_player.units_changed, _player.inventory_changed, _player.training_changed, _player.buildings_changed]:
+		for s in [_player.units_changed, _player.inventory_changed, _player.training_changed, _player.buildings_changed, _player.research_changed]:
 			if s.is_connected(refresh):
 				s.disconnect(refresh)
 	_player = player
@@ -133,6 +138,7 @@ func set_player(player: Player) -> void:
 	_player.inventory_changed.connect(refresh)
 	_player.training_changed.connect(refresh)
 	_player.buildings_changed.connect(refresh)
+	_player.research_changed.connect(refresh)
 	refresh()
 
 
@@ -534,18 +540,18 @@ func _build_top_bar(root: Control) -> void:
 	for type in [ResourceDeposit.Type.BIOMASS, ResourceDeposit.Type.TITANIUM, ResourceDeposit.Type.SEDIMENT,
 			ResourceDeposit.Type.GOLD, ResourceDeposit.Type.ELECTRUM]:
 		var gap := Control.new()
-		gap.custom_minimum_size.x = 10
+		gap.custom_minimum_size.x = 4
 		top_row.add_child(gap)
 		var label := Label.new()
-		label.add_theme_font_size_override("font_size", 16)
+		label.add_theme_font_size_override("font_size", 15)
 		label.add_theme_color_override("font_color", ResourceDeposit.get_type_color(type))
 		top_row.add_child(label)
 		_inventory_labels[type] = label
 	var gap_cp := Control.new()
-	gap_cp.custom_minimum_size.x = 14
+	gap_cp.custom_minimum_size.x = 8
 	top_row.add_child(gap_cp)
 	_command_points_label = Label.new()
-	_command_points_label.add_theme_font_size_override("font_size", 16)
+	_command_points_label.add_theme_font_size_override("font_size", 15)
 	_command_points_label.add_theme_color_override("font_color", Color(1.0, 0.82, 0.3))
 	_command_points_label.mouse_filter = Control.MOUSE_FILTER_PASS  # So the tooltip shows.
 	_command_points_label.tooltip_text = "Command points you hold on the map's control points (gold-ringed tiles with a flag), linked to your hub by belts.\nHold every one at the end of a turn to win."
@@ -605,7 +611,7 @@ func _build_bottom_bar(root: Control) -> void:
 	root.add_child(bar)
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 12)
+	row.add_theme_constant_override("separation", 8)
 	bar.add_child(row)
 	for section in _panels:
 		_section_buttons[section] = _make_section_button(row, section)
@@ -619,8 +625,8 @@ func _make_section_button(parent: Control, section: Section) -> Button:
 	b.icon = UiStyle.svg_texture(panel.icon_svg)
 	b.toggle_mode = true
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(170, BOTTOM_BAR_HEIGHT - 14)
-	b.add_theme_font_size_override("font_size", 17)
+	b.custom_minimum_size = Vector2(140, BOTTOM_BAR_HEIGHT - 14)
+	b.add_theme_font_size_override("font_size", 16)
 	b.add_theme_constant_override("h_separation", 10)
 	var accent := Color(0.4, 0.85, 1.0)
 	b.add_theme_stylebox_override("normal", UiStyle.box_style(Color(0.2, 0.15, 0.14, 0.95), Color(1, 1, 1, 0.08)))

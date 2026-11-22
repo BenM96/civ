@@ -30,7 +30,8 @@ Every map has one **control point** per colony, 5 to 10 tiles from its hub
 To win you need a **Command Point** on all of them - yours and every
 rival's.
 
-- A Worker builds one with **Build Command Point** in Mission Briefing: pick
+- Once you've researched **Command Doctrine** (see Research), a Worker
+  builds one with **Build Command Point** in Mission Briefing: pick
   a control point and, like an extractor, it lays foundations and conveyor
   belts from the hub out to it, then builds the command point on the end.
   It costs 20 Titanium, 20 Sediment, 20 Gold and 20 Electrum.
@@ -67,33 +68,69 @@ shows it, e.g. "Biomass: +2 a turn".
 | Gold | Training units, command points |
 | Titanium | Training units, conveyor belts, extractors, bridges, hub buildings, command points |
 | Sediment | Foundations, extractors, bridges, hub buildings, command points |
-| Electrum | Command points |
+| Electrum | Research, command points |
 
 Every hub has at least one deposit of each resource within 4 tiles (but none
 right next to it), except Electrum: its deposits are only found more than
-10 tiles from every hub and from each other, and it can only be mined with an
-extractor connected by belts - Workers can't harvest it by hand.
+10 tiles from every hub and from each other. Workers can carry it home 1 a
+trip, or an extractor at the end of a belt line brings in 1 a turn.
+
+### Research
+
+Open **Research** on the bottom bar (or press R). Every game deals the 42
+techs out into **3 tech trees**, shuffled fresh each game but the same for
+every colony. Each tree has 2 tier-1 techs, then 2 tier-2, and so on up to
+tier 7.
+
+- A tree is researched in order: each tech needs the one before it. The 1st
+  tech on a tree costs 1 Electrum, the 2nd costs 2, and so on.
+- Some techs also need another tech, on any tree, always from a lower tier
+  (e.g. Surgery needs Field Medicine). The panel says what's missing.
+- You pay when you start it and it's done at the end of the turn (cancel
+  before then for a refund). You can research on all three trees in the same
+  turn, but only one tech per tree.
+- The panel shows the tech you can research next on each tree, the one after
+  it (greyed out), and what you've researched.
+- Techs only unlock things - researching Barracks lets you build a Barracks;
+  it doesn't build one.
+
+| Tier | Techs |
+|---|---|
+| 1 | Workforce I, Barracks, Garage, Field Medicine (Med Bay), Hydroponics I (+1 Greenhouse), Command Doctrine (command points) |
+| 2 | Workforce II, Hangar, Surgery (Surgical Ward), Vehicle Repair (Repair Bay), Assault Infantry, AT Infantry |
+| 3 | Workforce III, Flight Crews (Flight Crew Quarters), Regeneration (Regen Lab), Machine Tools (Machine Shop), Stinger Infantry, Tank Destroyer |
+| 4 | Workforce IV, Tank, Anti-Aircraft Gun, Fighter, Hydroponics II (+1 Greenhouse), All-Terrain Drives (+1 movement for land units) |
+| 5 | Workforce V, Bomber, Advanced Drilling (Titanium, Sediment and Gold extractors 0.3 a turn), Infantry / APC / Chopper Weapons |
+| 6 | Workforce VI, Guard / Assault / AT / Stinger / TD Weapons |
+| 7 | Workforce VII, Tank Guns, Flak Guns (AA), Fighter / Bomber Weapons, All-Terrain Drives II (+1 more movement) |
+
+Each **Workforce** tech raises your Worker limit by 1 (you start limited to
+2 Workers, counting any in training). Each **Weapons** tech gives one unit
++1 damage against every type. The computer colonies skip the tech rules for
+now: they can build and train everything they use without research (but
+get no Weapons, Drives or Drilling bonuses).
 
 ### Buildings
 
 Buildings live inside your hub rather than on the map. Open **Buildings** on
 the bottom bar (or press B) to see what you can build and what your hub
-has. A building is paid for when you order it and is ready at the end of
-the turn (you can cancel it before then for a full refund). Every building
-costs 5 Sediment and 2 Titanium for now.
+has. Each needs its tech first (see Research). A building is paid for when
+you order it and is ready at the end of the turn (you can cancel it before
+then for a full refund). Every building costs 5 Sediment and 2 Titanium for
+now.
 
-| Building | Needs | Most | What it does |
-|---|---|---|---|
-| Greenhouse | - | 3 | Grows 3 Biomass a turn. Every colony starts with one. |
-| Barracks | - | 1 | Opens the Barracks room. Needed to train infantry. |
-| Garage | - | 1 | Opens the Garage room. Needed to train armour; repairs damaged armour. |
-| Hangar | - | 1 | Opens the Hangar room. Needed to train air units. |
-| Med Bay | - | 1 | Opens the Med Bay room, which heals infantry and civilians. |
-| Surgical Ward | Med Bay | 2 | One more unit heals in the Med Bay at a time. |
-| Regen Lab | Med Bay | 2 | Units in the Med Bay heal 1 HP a turn faster. |
-| Repair Bay | Garage | 2 | One more vehicle is repaired in the Garage at a time. |
-| Machine Shop | Garage | 2 | Vehicles in the Garage are repaired 1 HP a turn faster. |
-| Flight Crew Quarters | Hangar | 3 | Aircraft refit 1 turn faster after a sortie. |
+| Building | Tech | Needs | Most | What it does |
+|---|---|---|---|---|
+| Greenhouse | - | - | 1 (+1 per Hydroponics) | Grows 3 Biomass a turn. Every colony starts with one. |
+| Barracks | Barracks | - | 1 | Opens the Barracks room. Needed to train infantry. |
+| Garage | Garage | - | 1 | Opens the Garage room. Needed to train armour; repairs damaged armour. |
+| Hangar | Hangar | - | 1 | Opens the Hangar room. Needed to train air units. |
+| Med Bay | Field Medicine | - | 1 | Opens the Med Bay room, which heals infantry and civilians. |
+| Surgical Ward | Surgery | Med Bay | 2 | One more unit heals in the Med Bay at a time. |
+| Regen Lab | Regeneration | Med Bay | 2 | Units in the Med Bay heal 1 HP a turn faster. |
+| Repair Bay | Vehicle Repair | Garage | 2 | One more vehicle is repaired in the Garage at a time. |
+| Machine Shop | Machine Tools | Garage | 2 | Vehicles in the Garage are repaired 1 HP a turn faster. |
+| Flight Crew Quarters | Flight Crews | Hangar | 3 | Aircraft refit 1 turn faster after a sortie. |
 
 ### The central hub's rooms
 
@@ -142,7 +179,10 @@ doubles the price of the next; every other unit adds 1 of each resource to
 the price of the next of its kind (Infantry: 1 Gold + 1 Titanium, then
 2 + 2, 3 + 3...). Every unit you have ever built counts. Losing units
 doesn't make the next one cheaper. Infantry need a Barracks, armour a Garage
-and air units a Hangar before you can train them (see Buildings).
+and air units a Hangar before you can train them (see Buildings). Infantry,
+APC and Chopper need only their building; every other infantry, armour and
+air unit also needs its own tech (see Research). Workers are capped by your
+Worker limit.
 
 Each unit has a type, which decides its icon's shape, how much damage it
 takes, how it moves and fights, and which room it waits in:
@@ -265,8 +305,8 @@ QRF room. If it breaks in battle, it drops QRF duty and comes home.
 
 ### Building an economy
 
-Harvesting by hand brings back 1 resource per trip (not Biomass or
-Electrum - only extractors get those). For a steady income:
+Harvesting by hand brings back 1 resource per trip (not Biomass - only
+extractors get that). For a steady income:
 
 1. Lay **foundations** from your hub out to a deposit, and on the deposit.
 2. Build **conveyor belts** on the foundations, including on the deposit.
@@ -296,7 +336,7 @@ chasms.
 | Mouse wheel | Zoom |
 | Left click | Select a target; click your hub to open it |
 | Right click / Esc | Cancel targeting |
-| H / M / F / T / B | Central Hub, Mission Briefing, In the Field, Training, Buildings panels |
+| H / M / F / T / B / R | Central Hub, Mission Briefing, In the Field, Training, Buildings, Research panels |
 | Drag a unit card | Move a unit between the hub's rooms (Central Hub panel) |
 | Enter | End turn |
 | F5 / F9 | Save / load |
@@ -324,10 +364,13 @@ Open the project folder in Godot 4.7 and press Play (F5 in the editor).
   units in the list in `Player._init()`.
 - Buildings inside the hub (e.g. the Greenhouse) each have a file in
   `scripts/buildings/`; register new ones in `Building.create_all()`.
+- Techs are all listed in `scripts/techs/tech_list.gd` (each tier must have
+  exactly 6 - see the note at the top); `Player` answers what they unlock
+  and raise (`has_tech()`, `get_building_limit()`, `get_worker_limit()`...).
 - The hub's rooms each have a file in `scripts/rooms/`, holding what
   happens to the units in them; register new ones in `Room.create_all()`.
 - The HUD (`scripts/ui/hud.gd`) is the frame; each bottom-bar panel
-  (Central Hub, Mission Briefing, Field, Training, Buildings) has its own
+  (Central Hub, Mission Briefing, Field, Training, Buildings, Research) has its own
   `*_panel.gd` file, and shared button/box styles live in `ui_style.gd`.
 - Saves are JSON in Godot's user folder; each part of the game saves itself
   with `to_dict()` / `load_dict()`.

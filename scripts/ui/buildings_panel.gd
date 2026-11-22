@@ -32,7 +32,7 @@ func fill() -> void:
 	add_note("Paid for now, ready at the end of the turn. Hover for details.")
 	var grid := _grid()
 	for type in player.building_types:
-		if player.count_planned_buildings(type.id) < type.max_count:
+		if player.count_planned_buildings(type.id) < player.get_building_limit(type.id):
 			grid.add_child(_make_build_row(type))
 	if grid.get_child_count() > 0:
 		add(grid)
@@ -67,7 +67,7 @@ func fill() -> void:
 		if count == 0:
 			continue
 		var label := Label.new()
-		label.text = "%s  %d/%d" % [type.display_name, count, type.max_count]
+		label.text = "%s  %d/%d" % [type.display_name, count, player.get_building_limit(type.id)]
 		var output := type.get_output_text()
 		if output != "":
 			label.text += "  (%s%s)" % [output, " each" if count > 1 else ""]
@@ -103,7 +103,7 @@ func _make_build_row(type: Building) -> HBoxContainer:
 	text.mouse_filter = Control.MOUSE_FILTER_PASS
 	row.add_child(text)
 	var name_label := Label.new()
-	name_label.text = "%s  %d/%d" % [type.display_name, player.count_planned_buildings(type.id), type.max_count]
+	name_label.text = "%s  %d/%d" % [type.display_name, player.count_planned_buildings(type.id), player.get_building_limit(type.id)]
 	name_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	text.add_child(name_label)
 	var about := Label.new()
@@ -122,7 +122,7 @@ func _make_build_row(type: Building) -> HBoxContainer:
 	button.disabled = reason != ""
 	button.tooltip_text = ("Can't build yet: %s.\n\n" % reason if reason != "" else "") + type.description
 	row.add_child(button)
-	if type.requires != "" and player.count_buildings(type.requires) == 0:
-		name_label.text += "  (needs a %s)" % Building.get_name_for(type.requires)
+	if reason.begins_with("needs"):
+		name_label.text += "  (%s)" % reason
 		name_label.modulate = Color(1, 1, 1, 0.55)
 	return row

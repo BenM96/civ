@@ -72,6 +72,11 @@ func _ready() -> void:
 		_new_world()
 	else:
 		start_turn = _load_world(save)
+	# One set of tech trees for everyone, shuffled from the map's seed (so a
+	# loaded game gets the same ones back).
+	var tech_trees := TechTrees.new(map.last_seed)
+	for player in players:
+		player.tech_trees = tech_trees
 	for player in players:
 		if not player.is_ai:
 			local_player = player
@@ -109,6 +114,12 @@ func _ready() -> void:
 			hud.log_event("Can't build that: %s" % reason))
 	hud.cancel_building_requested.connect(func(index: int) -> void:
 		_submit(Orders.cancel_building(index)))
+	hud.research_requested.connect(func(tech_id: String) -> void:
+		var reason := _submit(Orders.research(tech_id))
+		if reason != "":
+			hud.log_event("Can't research that: %s" % reason))
+	hud.cancel_research_requested.connect(func(tech_id: String) -> void:
+		_submit(Orders.cancel_research(tech_id)))
 	hud.heal_order_requested.connect(func(unit: Unit, index: int) -> void:
 		var reason := _submit(Orders.heal_order(unit, index))
 		if reason != "":
@@ -615,7 +626,7 @@ func _structure_info(tile: HexTile) -> String:
 			return text + " - deposit exhausted"
 		if connected:
 			return text + " - connected, %s %s per turn" % [
-				ResourceDeposit.format_change(ExtractorBuildable.output_for(tile.deposit.type)), tile.deposit.get_display_name()]
+				ResourceDeposit.format_change(owner_player.get_extractor_output(tile.deposit.type)), tile.deposit.get_display_name()]
 		return text + " - NOT connected (needs conveyor belts to the hub)"
 	if tile.structure == Structure.Type.COMMAND_POINT:
 		if connected:

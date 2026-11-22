@@ -89,7 +89,9 @@ func _make_mission_picker(unit: Unit) -> OptionButton:
 		var i := picker.item_count
 		picker.add_item(choice[1])
 		picker.set_item_metadata(i, choice[0])
-		picker.set_item_tooltip(i, choice[2] if choice[3] else "Can't afford: %s" % choice[2].to_lower())
+		# A 5th entry, if there is one, says why it's unavailable.
+		var why: String = choice[4] if choice.size() > 4 else "Can't afford: %s" % choice[2].to_lower()
+		picker.set_item_tooltip(i, choice[2] if choice[3] else why)
 		picker.set_item_disabled(i, not choice[3])
 	# Select the remembered mission if it's still possible, else the first one that is.
 	picker.selected = -1
@@ -143,9 +145,11 @@ func _mission_choices(unit: Unit) -> Array:
 						b.display_name, extra], true])
 			elif b.line_of != "":
 				var line_name := player.get_buildable(b.line_of).display_name
-				choices.append(["build:" + b.id, "Build %s (%s, + %ss to hub)" % [b.display_name, b.get_cost_text(), line_name],
-					"Pick %s: lays foundations and %ss from the hub to it where missing, then builds the %s. Pays as it goes." % [b.site_name, 
-						line_name, b.display_name], true])
+				var locked := player.get_buildable_refusal(b)
+				var label := "Build %s (%s, + %ss to hub)" % [b.display_name, b.get_cost_text(), line_name]
+				choices.append(["build:" + b.id, label + ("  - %s" % locked if locked != "" else ""),
+					"Pick %s: lays foundations and %ss from the hub to it where missing, then builds the %s. Pays as it goes." % [b.site_name,
+						line_name, b.display_name], locked == "", "Can't yet: %s." % locked])
 			else:
 				choices.append(["build:" + b.id, "Build %s (%s)" % [b.display_name, b.get_cost_text()],
 					"Costs %s." % b.get_cost_text(), player.can_afford(b.cost)])

@@ -2,8 +2,9 @@ class_name ElectrumResource
 extends ResourceType
 ## A rare metal, needed (with every other stored resource) for command
 ## points - see CommandPointBuildable. Deposits only lie far out - more than 10 tiles from every hub and
-## from each other - and it can't be harvested by hand: a colony has to run
-## belts all the way out and build an extractor on it.
+## from each other. Workers can carry it home 1 a trip, or an extractor at
+## the end of a long belt line brings in 1 a turn. It also pays for research
+## (see TechTrees).
 
 
 func _init() -> void:
@@ -16,8 +17,7 @@ func _init() -> void:
 	terrains = [Terrain.Type.REGOLITH, Terrain.Type.DUST_PLAINS, Terrain.Type.DUNES, Terrain.Type.HIGHLANDS]
 	min_distance_from_hubs = 10
 	min_spacing = 10
-	can_harvest = false
-	harvest_amount = 0
+	harvest_amount = 1
 	extractor_output = 1.0
 
 
