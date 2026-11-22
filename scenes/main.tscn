@@ -1,25 +1,25 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://dirlhf1nyfs7l"]
 
-[ext_resource type="Script" path="res://scripts/game/game.gd" id="1_game"]
-[ext_resource type="Script" path="res://scripts/map/hex_map.gd" id="2_map"]
-[ext_resource type="Script" path="res://scripts/map/hex_overlay.gd" id="3_overlay"]
-[ext_resource type="Script" path="res://scripts/game/camera_controller.gd" id="4_camera"]
-[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="5_hud"]
+[ext_resource type="Script" uid="uid://x4thr042nnab" path="res://scripts/game/game.gd" id="1_game"]
+[ext_resource type="Script" uid="uid://pas7vtw3epbq" path="res://scripts/map/hex_map.gd" id="2_map"]
+[ext_resource type="Script" uid="uid://clxwglqu4jmnc" path="res://scripts/map/hex_overlay.gd" id="3_overlay"]
+[ext_resource type="Script" uid="uid://db6ehltm2365f" path="res://scripts/game/camera_controller.gd" id="4_camera"]
+[ext_resource type="Script" uid="uid://bchwuto1085ea" path="res://scripts/ui/hud.gd" id="5_hud"]
 
-[node name="Main" type="Node2D"]
+[node name="Main" type="Node2D" unique_id=192824077]
 script = ExtResource("1_game")
 
-[node name="HexMap" type="Node2D" parent="."]
+[node name="HexMap" type="Node2D" parent="." unique_id=2079082067]
 script = ExtResource("2_map")
 
-[node name="Players" type="Node2D" parent="."]
+[node name="Players" type="Node2D" parent="." unique_id=570465448]
 
-[node name="HexOverlay" type="Node2D" parent="."]
+[node name="HexOverlay" type="Node2D" parent="." unique_id=615647047]
 z_index = 5
 script = ExtResource("3_overlay")
 
-[node name="Camera" type="Camera2D" parent="."]
+[node name="Camera" type="Camera2D" parent="." unique_id=1246229693]
 script = ExtResource("4_camera")
 
-[node name="Hud" type="CanvasLayer" parent="."]
+[node name="Hud" type="CanvasLayer" parent="." unique_id=1501601779]
 script = ExtResource("5_hud")
