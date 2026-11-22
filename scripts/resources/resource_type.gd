@@ -2,7 +2,7 @@ class_name ResourceType
 extends RefCounted
 ## Everything about one kind of resource, in one file per resource (like
 ## units and structures): its name and colour, where its deposits appear,
-## what it yields to Workers and to Extractors, and how its deposit is drawn.
+## what it yields to the Miner and to Extractors, and how its deposit is drawn.
 ##
 ## To add a new resource: add a value to ResourceDeposit.Type, write a
 ## script extending this class (see biomass_resource.gd), and list it in
@@ -14,8 +14,8 @@ var color := Color.WHITE
 
 # --- Where deposits appear --------------------------------------------------
 ## Deposit size range, picked at random.
-var min_amount := 10
-var max_amount := 50
+var min_amount := 999
+var max_amount := 999
 ## Chance per eligible tile of a deposit appearing.
 var spawn_chance := 0.05
 ## Terrain types (Terrain.Type) deposits can appear on.
@@ -32,9 +32,9 @@ var min_spacing := 0
 ## stored at all: what buildings and extractors make of it each turn is just
 ## a rate, set against what the units eat (see Player.get_biomass_production()).
 var stored := true
-## Whether Workers can harvest it by hand. If not, only extractors get it.
+## Whether the Miner can harvest it by hand. If not, only extractors get it.
 var can_harvest := true
-## Taken from the deposit per Harvest trip by a Worker (whole units).
+## Taken from the deposit per Harvest trip by the Miner (whole units).
 var harvest_amount := 1
 ## Delivered to the hub per turn by a connected Extractor. Can be a fraction:
 ## stockpiles hold whole units, so the extractor builds up progress and

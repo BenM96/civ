@@ -42,7 +42,9 @@ func fill() -> void:
 		shown += 1
 		var heading := Unit.get_type_name(type)
 		if type == Unit.UnitType.CIVILIAN:
-			heading += "  -  Workers %d/%d" % [player.count_workers(), player.get_worker_limit()]
+			heading += "  -  Miner %d/%d, Builders %d/%d" % [
+				player.count_units_named(Miner.NAME), Player.MINER_LIMIT,
+				player.count_units_named(Builder.NAME), player.get_builder_limit()]
 		add_heading(heading)
 		add(grid)
 	if shown == 0:
@@ -69,11 +71,11 @@ func fill() -> void:
 
 ## "Tank Destroyer" over "3 Gold, 3 Titanium - 5 turns"; trains one when
 ## pressed. Over why not instead if it can't be trained now (e.g. the
-## Worker limit).
+## Builder limit).
 func _make_train_button(bp: UnitBlueprint) -> Button:
 	var cost := player.get_training_cost(bp)
 	var needs := player.get_training_refusal(bp)
-	var second_line := "%s - %d turns" % [ResourceDeposit.format_cost(cost), bp.train_turns] \
+	var second_line := "%s - %d turns" % ["Free" if cost.is_empty() else ResourceDeposit.format_cost(cost), bp.train_turns] \
 		if needs == "" else needs.left(1).to_upper() + needs.substr(1)
 	var button := UiStyle.make_button("%s\n%s" % [bp.unit_name, second_line],
 		func() -> void: hud.train_requested.emit(bp))
@@ -85,5 +87,5 @@ func _make_train_button(bp: UnitBlueprint) -> Button:
 		why = "Can't train yet: %s.\n" % needs
 	elif button.disabled:
 		why = "Not enough resources.\n"
-	button.tooltip_text = why + bp.get_info_text() + "\n" + bp.get_cost_growth_text()
+	button.tooltip_text = why + bp.get_info_text()
 	return button

@@ -7,8 +7,8 @@ func _init() -> void:
 	type = ResourceDeposit.Type.SEDIMENT
 	display_name = "Sediment"
 	color = Color(0.97, 0.93, 0.8)
-	min_amount = 60
-	max_amount = 160
+	min_amount = 999
+	max_amount = 999
 	spawn_chance = 0.08
 	terrains = [Terrain.Type.DUST_PLAINS, Terrain.Type.DUNES]
 	harvest_amount = 1

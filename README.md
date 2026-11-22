@@ -9,7 +9,7 @@ Made with [Godot 4.7](https://godotengine.org/).
 
 ## How to play
 
-Each colony starts with a hub and a single Worker. During a turn you give
+Each colony starts with a hub and a single Miner. During a turn you give
 orders to units waiting at your hub; when you press **End Turn**, every
 colony's orders play out at the same time. Units walk out, do their job and
 come home on their own.
@@ -30,7 +30,7 @@ Every map has one **control point** per colony, 5 to 10 tiles from its hub
 To win you need a **Command Point** on all of them - yours and every
 rival's.
 
-- Once you've researched **Command Doctrine** (see Research), a Worker
+- Once you've researched **Command Doctrine** (see Research), a Builder
   builds one with **Build Command Point** in Mission Briefing: pick
   a control point and, like an extractor, it lays foundations and conveyor
   belts from the hub out to it, then builds the command point on the end.
@@ -40,7 +40,12 @@ rival's.
   a belt on the way stops it counting until the link is restored.
 - Infantry can **capture** another colony's command point (it then needs
   your belts to count) or **demolish** it, freeing the control point.
-- The top bar shows how many you hold, e.g. "Command points: 2/5".
+- Each linked command point also gives you **+1 initiative**. Initiative
+  isn't stored - like biomass, it's worked out each turn from your linked
+  command points plus your Initiative techs. In a battle, the colony with
+  the most initiative fires first (see Combat).
+- The top bar shows how many you hold and your initiative, e.g.
+  "Command points: 2/5  Initiative: 3".
 
 The computer colonies don't go for control points yet.
 
@@ -56,8 +61,8 @@ shows it, e.g. "Biomass: +2 a turn".
 - If production does go below zero (say an extractor is captured, demolished
   or runs dry), **one unit starves to death at the end of every turn** until
   it's back to zero or above. The most injured unit goes first (ties at
-  random, so healthy ones go at random), and Workers only once nobody else
-  is left. A popup tells you each time, with how short you are and how to
+  random, so healthy ones go at random), and the Miner and Builders only once
+  nobody else is left. A popup tells you each time, with how short you are and how to
   fix it.
 
 ### Resources
@@ -72,8 +77,9 @@ shows it, e.g. "Biomass: +2 a turn".
 
 Every hub has at least one deposit of each resource within 4 tiles (but none
 right next to it), except Electrum: its deposits are only found more than
-10 tiles from every hub and from each other. Workers can carry it home 1 a
-trip, or an extractor at the end of a belt line brings in 1 a turn.
+10 tiles from every hub and from each other. The Miner can carry it home 1
+a trip, or an extractor at the end of a belt line brings in 1 a turn.
+Every deposit holds 999, so in practice none ever runs out.
 
 ### Research
 
@@ -94,19 +100,18 @@ tier 7.
 - Techs only unlock things - researching Barracks lets you build a Barracks;
   it doesn't build one.
 
-| Tier | Techs |
-|---|---|
-| 1 | Workforce I, Barracks, Garage, Field Medicine (Med Bay), Hydroponics I (+1 Greenhouse), Command Doctrine (command points) |
-| 2 | Workforce II, Hangar, Surgery (Surgical Ward), Vehicle Repair (Repair Bay), Assault Infantry, AT Infantry |
-| 3 | Workforce III, Flight Crews (Flight Crew Quarters), Regeneration (Regen Lab), Machine Tools (Machine Shop), Stinger Infantry, Tank Destroyer |
-| 4 | Workforce IV, Tank, Anti-Aircraft Gun, Fighter, Hydroponics II (+1 Greenhouse), All-Terrain Drives (+1 movement for land units) |
-| 5 | Workforce V, Bomber, Advanced Drilling (Titanium, Sediment and Gold extractors 0.3 a turn), Infantry / APC / Chopper Weapons |
-| 6 | Workforce VI, Guard / Assault / AT / Stinger / TD Weapons |
-| 7 | Workforce VII, Tank Guns, Flak Guns (AA), Fighter / Bomber Weapons, All-Terrain Drives II (+1 more movement) |
+Every tech, tier by tier, with what it does and what it needs, is listed in
+[TECHS.md](TECHS.md). That file is generated from the game's tech list -
+after changing techs, run:
 
-Each **Workforce** tech raises your Worker limit by 1 (you start limited to
-2 Workers, counting any in training). Each **Weapons** tech gives one unit
-+1 damage against every type. The computer colonies follow the same rules
+```
+Godot_v4.7.2-stable_win64_console.exe --headless --path . -s tools/generate_tech_doc.gd
+```
+
+Each **Workforce** tech raises your Builder limit by 1 (you start limited to
+1 Builder, counting any in training). Each **Weapons** tech gives one unit
++1 damage against every type. Each **Initiative** tech (tiers 2, 4 and 6)
+adds 1 initiative (see Combat). The computer colonies follow the same rules
 and research techs too (see Units).
 
 ### Buildings
@@ -120,7 +125,7 @@ now.
 
 | Building | Tech | Needs | Most | What it does |
 |---|---|---|---|---|
-| Greenhouse | - | - | 1 (+1 per Hydroponics) | Grows 3 Biomass a turn. Every colony starts with one. |
+| Greenhouse | - | - | 1 (2 with Hydroponics I) | Grows 3 Biomass a turn. Every colony starts with one. |
 | Barracks | Barracks | - | 1 | Opens the Barracks room. Needed to train infantry. |
 | Garage | Garage | - | 1 | Opens the Garage room. Needed to train armour; repairs damaged armour. |
 | Hangar | Hangar | - | 1 | Opens the Hangar room. Needed to train air units. |
@@ -129,7 +134,7 @@ now.
 | Regen Lab | Regeneration | Med Bay | 2 | Units in the Med Bay heal 1 HP a turn faster. |
 | Repair Bay | Vehicle Repair | Garage | 2 | One more vehicle is repaired in the Garage at a time. |
 | Machine Shop | Machine Tools | Garage | 2 | Vehicles in the Garage are repaired 1 HP a turn faster. |
-| Flight Crew Quarters | Flight Crews | Hangar | 3 | Aircraft refit 1 turn faster after a sortie. |
+| Flight Crew Quarters | - | Hangar | 3 | Aircraft refit 1 turn faster after a sortie. |
 
 ### The central hub's rooms
 
@@ -148,7 +153,7 @@ the start. The others show a padlock until you build their building.
 | Airlock | Units given a mission wait here to leave at the end of the turn. Drag one out to call its mission off. |
 | Med Bay | Heals injured infantry and civilians (see Healing). Only injured infantry and civilians are allowed in. |
 | Quick Reaction Force | Units on the QRF mission stand by here (see Missions). Drag one out to take it off QRF duty. |
-| Break Room | Off-duty civilian units (Workers). Workers in training are shown here. |
+| Break Room | Off-duty civilian units (Miner, Builders, Guards). Civilians in training are shown here. |
 | Barracks | The same, for infantry. |
 | Hangar | The same, for air units. Aircraft back from a sortie refit here for 10 turns (less with Flight Crew Quarters) and can't leave until they're done. |
 | Garage | The same, for armour units. Also repairs damaged armour (see Healing). |
@@ -173,18 +178,27 @@ faster. Aircraft are repaired by refitting in the Hangar.
 
 ### Units
 
-Train units from **Training** on the bottom bar. Each Worker you build
-(after the one you start with) doubles the price of the next. Every Worker
-you have ever built counts, so losing one doesn't make the next cheaper.
-Every other unit always costs the same: Guards 1 Gold + 1 Titanium,
-Infantry 1 Gold + 2 Titanium, armour 1 Gold + 3 Titanium + 2 Sediment and
-air units 3 Gold + 2 Titanium. Specialist units (every infantry, armour or
+Train units from **Training** on the bottom bar. Every unit always costs the
+same. Your work is split between two civilians:
+
+- The **Miner** harvests deposits. You start with one and can never have
+  more. If it dies, a new one costs no resources (only its biomass), so you
+  can never be left with no way to gather anything.
+- **Builders** build foundations, bridges, conveyor belts, extractors and
+  command points, paying from your stockpile. You start with none and may
+  have 1 (raised by the Workforce techs); each costs 1 Gold + 1 Titanium.
+
+Give the Miner a repeating harvest order (see Missions) and it gathers on
+its own while your Builders build.
+
+Other units: Guards cost 1 Gold + 1 Titanium, Infantry 1 Gold + 2 Titanium,
+armour 1 Gold + 3 Titanium + 2 Sediment and air units 3 Gold + 2 Titanium. Specialist units (every infantry, armour or
 air unit except Infantry, APC and Chopper) cost 1 Electrum on top.
 
 Infantry need a Barracks, armour a Garage and air units a Hangar before you
-can train them (see Buildings). Infantry, APC and Chopper need only their building; every other infantry, armour and
-air unit also needs its own tech (see Research). Workers are capped by your
-Worker limit.
+can train them (see Buildings). Infantry, APC and Chopper need only their
+building; every other infantry, armour and air unit also needs its own tech
+(see Research).
 
 Each unit has a type, which decides its icon's shape, how much damage it
 takes, how it moves and fights, and which room it waits in:
@@ -200,7 +214,8 @@ Each icon shows the unit's short name, e.g. W, I, AA.
 
 | Unit | Type | Label | Cost | Turns | Missions |
 |---|---|---|---|---|---|
-| Worker | Civilian | W | 1 Gold, 1 Titanium (doubles) | 2 | Harvest, build |
+| Miner | Civilian | MI | Free (only 1) | 2 | Harvest |
+| Builder | Civilian | BU | 1 Gold, 1 Titanium | 2 | Build |
 | Guard | Civilian | G | 1 Gold, 1 Titanium | 2 | Move, guard, QRF |
 | Infantry | Infantry | I | 1 Gold, 2 Titanium | 3 | Move, guard, escort, capture, demolish, QRF |
 | Assault Infantry | Infantry | AS | 1 Gold, 2 Titanium, 1 Electrum | 3 | As Infantry |
@@ -215,9 +230,9 @@ Each icon shows the unit's short name, e.g. W, I, AA.
 | Bomber | Air | B | 3 Gold, 2 Titanium, 1 Electrum | 5 | Sortie |
 
 The computer colonies follow the plan in `scripts/ai/aiStratergy.txt`: train
-Workers up to their limit, build Titanium, Sediment and Gold extractors and
+a Miner if they've lost theirs and Builders up to their limit, build Titanium, Sediment and Gold extractors and
 then any extractor nearest first, train an army to use up their biomass,
-build what hub buildings they can, keep a Worker fetching Electrum and
+build what hub buildings they can, keep the Miner fetching Electrum and
 research what they can afford. A third of their army stays home on QRF; the
 rest attack the nearest rival together, Infantry demolishing its structures
 with armour as escorts, while aircraft fly sorties at enemy units.
@@ -229,7 +244,7 @@ target's type (hover over a unit in Training to see its numbers):
 
 | Attacker | vs Infantry | vs Civilian | vs Armour | vs Air |
 |---|---|---|---|---|
-| Worker | 1 | 3 | 0 | 0 |
+| Miner, Builder | 1 | 3 | 0 | 0 |
 | Guard | 3 | 4 | 0 | 0 |
 | Infantry | 4 | 5 | 2 | 2 |
 | Assault Infantry | 6 | 10 | 5 | 5 |
@@ -259,8 +274,9 @@ overlap become one. Everyone in it stops for the turn, and one round is
 fought:
 
 1. Units already below half their HP (under 5) flee straight away.
-2. Each colony's other units are put in a list in random order, and the
-   lists take turns in a random order: the first unit of each list fires,
+2. Each colony's other units are put in a list in random order. The lists
+   take turns highest **initiative** first (colonies with the same
+   initiative go in a random order): the first unit of each list fires,
    then the second of each, and so on.
 3. Every unit fires once (armour twice in a row), at an enemy still in the
    fight, picked at random from its preferred targets (see above). A unit hit to 0 HP dies at once; one hit below half its
@@ -282,11 +298,19 @@ Open **Mission Briefing** on the bottom bar, pick a mission from a unit's
 dropdown, press **Select Target** and click a tile. (Escort and QRF need no
 tile: the button says **Give Order**.)
 
+The second dropdown says how many times to do it: 1 (the default) to 5, or
+INF for forever. Each time the unit is back in Mission Briefing (hurt units
+once healed, aircraft once refitted) it's given the same order again at the
+end of the turn, and sets out the turn after. If the hub can't pay for it
+yet, the unit waits until it can. If the order can't be given any more (e.g.
+the deposit is gone), it stops repeating. To stop a unit repeating, press
+**Cancel** next to it in **Field** while it's waiting to set out.
+
 | Mission | Who | What it does |
 |---|---|---|
 | Move | Guard, infantry, armour | Walk to a tile, then come home |
-| Harvest | Worker | Bring back 1 resource from a deposit |
-| Build | Worker | Foundation, bridge, conveyor belt or extractor |
+| Harvest | Miner | Bring back 1 resource from a deposit |
+| Build | Builder | Foundation, bridge, conveyor belt or extractor |
 | Guard | Guard, infantry, armour | Hold a tile for 20 turns |
 | Escort | Infantry, armour | Follow a unit from the hub wherever it goes, fighting beside it, and come home with it (not aircraft) |
 | Capture | Infantry | Take over an enemy extractor or conveyor belt |
@@ -321,7 +345,7 @@ extractors get that). For a steady income:
    Electrum extractor delivers 1 per turn; Titanium, Sediment and Gold
    extractors deliver 0.2 per turn (1 every 5 turns).
 
-Each resource's numbers (deposit sizes, where it appears, what a Worker
+Each resource's numbers (deposit sizes, where it appears, what the Miner
 harvests per trip, what an extractor delivers) and its map icon live in its
 own file in `scripts/resources/`.
 
@@ -372,7 +396,7 @@ Open the project folder in Godot 4.7 and press Play (F5 in the editor).
   `scripts/buildings/`; register new ones in `Building.create_all()`.
 - Techs are all listed in `scripts/techs/tech_list.gd` (each tier must have
   exactly 6 - see the note at the top); `Player` answers what they unlock
-  and raise (`has_tech()`, `get_building_limit()`, `get_worker_limit()`...).
+  and raise (`has_tech()`, `get_building_limit()`, `get_builder_limit()`...).
 - The hub's rooms each have a file in `scripts/rooms/`, holding what
   happens to the units in them; register new ones in `Room.create_all()`.
 - The HUD (`scripts/ui/hud.gd`) is the frame; each bottom-bar panel

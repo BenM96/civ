@@ -21,7 +21,7 @@ extends CanvasLayer
 
 signal end_turn_requested
 ## kind is a mission id understood by the game, e.g. "move" or "harvest".
-signal mission_requested(unit: Unit, kind: String)
+signal mission_requested(unit: Unit, kind: String, repeats: int)
 signal cancel_mission_requested(unit: Unit)
 ## Asks the game to centre the camera on a unit.
 signal focus_requested(unit: Unit)
@@ -196,7 +196,7 @@ func set_inventory(inventory: Dictionary, income: Dictionary = {}) -> void:
 			label.text = "%s: %s a turn" % [type_name, ResourceDeposit.format_change(rate)]
 			label.add_theme_color_override("font_color",
 				STARVING_COLOR if rate < 0 else ResourceDeposit.get_type_color(type))
-			label.tooltip_text = "Biomass made each turn (Greenhouses, Biomass extractors) less what your units eat. It isn't stored.\nBelow zero, one unit starves every turn - the most injured first, Workers last." if rate >= 0 \
+			label.tooltip_text = "Biomass made each turn (Greenhouses, Biomass extractors) less what your units eat. It isn't stored.\nBelow zero, one unit starves every turn - the most injured first, the Miner and Builders last." if rate >= 0 \
 				else "Your units eat more biomass than the colony makes: one unit will starve at the end of every turn until this is back to zero or above.\nBuild a Greenhouse (Buildings, B) or connect a Biomass extractor."
 			continue
 		label.text = "%s: %d" % [type_name, inventory.get(type, 0)]
@@ -205,9 +205,9 @@ func set_inventory(inventory: Dictionary, income: Dictionary = {}) -> void:
 
 
 ## Progress towards victory: linked command points held of the map's
-## control points.
-func set_command_points(held: int, total: int) -> void:
-	_command_points_label.text = "Command points: %d/%d" % [held, total]
+## control points - and our initiative (see Player.get_initiative()).
+func set_command_points(held: int, total: int, initiative: int) -> void:
+	_command_points_label.text = "Command points: %d/%d  Initiative: %d" % [held, total, initiative]
 
 
 ## Makes sure the player notices that one of their units has starved (see
@@ -295,7 +295,7 @@ func _starvation_text(report: Dictionary) -> String:
 	var lines: PackedStringArray = []
 	lines.append("Your colony makes %s biomass a turn, but your %d units eat %d: you're %s short." % [
 		ResourceDeposit.format_amount(made), report["units"], eaten, ResourceDeposit.format_amount(-production)])
-	lines.append("Every turn biomass production is below zero, another unit starves - the most injured first, Workers last.")
+	lines.append("Every turn biomass production is below zero, another unit starves - the most injured first, the Miner and Builders last.")
 	var after: float = report["after"]
 	if after >= 0:
 		lines.append("With one less unit to feed, production is back to %s a turn, so nobody else will starve - for now." % ResourceDeposit.format_change(after))
@@ -554,7 +554,7 @@ func _build_top_bar(root: Control) -> void:
 	_command_points_label.add_theme_font_size_override("font_size", 15)
 	_command_points_label.add_theme_color_override("font_color", Color(1.0, 0.82, 0.3))
 	_command_points_label.mouse_filter = Control.MOUSE_FILTER_PASS  # So the tooltip shows.
-	_command_points_label.tooltip_text = "Command points you hold on the map's control points (gold-ringed tiles with a flag), linked to your hub by belts.\nHold every one at the end of a turn to win."
+	_command_points_label.tooltip_text = "Command points you hold on the map's control points (gold-ringed tiles with a flag), linked to your hub by belts.\nHold every one at the end of a turn to win.\n\nInitiative: +1 for each linked command point, plus the Initiative techs. Not stored. In a battle the colony with the most initiative fires first (ties at random)."
 	top_row.add_child(_command_points_label)
 	# Hint (shown while choosing a target; replaces the controls help)
 	_hint_label = Label.new()
@@ -579,7 +579,7 @@ func _build_top_bar(root: Control) -> void:
 	auto_end.toggled.connect(func(on: bool) -> void: auto_end_toggled.emit(on))
 	top_row.add_child(auto_end)
 	# TESTING ONLY - remove before release (with Orders.debug_resources()).
-	var debug_give := UiStyle.make_button("+%d all (test)" % Orders.DEBUG_RESOURCE_AMOUNT,
+	var debug_give := UiStyle.make_button("+%d (test)" % Orders.DEBUG_RESOURCE_AMOUNT,
 		func() -> void: debug_resources_requested.emit())
 	debug_give.tooltip_text = "Testing only: give your colony %d of every resource." % Orders.DEBUG_RESOURCE_AMOUNT
 	top_row.add_child(debug_give)

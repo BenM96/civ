@@ -9,21 +9,23 @@ extends RefCounted
 ## Each turn (just before the turn resolves, so its orders depart at the same
 ## time as everyone else's) it works through its economic aims in priority
 ## order, then its military ones:
-##   1. Workers - train one whenever it's under the Worker limit.
-##   2. Extractors - a Titanium, Sediment and Gold extractor first, then any
+##   1. Workers - trains a Miner if it has none (they're free), and a
+##      Builder whenever it's under the Builder limit.
+##   2. Extractors - a Titanium, Sediment and Gold extractor first, then
+##      every deposit within 5 tiles, then an Electrum extractor, then any
 ##      extractor it can, nearest deposit first (Biomass first while biomass
 ##      production is below zero). Built in stages: foundations to the
-##      deposit, then belts, then the extractor - one worker per job it can
+##      deposit, then belts, then the extractor - one Builder per job it can
 ##      pay for, so several build side by side.
 ##   3. Army - trains fighting units while there's biomass to feed them (see
 ##      _next_army_unit() for which).
 ##   4. Buildings - builds every hub building it's allowed, in list order.
-##   5. Electrum - keeps a Worker harvesting Electrum (until an extractor
+##   5. Electrum - keeps the Miner harvesting Electrum (until an extractor
 ##      brings it in).
 ##   6. Research - researches what it can afford, useful techs first.
 ## Higher aims get resources first: an aim that can't afford something yet
 ## holds back what there is towards it (see _save_for()), so lower aims
-## can't spend it, and idle Workers fetch what each aim is missing, highest
+## can't spend it, and the Miner fetches what each aim is missing, highest
 ## aim first (_plan_harvesting()).
 ##
 ## Military:
@@ -34,12 +36,15 @@ extends RefCounted
 ##   3. Air - aircraft fly sorties at enemies on its structures, then those
 ##      nearest its hub.
 
-## Workers only travel this far (hex distance) to harvest - except Electrum,
+## The Miner only travels this far (hex distance) to harvest - except Electrum,
 ## whose deposits all lie more than 10 tiles out.
 const MAX_HARVEST_DISTANCE := 12
 const ELECTRUM_HARVEST_DISTANCE := 22
 ## Extractors are only planned on deposits this close to the hub.
 const MAX_EXTRACTOR_DISTANCE := 12
+## Aim 2 builds on every deposit this close to the hub before starting on
+## an Electrum extractor (see _next_extractor_project()).
+const NEAR_EXTRACTOR_RADIUS := 5
 ## Aim 2 gets one of each of these first.
 const CORE_EXTRACTOR_TYPES: Array[ResourceDeposit.Type] = [
 	ResourceDeposit.Type.TITANIUM, ResourceDeposit.Type.SEDIMENT, ResourceDeposit.Type.GOLD]
@@ -58,7 +63,7 @@ var orders: Orders
 ## What this turn's orders and savings haven't spoken for yet: Type -> int.
 var _budget: Dictionary = {}
 ## What each aim is short of (Type -> amount), highest aim first, for idle
-## Workers to fetch.
+## the Miner to fetch.
 var _wants: Array[Dictionary] = []
 ## The resource types the next extractor job needs first (fetched first
 ## within aim 2's want).
@@ -80,7 +85,6 @@ func take_turn() -> void:
 	_budget = player.inventory.duplicate()
 	_wants = []
 	_needed_first = {}
-	_release_waiting_builders()
 	_aim_workers()
 	_aim_extractors()
 	_aim_army()
@@ -105,7 +109,7 @@ func _spend(cost: Dictionary) -> void:
 
 
 ## An aim can't afford `cost` yet: hold back what we do have towards it (so
-## lower aims don't spend it) and ask Workers for the rest.
+## lower aims don't spend it) and ask the Miner for the rest.
 func _save_for(cost: Dictionary) -> void:
 	var short := {}
 	for type in cost:
@@ -139,18 +143,20 @@ func _train(bp: UnitBlueprint) -> void:
 # --- Aim 1: Workers -------------------------------------------------------------
 
 func _aim_workers() -> void:
-	var bp := player.get_blueprint(Player.WORKER_NAME)
-	if player.get_training_refusal(bp) == "":  # Under the limit, and we can feed it.
-		_train(bp)
+	for unit_name in [Miner.NAME, Builder.NAME]:
+		var bp := player.get_blueprint(unit_name)
+		if player.get_training_refusal(bp) == "":  # Under the limit, and we can feed it.
+			_train(bp)
+			return  # One at a time (see _train()).
 
 
 # --- Aim 2: Extractors ----------------------------------------------------------
 
-## Sends idle workers to build extractors (with their foundations and belts),
-## as soon as a job on the way can be paid for - the worker pays job by job
+## Sends idle Builders to build extractors (with their foundations and belts),
+## as soon as a job on the way can be paid for - the Builder pays job by job
 ## as it goes. Builds under way come first; a new one is only started when
-## spare workers and resources can begin on it straight away. Then asks
-## Workers for whatever the first build is still short of.
+## spare Builders and resources can begin on it straight away. Then asks
+## the Miner for whatever the first build is still short of.
 func _aim_extractors() -> void:
 	var idle: Array[Unit] = []
 	for u in player.get_units_needing_orders():
@@ -192,7 +198,14 @@ func _aim_extractors() -> void:
 		if i >= started:
 			break  # Nothing affordable on this new one: gather for it first.
 		i += 1
-	# Workers gather what the first build is short of - what its next job
+	# No Builder free yet (e.g. still training, or all out on other jobs)? Still
+	# plan the next build, so the Miner gathers for it rather than wandering
+	# off on a lower aim's errand while the Builder stands idle.
+	if projects.is_empty() and player.count_units_named(Builder.NAME) > 0:
+		var project := _next_extractor_project(taken)
+		if not project.is_empty():
+			projects.append(project[1])
+	# The Miner gathers what the first build is short of - what its next job
 	# needs first.
 	for m in projects:
 		var short := {}
@@ -223,7 +236,7 @@ func _current_stage(plan: LineBuildMission) -> String:
 	return "build:extractor"
 
 
-## Our workers' extractor builds still under way.
+## Our Builders' extractor builds still under way.
 func _line_builds_in_progress() -> Array[LineBuildMission]:
 	var result: Array[LineBuildMission] = []
 	for u in player.units:
@@ -232,21 +245,16 @@ func _line_builds_in_progress() -> Array[LineBuildMission]:
 	return result
 
 
-## Builders waiting at the hub for resources are called off, so they can go
-## and harvest what's missing instead of standing idle (otherwise a colony
-## with one worker would wait for ever). The build is ordered again - and
-## carries on from where it stopped - once a job can be paid for.
-func _release_waiting_builders() -> void:
-	for u in player.units.duplicate():
-		if u.mission is LineBuildMission and u.can_cancel_mission():
-			_order(Orders.cancel_mission(u))
-
-
 ## The next extractor to build, as [hex, its LineBuildMission], or [] if
-## there's none: a Titanium, Sediment or Gold deposit while we lack an
-## extractor (built or being built) for one of those, otherwise any deposit -
-## the shortest walk from the hub first, but Biomass first while biomass
-## production is below zero.
+## there's none. In stages, each only while the one before has nothing left
+## it can build:
+##   1. a Titanium, Sediment and Gold extractor (one of each);
+##   2. every deposit within NEAR_EXTRACTOR_RADIUS of the hub;
+##   3. an Electrum extractor (up to ELECTRUM_HARVEST_DISTANCE away);
+##   4. any deposit, nearest first (up to MAX_EXTRACTOR_DISTANCE away).
+## Within a stage, the shortest walk from the hub first - but Biomass first
+## while biomass production is below zero. Extractors we've built or are
+## building (`taken`) count as done.
 func _next_extractor_project(taken: Dictionary) -> Array:
 	var covered := {}  # Types we already have (or are building) an extractor for.
 	for h in map.tiles:
@@ -261,6 +269,28 @@ func _next_extractor_project(taken: Dictionary) -> Array:
 	for type in CORE_EXTRACTOR_TYPES:
 		if not covered.has(type):
 			core_missing.append(type)
+	var stages: Array[Callable] = [
+		func(type: ResourceDeposit.Type, distance: int) -> bool:
+			return type in core_missing and distance <= MAX_EXTRACTOR_DISTANCE,
+		func(_type: ResourceDeposit.Type, distance: int) -> bool:
+			return distance <= NEAR_EXTRACTOR_RADIUS,
+		func(type: ResourceDeposit.Type, distance: int) -> bool:
+			return type == ResourceDeposit.Type.ELECTRUM and not covered.has(type) \
+				and distance <= ELECTRUM_HARVEST_DISTANCE,
+		func(_type: ResourceDeposit.Type, distance: int) -> bool:
+			return distance <= MAX_EXTRACTOR_DISTANCE,
+	]
+	for wanted in stages:
+		var project := _nearest_extractor_site(taken, wanted)
+		if not project.is_empty():
+			return project
+	return []
+
+
+## The nearest deposit (by walk) we could build an extractor on whose type
+## and hex distance from the hub pass `wanted`, as [hex, LineBuildMission],
+## or []. Biomass first while biomass production is below zero.
+func _nearest_extractor_site(taken: Dictionary, wanted: Callable) -> Array:
 	var biomass_first := player.get_biomass_production() < 0
 	var walk := {}
 	for h in map.tiles:
@@ -268,9 +298,7 @@ func _next_extractor_project(taken: Dictionary) -> Array:
 		var free := tile.structure == Structure.Type.NONE \
 			or (tile.structure == Structure.Type.CONVEYOR and tile.structure_owner == player.id)
 		if not tile.has_deposit() or not free or taken.has(h) \
-				or Hex.distance(player.hex, h) > MAX_EXTRACTOR_DISTANCE:
-			continue
-		if not core_missing.is_empty() and not tile.deposit.type in core_missing:
+				or not wanted.call(tile.deposit.type, Hex.distance(player.hex, h)):
 			continue
 		var path := map.find_path(player.hex, h)
 		if not path.is_empty():
@@ -290,6 +318,7 @@ func _next_extractor_project(taken: Dictionary) -> Array:
 			continue  # No way to run belts there.
 		return [h, m]
 	return []
+
 
 
 # --- Aim 3: Army ----------------------------------------------------------------
@@ -392,7 +421,7 @@ func _aim_buildings() -> void:
 
 # --- Aim 5: Electrum ------------------------------------------------------------
 
-## Keeps a Worker harvesting Electrum (counting one already on the way), until
+## Keeps the Miner harvesting Electrum (counting one already on the way), until
 ## an extractor brings it in.
 func _aim_electrum() -> void:
 	if player.get_income().get(ResourceDeposit.Type.ELECTRUM, 0.0) > 0:
@@ -434,11 +463,11 @@ func _aim_research() -> void:
 			asked = true
 
 
-## How much we want `tech` (lower first): more Workers and food, then the
+## How much we want `tech` (lower first): more Builders and food, then the
 ## basic buildings, then units, then Weapons for units we have, the rest,
 ## and Command Doctrine last (we don't build command points yet).
 func _research_rank(tech: Tech) -> int:
-	if tech.worker_limit_bonus > 0:
+	if tech.builder_limit_bonus > 0:
 		return 0
 	if tech.building_limit_bonus.has(Greenhouse.ID):
 		return 1
@@ -456,7 +485,7 @@ func _research_rank(tech: Tech) -> int:
 
 # --- Harvesting -----------------------------------------------------------------
 
-## Sends idle workers to fetch what the aims are short of (_wants), highest
+## Sends the Miner (if idle) to fetch what the aims are short of (_wants), highest
 ## aim first, counting what's already on its way home. Each goes to the
 ## nearest deposit of the most wanted resource it can reach; several can
 ## share one deposit while it has enough left for all of them.
@@ -537,7 +566,7 @@ func _harvestable_deposits_by_walk(wanted: Dictionary) -> Array[Vector2i]:
 	return result
 
 
-## How far Workers will go to harvest `type`.
+## How far the Miner will go to harvest `type`.
 func _harvest_range(type: ResourceDeposit.Type) -> int:
 	return ELECTRUM_HARVEST_DISTANCE if type == ResourceDeposit.Type.ELECTRUM else MAX_HARVEST_DISTANCE
 

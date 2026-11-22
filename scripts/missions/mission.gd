@@ -24,7 +24,7 @@ extends RefCounted
 ##   get_progress_text()   on the way    "Heading to harvest Titanium at (5, 7) (2 turn(s) to arrive)"
 ##                         at the site   "Harvesting Titanium at (5, 7) (1 turn(s) left)"
 ##   get_completion_text() past tense    "harvested 1 Titanium at (5, 7)"
-##                         (shown after the unit's name: "Worker 2 harvested...")
+##                         (shown after the unit's name: "Miner 1 harvested...")
 
 enum Result { IN_PROGRESS, COMPLETE, FAILED }
 ## TRAVELLING: heading for get_travel_hex(). WORKING: there, doing the job.

@@ -1,6 +1,6 @@
 class_name Buildable
 extends RefCounted
-## Something a Worker can construct on a tile (foundations, later farms, mines...).
+## Something a Builder can construct on a tile (foundations, later farms, mines...).
 ##
 ## Each structure keeps ALL its data in its own file: name, cost, build time,
 ## where it can go, what it does when finished, and any gameplay numbers.
@@ -28,9 +28,9 @@ var structure_type := Structure.Type.NONE
 ## supply network.
 var carries_resources := false
 ## Ids of buildables that must be on the same tile first, e.g. a conveyor
-## needs a "foundation". Workers build them automatically.
+## needs a "foundation". Builders build them automatically.
 var requires: Array[String] = []
-## If set, ordering this is a line job (see LineBuildMission): the worker
+## If set, ordering this is a line job (see LineBuildMission): the Builder
 ## builds this buildable (with its requirements) on every tile from the hub
 ## to the target, e.g. "conveyor" for an extractor so it's connected, or the
 ## buildable's own id for foundations and belts. "" = a single-tile build.

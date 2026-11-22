@@ -5,12 +5,8 @@ extends RefCounted
 ## one place: its file in scripts/units/<type>/ (e.g. armour/tank.gd).
 
 var unit_name: String
-## The price of the first one: ResourceDeposit.Type -> int. The real price
-## goes up with how many a colony has built - see cost_for().
+## The price of one: ResourceDeposit.Type -> int (see Player.get_training_cost()).
 var base_cost: Dictionary
-## How the price rises, and after how many built (see Unit.cost_growth).
-var cost_growth: Unit.CostGrowth
-var cost_rises_after: int
 var train_turns: int
 ## Biomass the unit will eat per turn once trained.
 var upkeep: int
@@ -33,8 +29,6 @@ func _init(p_unit_script: GDScript) -> void:
 	var template: Unit = p_unit_script.new()
 	unit_name = template.unit_name
 	base_cost = template.cost
-	cost_growth = template.cost_growth
-	cost_rises_after = template.cost_rises_after
 	train_turns = template.train_turns
 	upkeep = template.upkeep
 	unit_type = template.unit_type
@@ -67,28 +61,6 @@ func get_info_text() -> String:
 	lines.append("Shoots first: " + ", then ".join(order))
 	lines.append("Missions: " + ", ".join(_allowed_missions))
 	return "\n".join(lines)
-
-
-## The price of one more, for a colony that has built `built` of this unit so
-## far (including any lost since, and any in training). FIXED: always
-## base_cost. DOUBLE: base_cost, doubled once for every one beyond
-## cost_rises_after - e.g. with cost_rises_after = 1 and base 1 Gold:
-## built 0 or 1 -> 1, then 2, 4, 8...
-func cost_for(built: int) -> Dictionary:
-	if cost_growth == Unit.CostGrowth.FIXED:
-		return base_cost.duplicate()
-	var rises := maxi(built - cost_rises_after, 0)
-	var cost := {}
-	for type in base_cost:
-		cost[type] = base_cost[type] * (1 << rises)
-	return cost
-
-
-## How the price rises, for tooltips.
-func get_cost_growth_text() -> String:
-	if cost_growth == Unit.CostGrowth.FIXED:
-		return "Always the same price."
-	return "Each %s you build doubles the price of the next, even if it's later lost." % unit_name
 
 
 func create_unit() -> Unit:

@@ -10,7 +10,8 @@ extends RefCounted
 ## Other rules:
 ##   - A tech's `requires` must be in a LOWER tier (so the trees can never
 ##     deadlock - see TechTrees).
-##   - Every tier has one Workforce tech (+1 Worker limit).
+##   - Every tier has one Workforce tech (+1 Builder limit).
+##   - Initiative I, II and III (+1 initiative each) are in tiers 2, 4 and 6.
 ##   - Default units (Infantry, APC, Chopper) only need their building; every
 ##     other unit has its own unlock tech.
 ##
@@ -89,13 +90,13 @@ static func _create_all() -> Array[Tech]:
 	techs.append(_workforce(2))
 	techs.append(_building("hangar", "Hangar", 2, HangarBuilding.ID))
 	techs.append(_building("surgery", "Surgery", 2, SurgicalWard.ID, "field_medicine"))
-	techs.append(_building("vehicle_repair", "Vehicle Repair", 2, RepairBay.ID, "garage"))
+	techs.append(_initiative("initiative_1", "Initiative I", 2))
 	techs.append(_unit("assault_infantry", "Assault Infantry", 2, "barracks"))
 	techs.append(_unit("at_infantry", "AT Infantry", 2, "barracks"))
 
 	# --- Tier 3 ----------------------------------------------------------
 	techs.append(_workforce(3))
-	techs.append(_building("flight_crews", "Flight Crews", 3, FlightCrewQuarters.ID, "hangar"))
+	techs.append(_building("vehicle_repair", "Vehicle Repair", 3, RepairBay.ID, "garage"))
 	techs.append(_building("regeneration", "Regeneration", 3, RegenLab.ID, "field_medicine"))
 	techs.append(_building("machine_tools", "Machine Tools", 3, MachineShop.ID, "garage"))
 	techs.append(_unit("stinger_infantry", "Stinger Infantry", 3, "barracks"))
@@ -106,7 +107,7 @@ static func _create_all() -> Array[Tech]:
 	techs.append(_unit("tank", "Tank", 4, "garage"))
 	techs.append(_unit("aa_gun", "Anti-Aircraft Gun", 4, "garage"))
 	techs.append(_unit("fighter", "Fighter", 4, "hangar"))
-	techs.append(_greenhouses("hydroponics_2", "Hydroponics II", 4, "hydroponics_1"))
+	techs.append(_initiative("initiative_2", "Initiative II", 4, "initiative_1"))
 	techs.append(_movement("all_terrain_drives", "All-Terrain Drives", 4))
 
 	# --- Tier 5 ----------------------------------------------------------
@@ -122,7 +123,7 @@ static func _create_all() -> Array[Tech]:
 
 	# --- Tier 6 ----------------------------------------------------------
 	techs.append(_workforce(6))
-	techs.append(_weapons("guard_weapons", "Guard Weapons", 6, "Guard"))
+	techs.append(_initiative("initiative_3", "Initiative III", 6, "initiative_2"))
 	techs.append(_weapons("assault_weapons", "Assault Weapons", 6, "Assault Infantry", "assault_infantry"))
 	techs.append(_weapons("at_weapons", "AT Weapons", 6, "AT Infantry", "at_infantry"))
 	techs.append(_weapons("stinger_weapons", "Stinger Weapons", 6, "Stinger Infantry", "stinger_infantry"))
@@ -140,11 +141,11 @@ static func _create_all() -> Array[Tech]:
 
 # --- Helpers for the common kinds ----------------------------------------------
 
-## "Workforce III": +1 Worker limit. One in every tier.
+## "Workforce III": +1 Builder limit. One in every tier.
 static func _workforce(tier: int) -> Tech:
 	var numerals := ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
 	var t := Tech.new("workforce_%d" % tier, "Workforce %s" % numerals[tier - 1], tier)
-	t.worker_limit_bonus = 1
+	t.builder_limit_bonus = 1
 	return t
 
 
@@ -178,6 +179,13 @@ static func _movement(id: String, name: String, tier: int, requires := "") -> Te
 	return t
 
 
+## "Initiative II": +1 initiative. In tiers 2, 4 and 6, each needing the last.
+static func _initiative(id: String, name: String, tier: int, requires := "") -> Tech:
+	var t := Tech.new(id, name, tier, requires)
+	t.initiative_bonus = 1
+	return t
+
+
 # --- What unlocks what ---------------------------------------------------------
 
 ## The tech that lets a colony build hub building `building_id`, or null if
@@ -198,7 +206,7 @@ static func unlocking_unit(unit_name: String) -> Tech:
 	return null
 
 
-## The tech that lets Workers build map structure `buildable_id`, or null.
+## The tech that lets Builders build map structure `buildable_id`, or null.
 static func unlocking_buildable(buildable_id: String) -> Tech:
 	for t in all():
 		if t.unlocks_buildable == buildable_id:

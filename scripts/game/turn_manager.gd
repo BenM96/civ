@@ -18,7 +18,9 @@ extends Node
 ##                    (Greenhouse biomass).
 ##   7. Hub         - buildings ordered this turn are finished, training
 ##                    progresses and the hub rooms work on their units
-##                    (the Med Bay and Garage heal, the Hangar refits).
+##                    (the Med Bay and Garage heal, the Hangar refits), and
+##                    units back in Mission Briefing with a repeating order
+##                    are given it again.
 ##   8. Starvation  - a colony whose biomass production is below zero (it
 ##                    makes less than its units eat) loses one unit: the
 ##                    most injured first, Workers last (see Player.starve()).

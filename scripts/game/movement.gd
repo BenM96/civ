@@ -9,7 +9,7 @@ extends RefCounted
 ## units whose step lands on the same tick move together, and a unit counts
 ## as standing on its old tile until its step lands.
 ##
-## A battle breaks out when units of opposing colonies (Workers and Infantry
+## A battle breaks out when units of opposing colonies (Miners, Builders and Infantry
 ## alike) either:
 ##   - start the turn on the same tile (e.g. survivors of last turn's
 ##     battle, or a guard and the enemy it caught): that tile is a battle

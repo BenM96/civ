@@ -10,13 +10,16 @@ extends RefCounted
 ##
 ## Every order says what it is under "order". Build them with the helpers
 ## below rather than by hand:
-##   {"order": "mission", "unit": id, "kind": kind, "target": [x, y]}
+##   {"order": "mission", "unit": id, "kind": kind, "target": [x, y], "repeats": n}
+##       repeats: how many times to do it (default 1; REPEAT_FOREVER = forever).
+##       It's given again each time the unit is back in Mission Briefing
+##       (see Player.repeat_orders()).
 ##       kind: "move", "harvest", "guard", "capture", "demolish", "qrf", "sortie",
 ##       "escort:<unit id>" or "build:<buildable id>" (see make_mission())
 ##   {"order": "cancel_mission", "unit": id}
 ##   {"order": "move_room", "unit": id, "room": room id}   (see Room)
 ##   {"order": "heal_order", "unit": id, "index": i}   (healing queue, see Room)
-##   {"order": "train", "unit_type": "Worker"}
+##   {"order": "train", "unit_type": "Builder"}
 ##   {"order": "cancel_training", "index": i}
 ##   {"order": "build_building", "building": building id}   (see Building)
 ##   {"order": "cancel_building", "index": i}
@@ -27,6 +30,9 @@ extends RefCounted
 ## To add a new kind of action: add an order here (a helper and a case in
 ## submit()) and have the HUD / AI send it. Never change game state from the
 ## HUD or AI directly.
+
+## A mission "repeats" value meaning forever.
+const REPEAT_FOREVER := Unit.REPEAT_FOREVER
 
 var map: HexMap
 ## Every colony, indexed by faction.
@@ -40,8 +46,9 @@ func _init(p_map: HexMap, p_players: Array[Player]) -> void:
 
 # --- Making orders ---------------------------------------------------------
 
-static func mission(unit: Unit, kind: String, target: Vector2i) -> Dictionary:
-	return {"order": "mission", "unit": unit.id, "kind": kind, "target": [target.x, target.y]}
+## `repeats` how many times in all; REPEAT_FOREVER to keep going.
+static func mission(unit: Unit, kind: String, target: Vector2i, repeats := 1) -> Dictionary:
+	return {"order": "mission", "unit": unit.id, "kind": kind, "target": [target.x, target.y], "repeats": repeats}
 
 
 static func cancel_mission(unit: Unit) -> Dictionary:
@@ -121,7 +128,11 @@ func submit(faction: int, order: Dictionary) -> String:
 			var reason := get_invalid_reason(player, unit, m)
 			if reason != "":
 				return reason
-			return "" if player.assign_mission(unit, m) else "can't do that"
+			if not player.assign_mission(unit, m):
+				return "can't do that"
+			var repeats := int(order.get("repeats", 1))
+			unit.set_repeats(_to_hex(order.get("target")), repeats - 1 if repeats > 0 else Unit.REPEAT_FOREVER)
+			return ""
 		"cancel_mission":
 			var unit := _own_unit(player, order)
 			if unit == null:

@@ -72,10 +72,10 @@ var tech_trees: TechTrees
 var researched: Array[String] = []
 ## Techs paid for this turn (ids), researched in the Hub step. Saved.
 var research_queue: Array[String] = []
-## The most Workers a colony may have before any Workforce tech.
-const BASE_WORKER_LIMIT := 2
-## The unit the Worker limit applies to (see get_worker_limit()).
-const WORKER_NAME := "Worker"
+## A colony only ever has one Miner (see Miner).
+const MINER_LIMIT := 1
+## The most Builders a colony may have before any Workforce tech.
+const BASE_BUILDER_LIMIT := 1
 ## The hub's rooms (see Room). Every unit in the hub is in one of them.
 var rooms: Array[Room] = Room.create_all()
 var units: Array[Unit] = []
@@ -85,7 +85,7 @@ var inventory: Dictionary = {}
 var blueprints: Array[UnitBlueprint] = []
 ## Only the first order progresses; the rest wait their turn.
 var training_queue: Array[TrainingOrder] = []
-## Structures this hub's workers can construct.
+## Structures this hub's Builders can construct.
 var buildables: Array[Buildable] = []
 ## Supply network: hex -> next hex towards the hub, for every tile linked
 ## to the hub through conveyors/extractors (the hub maps to itself).
@@ -96,7 +96,7 @@ var _producing: Dictionary = {}
 var _extractor_progress: Dictionary = {}
 ## unit_name -> how many of that type this colony has ever had (starting and
 ## trained; never goes down when one dies). Gives units names that are never
-## reused ("Infantry 3") and sets training prices (get_training_cost()).
+## reused ("Infantry 3").
 var _units_ever_had: Dictionary = {}
 
 
@@ -104,7 +104,7 @@ func _init() -> void:
 	# Units this hub can train. Their costs, training times and upkeep are
 	# set in each unit's own script (scripts/units/<type>/).
 	for unit_script in [
-			Worker, GuardUnit,
+			Miner, Builder, GuardUnit,
 			Infantry, AssaultInfantry, AtInfantry, StingerInfantry,
 			Apc, TankDestroyer, Tank, AntiAircraftGun,
 			Chopper, Fighter, Bomber]:
@@ -253,22 +253,33 @@ func get_building_limit(building_id: String) -> int:
 	return limit
 
 
-## The most Workers we may have (alive and in training): BASE_WORKER_LIMIT,
-## raised by the Workforce techs.
-func get_worker_limit() -> int:
-	var limit := BASE_WORKER_LIMIT
+## The most Builders we may have (alive and in training):
+## BASE_BUILDER_LIMIT, raised by the Workforce techs.
+func get_builder_limit() -> int:
+	var limit := BASE_BUILDER_LIMIT
 	for tech in _researched_techs():
-		limit += tech.worker_limit_bonus
+		limit += tech.builder_limit_bonus
 	return limit
 
 
-## Workers we have, alive and in training.
-func count_workers() -> int:
-	var count := units.filter(func(u: Unit) -> bool: return u is Worker).size()
+## How many units called `unit_name` (e.g. "Builder") we have, alive and in
+## training.
+func count_units_named(unit_name: String) -> int:
+	var count := units.filter(func(u: Unit) -> bool: return u.unit_name == unit_name).size()
 	for order in training_queue:
-		if order.blueprint.unit_name == WORKER_NAME:
+		if order.blueprint.unit_name == unit_name:
 			count += 1
 	return count
+
+
+## The most of `unit_name` we may have, or -1 for no limit: the Miner
+## (MINER_LIMIT) and Builder (get_builder_limit()) are capped.
+func get_unit_limit(unit_name: String) -> int:
+	if unit_name == Miner.NAME:
+		return MINER_LIMIT
+	if unit_name == Builder.NAME:
+		return get_builder_limit()
+	return -1
 
 
 ## Extra damage a unit called `unit_name` does to every target (Weapons techs).
@@ -297,7 +308,7 @@ func get_extractor_output(type: ResourceDeposit.Type) -> float:
 	return output
 
 
-## Why Workers can't build `buildable` yet (a tech it needs), or "".
+## Why Builders can't build `buildable` yet (a tech it needs), or "".
 func get_buildable_refusal(buildable: Buildable) -> String:
 	var tech := TechList.unlocking_buildable(buildable.id)
 	if tech and not _has_unlock(tech):
@@ -380,7 +391,7 @@ func get_building_output() -> Dictionary:
 	return total
 
 
-## The blueprint for training a unit type, e.g. "Worker", or null.
+## The blueprint for training a unit type, e.g. "Builder", or null.
 func get_blueprint(unit_name: String) -> UnitBlueprint:
 	for bp in blueprints:
 		if bp.unit_name == unit_name:
@@ -657,16 +668,9 @@ func _change_resources(cost: Dictionary, direction: int) -> void:
 
 # --- Training --------------------------------------------------------------
 
-## What training one more of `blueprint` costs right now. The price rises
-## with each one the colony has ever had - starting units, ones trained and
-## ones still in training - so losing units doesn't make the next cheaper
-## (see UnitBlueprint.cost_for()).
+## What training one more of `blueprint` costs (always the same price).
 func get_training_cost(blueprint: UnitBlueprint) -> Dictionary:
-	var built: int = _units_ever_had.get(blueprint.unit_name, 0)
-	for order in training_queue:
-		if order.blueprint == blueprint:
-			built += 1
-	return blueprint.cost_for(built)
+	return blueprint.base_cost.duplicate()
 
 
 ## Whether we have the tech (if any) that unlocks `blueprint`.
@@ -692,16 +696,17 @@ func get_missing_training_building(blueprint: UnitBlueprint) -> String:
 ## Why `blueprint` can't be trained at all right now (e.g. "needs a
 ## Barracks"), or "" if it can - not counting whether we can afford it. A
 ## unit needs the room that holds it while training (its quarters) to be
-## built, and its unlock tech if it has one (see TechList); Workers are
-## capped by get_worker_limit().
+## built, and its unlock tech if it has one (see TechList); the Miner and
+## Builders are capped (get_unit_limit()).
 func get_training_refusal(blueprint: UnitBlueprint) -> String:
 	if not has_unit_tech(blueprint):
 		return "needs the %s tech" % TechList.unlocking_unit(blueprint.unit_name).display_name
 	var missing := get_missing_training_building(blueprint)
 	if missing != "":
 		return "needs a %s" % Building.get_name_for(missing)
-	if blueprint.unit_name == WORKER_NAME and count_workers() >= get_worker_limit():
-		return "Worker limit reached (%d)" % get_worker_limit()
+	var limit := get_unit_limit(blueprint.unit_name)
+	if limit >= 0 and count_units_named(blueprint.unit_name) >= limit:
+		return "%s limit reached (%d)" % [blueprint.unit_name, limit]
 	# Never train a unit we couldn't feed (counting the ones already training).
 	var after := get_biomass_production() - blueprint.upkeep
 	for order in training_queue:
@@ -819,6 +824,17 @@ func count_linked_command_points() -> int:
 		if tile.structure == Structure.Type.COMMAND_POINT and tile.structure_owner == id and is_supply_connected(h):
 			count += 1
 	return count
+
+
+## Initiative this turn: +1 for every linked command point, plus the
+## Initiative techs. Not stored - like biomass production, it's worked out
+## from what we have right now. In a battle the colony with the most fires
+## first (ties at random - see Combat).
+func get_initiative() -> int:
+	var initiative := count_linked_command_points()
+	for tech in _researched_techs():
+		initiative += tech.initiative_bonus
+	return initiative
 
 
 ## The win condition: a linked command point on every control point.
@@ -943,11 +959,35 @@ func run_hub() -> void:
 	_process_training()
 	for room in rooms:
 		room.process_turn(self)
+	repeat_orders()
+
+
+## Gives a repeating unit (see Unit.repeats_left) its last mission again
+## once it's back in Mission Briefing; it sets out next turn. If the hub
+## can't pay for it yet, it waits and tries again next turn. If the order
+## can't be given any more (e.g. the deposit has run out), the unit stops
+## repeating and waits for new orders.
+func repeat_orders() -> void:
+	for u in units:
+		if u.repeats_left == 0 or not u.needs_orders():
+			continue
+		var m := Orders.make_mission(self, u.last_mission_kind, u.repeat_target)
+		if m != null and m.is_valid_for(u) and not can_afford(m.get_cost()):
+			continue  # Waits until it can afford it.
+		var reason := "it isn't a mission any more" if m == null else Orders.get_invalid_reason(self, u, m)
+		var more := u.repeats_left
+		if reason == "" and not assign_mission(u, m):
+			reason = "it can't be given"
+		if reason != "":
+			u.repeats_left = 0
+			unit_event.emit("%s stopped repeating its order: %s" % [u.display_name, reason])
+			continue
+		u.repeats_left = more - 1 if more > 0 else more
 
 
 ## "Starvation" step: if biomass production is below zero, one unit starves
-## to death - the most injured non-Worker first (ties at random, so healthy
-## ones go at random), and Workers only once nobody else is left. Returns
+## to death - the most injured non-Worker (Miner or Builder) first (ties at random, so healthy
+## ones go at random), and the Miner and Builders only once nobody else is left. Returns
 ## what happened (for the event log and the starvation popup):
 ## {"unit": its name, "production": before it died, "after": production now,
 ## "eaten": what the units ate, "units": how many there were}, or {} if
@@ -1043,7 +1083,7 @@ func load_dict(data: Dictionary) -> void:
 	for entry in data["training"]:
 		var bp := get_blueprint(entry[0])
 		# Older saves didn't record what was paid; assume the base price.
-		var paid := SaveGame.resources_from_data(entry[2]) if entry.size() > 2 else bp.cost_for(0)
+		var paid := SaveGame.resources_from_data(entry[2]) if entry.size() > 2 else bp.base_cost.duplicate()
 		var order := TrainingOrder.new(bp, paid)
 		order.turns_left = int(entry[1])
 		training_queue.append(order)

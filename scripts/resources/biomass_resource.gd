@@ -11,8 +11,8 @@ func _init() -> void:
 	type = ResourceDeposit.Type.BIOMASS
 	display_name = "Biomass"
 	color = Color(0.45, 0.95, 0.4)
-	min_amount = 40
-	max_amount = 120
+	min_amount = 999
+	max_amount = 999
 	spawn_chance = 0.07
 	terrains = [Terrain.Type.REGOLITH, Terrain.Type.DUST_PLAINS, Terrain.Type.DUNES, Terrain.Type.HIGHLANDS]
 	stored = false

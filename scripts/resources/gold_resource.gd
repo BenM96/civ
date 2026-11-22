@@ -7,8 +7,8 @@ func _init() -> void:
 	type = ResourceDeposit.Type.GOLD
 	display_name = "Gold"
 	color = Color(1.0, 0.82, 0.2)
-	min_amount = 10
-	max_amount = 30
+	min_amount = 999
+	max_amount = 999
 	spawn_chance = 0.03
 	terrains = [Terrain.Type.HIGHLANDS, Terrain.Type.REGOLITH]
 	harvest_amount = 1

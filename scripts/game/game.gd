@@ -14,8 +14,6 @@ extends Node2D
 ## the scene (see load_game()).
 static var pending_load: Dictionary = {}
 
-## Workers every colony starts with.
-@export var starting_workers := 1
 ## Every hub gets at least one deposit of every resource within this many
 ## tiles (added at map creation if the map didn't already have one there).
 @export var starting_deposit_radius := 4
@@ -56,6 +54,8 @@ var _has_hover := false
 var _targeting_unit: Unit = null
 ## Mission id being targeted ("move", "harvest").
 var _targeting_kind := "move"
+## How many times the unit being targeted should do it (see Orders.mission()).
+var _targeting_repeats := 1
 ## Set once someone wins or loses; stops input.
 var _game_over := false
 ## A starvation report (see Player.starve()) waiting for this turn's battle
@@ -244,8 +244,7 @@ func _create_player(faction: int, spot: Vector2i) -> Player:
 	players_root.add_child(new_player)
 	new_player.place(map, spot)
 	map.remove_deposit(spot)
-	for i in starting_workers:
-		new_player.add_unit(Worker.new())
+	new_player.add_unit(Miner.new())  # Every colony starts with its Miner, but no Builder.
 	new_player.add_building(Greenhouse.new())
 	return new_player
 
@@ -490,7 +489,7 @@ func _on_left_click() -> void:
 		return
 	if _targeting_unit:
 		var unit := _targeting_unit
-		var reason := _submit(Orders.mission(unit, _targeting_kind, _hover_hex))
+		var reason := _submit(Orders.mission(unit, _targeting_kind, _hover_hex, _targeting_repeats))
 		if reason == "":
 			_cancel_targeting()
 		else:
@@ -505,15 +504,16 @@ func _on_left_click() -> void:
 
 # --- Targeting -------------------------------------------------------------
 
-func _begin_targeting(unit: Unit, kind: String) -> void:
+func _begin_targeting(unit: Unit, kind: String, repeats := 1) -> void:
 	if not Orders.needs_target(kind):
 		# Nothing to pick on the map: order it straight away.
 		_cancel_targeting()
-		var reason := _submit(Orders.mission(unit, kind, local_player.hex))
+		var reason := _submit(Orders.mission(unit, kind, local_player.hex, repeats))
 		hud.set_hint("" if reason == "" else "%s: %s" % [unit.display_name, reason])
 		return
 	_targeting_unit = unit
 	_targeting_kind = kind
+	_targeting_repeats = repeats
 	var what := "a destination"
 	if kind == "demolish":
 		what = "something man-made to demolish"
@@ -637,7 +637,7 @@ func _structure_info(tile: HexTile) -> String:
 
 func _update_inventory() -> void:
 	hud.set_inventory(local_player.inventory, local_player.get_net_income())
-	hud.set_command_points(local_player.count_linked_command_points(), map.control_points.size())
+	hud.set_command_points(local_player.count_linked_command_points(), map.control_points.size(), local_player.get_initiative())
 
 
 func _refresh_markers() -> void:

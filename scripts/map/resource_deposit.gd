@@ -1,9 +1,9 @@
 class_name ResourceDeposit
 extends RefCounted
-## A finite pile of a resource sitting on a tile, harvested by Workers or
+## A finite pile of a resource sitting on a tile, harvested by the Miner or
 ## mined by an Extractor.
 ##
-## Each resource's data (name, colour, where it spawns, what Workers and
+## Each resource's data (name, colour, where it spawns, what the Miner and
 ## Extractors get from it, its icon) lives in its own file in
 ## scripts/resources/ - see ResourceType. To add a new resource: add it to
 ## Type, write its file, and list it in _type_scripts().

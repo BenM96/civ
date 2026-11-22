@@ -1,6 +1,7 @@
 class_name BreakRoom
 extends QuartersRoom
-## Where off-duty civilian units (Workers) wait, and are held while training.
+## Where off-duty civilian units (Miner, Builders, Guards) wait, and are
+## held while training.
 
 const ID := "break_room"
 

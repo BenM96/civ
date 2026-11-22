@@ -2,12 +2,15 @@ class_name MissionBriefingPanel
 extends HudPanel
 ## The units in the hub's Mission Briefing room (see MissionBriefingRoom) -
 ## the only ones that can be given orders. Each gets a mission dropdown, a
-## Select Target button and Wait (off duty in its Break Room, Barracks,
-## Hangar or Garage). Units in other rooms are in the Central Hub panel.
+## repeat dropdown (how many times to do it), a Select Target button and
+## Wait (off duty in its Break Room, Barracks, Hangar or Garage). Units in
+## other rooms are in the Central Hub panel.
 
 ## Unit id -> the mission kind picked in its dropdown this session. Takes
 ## priority over the unit's last mission (once sent, they're the same).
 var _chosen_mission: Dictionary = {}
+## The repeat choices: how many times, and its label.
+const REPEAT_CHOICES := [[1, "1"], [2, "2"], [3, "3"], [4, "4"], [5, "5"], [Orders.REPEAT_FOREVER, "INF"]]
 
 
 func _init(p_hud: Hud) -> void:
@@ -40,7 +43,8 @@ func fill() -> void:
 		add_note("%d more unit(s) in other rooms of the hub.\nOpen Central Hub (H) and drag them here to give them orders." % elsewhere)
 
 
-## Name, mission dropdown, Select Target (or Give Order) and Wait.
+## Name, mission dropdown, repeat dropdown, Select Target (or Give Order)
+## and Wait.
 func _make_ready_row(unit: Unit) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	var name_label := Label.new()
@@ -50,9 +54,12 @@ func _make_ready_row(unit: Unit) -> HBoxContainer:
 	var u := unit
 	var picker := _make_mission_picker(unit)
 	row.add_child(picker)
+	var repeat := _make_repeat_picker()
+	row.add_child(repeat)
 	var target := UiStyle.make_button("Select Target", func() -> void:
 		if picker.selected >= 0:
-			hud.mission_requested.emit(u, picker.get_item_metadata(picker.selected)))
+			hud.mission_requested.emit(u, picker.get_item_metadata(picker.selected),
+				repeat.get_item_metadata(repeat.selected)))
 	target.disabled = picker.selected < 0
 	# Escorts and QRF need no tile: the button gives the order straight away.
 	var label_for := func(i: int) -> void:
@@ -69,6 +76,20 @@ func _make_ready_row(unit: Unit) -> HBoxContainer:
 		wait.tooltip_text = "Go off duty in the %s. Units there don't need orders, so idle turns can be skipped." % quarters.display_name
 		row.add_child(wait)
 	return row
+
+
+## How many times to do the order: 1-5 or forever (INF). Always starts on 1.
+func _make_repeat_picker() -> OptionButton:
+	var picker := OptionButton.new()
+	picker.focus_mode = Control.FOCUS_NONE  # Keep Enter for End Turn.
+	UiStyle.style_button(picker)
+	for choice: Array in REPEAT_CHOICES:
+		var i := picker.item_count
+		picker.add_item(choice[1])
+		picker.set_item_metadata(i, choice[0])
+	picker.selected = 0
+	picker.tooltip_text = "How many times to do this order. Each time the unit gets back to Mission Briefing it's given the order again (if it's hurt, once it's healed). INF keeps going until you press Cancel in Field while it's waiting to set out."
+	return picker
 
 
 ## A dropdown of `unit`'s missions. Opens on the mission the unit did last

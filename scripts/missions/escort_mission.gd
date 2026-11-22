@@ -1,7 +1,7 @@
 class_name EscortMission
 extends Mission
 ## Follow another unit of our colony (the "escortee") wherever it goes, so a
-## fighter can guard a worker. The escortee must be at the hub when the order
+## fighter can guard a Builder or the Miner. The escortee must be at the hub when the order
 ## is given - either still waiting for orders or about to set out.
 ##
 ## Each turn the escort heads for wherever the escortee is going this turn

@@ -18,10 +18,10 @@ const DATA := {
 	Type.HIGHLANDS: {"name": "Rocky Highlands", "color": Color(0.68, 0.33, 0.17), "move_cost": 3, "passable": true},
 	Type.MESA: {"name": "Mesa", "color": Color(0.55, 0.26, 0.14), "move_cost": IMPASSABLE_COST, "passable": false},
 	Type.CHASM: {"name": "Chasm", "color": Color(0.36, 0.16, 0.09), "move_cost": IMPASSABLE_COST, "passable": false},
-	## Laid by a Worker. Quick to cross; conveyor belts and extractors must
+	## Laid by a Builder. Quick to cross; conveyor belts and extractors must
 	## be built on one.
 	Type.FOUNDATION: {"name": "Foundation", "color": Color(0.74, 0.52, 0.38), "move_cost": 1, "passable": true},
-	## A chasm that a Worker has spanned with a bridge. Counts as a foundation.
+	## A chasm that a Builder has spanned with a bridge. Counts as a foundation.
 	Type.BRIDGE: {"name": "Bridge", "color": Color(0.36, 0.16, 0.09), "move_cost": 1, "passable": true},
 	## Left behind when Infantry demolish anything man-made.
 	Type.RUBBLE: {"name": "Rubble", "color": Color(0.5, 0.37, 0.3), "move_cost": 3, "passable": true},

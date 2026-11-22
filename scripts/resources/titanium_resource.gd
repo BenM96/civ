@@ -7,8 +7,8 @@ func _init() -> void:
 	type = ResourceDeposit.Type.TITANIUM
 	display_name = "Titanium"
 	color = Color(0.62, 0.78, 1.0)
-	min_amount = 20
-	max_amount = 60
+	min_amount = 999
+	max_amount = 999
 	spawn_chance = 0.14
 	terrains = [Terrain.Type.HIGHLANDS]
 	harvest_amount = 1

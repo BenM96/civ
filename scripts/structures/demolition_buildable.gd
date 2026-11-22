@@ -5,7 +5,7 @@ extends Buildable
 ## the tile (foundations, extractors, conveyors) and leaves Rubble - except a
 ## bridge, which collapses back into the Chasm. Bridges are demolished from
 ## the bank so the unit isn't standing on it when it falls.
-## Used by DemolishMission; Infantry do this, not Workers.
+## Used by DemolishMission; Infantry do this, not Builders.
 
 
 func _init() -> void:

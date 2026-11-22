@@ -6,7 +6,7 @@ extends Node2D
 ## handed a Mission. During turn resolution they execute the mission, then
 ## walk back to the hub on their own, where they wait for the next order.
 ##
-## Subclasses (Worker, Tank, ...) set ALL their data in _init() - stats,
+## Subclasses (Miner, Tank, ...) set ALL their data in _init() - stats,
 ## training cost, training time, upkeep and the short label drawn on their
 ## icon - and can add new abilities for missions. Units of each type share
 ## a base: ArmourUnit (fires twice a round) and AirUnit (flies sorties, then
@@ -29,30 +29,22 @@ enum State {
 }
 
 const RADIUS := 13.0
+## A repeats_left value meaning "keep repeating forever".
+const REPEAT_FOREVER := -1
 
 @export var unit_name := "Unit"
-## Short label drawn on the unit's icon, e.g. "W", "I" or "AA" (1-3 letters).
+## Short label drawn on the unit's icon, e.g. "MI", "I" or "AA" (1-3 letters).
 @export var short_name := ""
-## How the training price changes with each one built (see cost_rises_after):
-##   FIXED  - always costs `cost` (every unit but the Worker)
-##   DOUBLE - each costs double the last: x1, x2, x4, x8... (the Worker)
-enum CostGrowth { FIXED, DOUBLE }
 ## What kind of unit this is (see unit_type). Add new kinds at the end.
 enum UnitType { INFANTRY, CIVILIAN, AIR, ARMOUR }
 
-## Resources paid to train the first of this unit: ResourceDeposit.Type -> int.
-## Only Workers get dearer (see cost_growth and cost_rises_after).
+## Resources paid to train one of this unit: ResourceDeposit.Type -> int.
+## Always the same, however many you've had.
 ## Specialist units (ones needing their own tech) add SPECIALIST_COST.
 var cost: Dictionary = {}
 ## What specialist units (Assault, AT and Stinger Infantry, Tank Destroyer,
 ## Tank, AA Gun, Fighter, Bomber) pay on top of their type's price.
 const SPECIALIST_COST := {ResourceDeposit.Type.ELECTRUM: 1}
-@export var cost_growth := CostGrowth.FIXED
-## How many of this unit a colony can have built before its training cost
-## starts rising. E.g. 1: after 1 the next costs `cost`, then it rises with
-## each one after that. Every one ever had counts (starting units, ones in
-## training, and ones since lost), so losing units doesn't lower the price.
-@export var cost_rises_after := 0
 ## Turns a hub spends training this unit.
 @export var train_turns := 1
 ## Biomass this unit eats every turn, wherever it is.
@@ -90,7 +82,7 @@ const SPECIALIST_COST := {ResourceDeposit.Type.ELECTRUM: 1}
 ## Permanent number identifying this unit in orders and saves; the same on
 ## every computer. Given out by the map when the unit joins (0 = not yet).
 var id := 0
-## Unique name given by the hub, e.g. "Worker 2".
+## Unique name given by the hub, e.g. "Builder 2".
 var display_name := ""
 var hex: Vector2i
 var player: Player
@@ -110,6 +102,11 @@ var refit_turns_left := 0
 ## The kind of the last mission this unit was given (e.g. "harvest",
 ## "build:foundation"), so the HUD can offer it again. "" if it's never had one.
 var last_mission_kind := ""
+## How many more times to do the last mission again once back in Mission
+## Briefing (see Player.repeat_orders()): 0 for none, REPEAT_FOREVER for
+## forever. repeat_target is the tile it was aimed at.
+var repeats_left := 0
+var repeat_target := Vector2i.ZERO
 ## Resources being carried home: ResourceDeposit.Type -> int.
 ## The hub unloads this when the unit returns.
 var cargo: Dictionary = {}
@@ -298,6 +295,8 @@ func to_dict() -> Dictionary:
 		"room": room_id,
 		"refit_turns_left": refit_turns_left,
 		"last_mission_kind": last_mission_kind,
+		"repeats_left": repeats_left,
+		"repeat_target": SaveGame.hex_to_data(repeat_target),
 		"health": health,
 		"cargo": SaveGame.resources_to_data(cargo),
 		"materials": SaveGame.resources_to_data(materials),
@@ -313,6 +312,8 @@ func load_dict(data: Dictionary) -> void:
 	room_id = data["room"]
 	refit_turns_left = int(data["refit_turns_left"])
 	last_mission_kind = data.get("last_mission_kind", "")  # Older saves lack it.
+	repeats_left = int(data["repeats_left"])
+	repeat_target = SaveGame.hex_from_data(data["repeat_target"])
 	health = int(data["health"])
 	cargo = SaveGame.resources_from_data(data["cargo"])
 	materials = SaveGame.resources_from_data(data.get("materials", {}))  # Older saves lack it.
@@ -387,6 +388,22 @@ func get_cargo_text() -> String:
 
 # --- Missions --------------------------------------------------------------
 
+## Do the mission just given (aimed at `target`) `more` more times after
+## this one (REPEAT_FOREVER for forever, 0 for just once).
+func set_repeats(target: Vector2i, more: int) -> void:
+	repeats_left = more
+	repeat_target = target
+
+
+## "2 more times", "forever", or "" if it isn't repeating.
+func get_repeat_text() -> String:
+	if repeats_left == REPEAT_FOREVER:
+		return "repeating forever"
+	if repeats_left > 0:
+		return "%d more time%s" % [repeats_left, "" if repeats_left == 1 else "s"]
+	return ""
+
+
 func can_accept_mission(m: Mission) -> bool:
 	return state == State.IN_HUB and m.is_valid_for(self)
 
@@ -406,6 +423,7 @@ func cancel_mission() -> bool:
 	if not can_cancel_mission():
 		return false
 	mission = null
+	repeats_left = 0  # Calling it off stops any repeats too.
 	_path.clear()
 	_set_state(State.IN_HUB)
 	return true
@@ -641,7 +659,7 @@ func _can_enter(step: int, mp: int) -> bool:
 
 # --- Presentation ----------------------------------------------------------
 
-## One line for the hovered-tile panel, e.g. "Worker 2 (Pink colony) - HP
+## One line for the hovered-tile panel, e.g. "Builder 2 (Pink colony) - HP
 ## 7/10 - Harvest Biomass at (3, 4)".
 func get_hover_text() -> String:
 	var doing := "Returning to hub"
@@ -652,6 +670,9 @@ func get_hover_text() -> String:
 
 func get_status_text() -> String:
 	var text := _get_activity_text()
+	var repeat := get_repeat_text()
+	if repeat != "":
+		text += "  [%s]" % repeat
 	if health < max_health:
 		text += "  [HP %d/%d]" % [health, max_health]
 	return text
@@ -715,7 +736,7 @@ func play_movement(delay := 0.0) -> void:
 
 
 ## Units are only drawn while out in the world (not on their own hub, e.g.
-## a worker waiting there for resources).
+## a Builder waiting there for resources).
 func _refresh_visibility() -> void:
 	visible = (state == State.ON_MISSION or state == State.RETURNING) and not (player and hex == player.hex)
 	if not visible and map:

@@ -11,34 +11,34 @@ extends Mission
 ## So each tile has a stack of jobs ("layers": a buildable's `requires`, then
 ## the buildable), and anything already in place is skipped.
 ##
-## Which job next: the worker does one job per turn, choosing each time -
+## Which job next: the Builder does one job per turn, choosing each time -
 ##   1. the lowest layer first (all the foundations, then belts, then the
 ##      extractor), nearest the hub first;
 ##   2. but only jobs the colony can pay for right now - so with no Sediment
 ##      for a foundation but Titanium to spare, it lays a belt on a tile that
 ##      already has a foundation instead of waiting.
-## After each job the worker walks back to the hub before setting out for the
+## After each job the Builder walks back to the hub before setting out for the
 ## next, exactly as if it had been given one order at a time - a line order
 ## saves the player clicks, not time.
 ##
-## Each job's materials leave the hub when the worker picks it - when the
-## order is given, then at the hub before each trip - and the worker carries
-## them (Unit.materials), so two workers can never count on the same
+## Each job's materials leave the hub when the Builder picks it - when the
+## order is given, then at the hub before each trip - and the Builder carries
+## them (Unit.materials), so two Builders can never count on the same
 ## resources. If it can't afford any job on the line, it waits at the hub
 ## ("waiting for resources") until it can, then carries on. Materials it
 ## doesn't use (someone finished that tile first, the job became impossible)
 ## go back in the stockpile when it's next at the hub. If a job becomes
 ## impossible (e.g. another colony builds in the way) the mission fails and
-## the worker heads home; whatever was built stays.
+## the Builder heads home; whatever was built stays.
 ##
 ## The route avoids tiles where a job couldn't be done (e.g. belts can't go on
 ## another colony's structure) and is the cheapest in materials, so it runs
 ## along foundations (and belts) already in place. It may cross deposits: an
 ## extractor can later go on top of a belt there and the line still carries
 ## resources through it. It's re-planned
-## each time the worker sets out from the hub, to use anything built since.
+## each time the Builder sets out from the hub, to use anything built since.
 ##
-## Several workers given the same order share it: each claims the tile it's
+## Several Builders given the same order share it: each claims the tile it's
 ## working towards and the others pick different tiles.
 
 ## Route cost of a tile: TILE_COST for its length, plus RESOURCE_COST for
@@ -52,7 +52,7 @@ var target: Vector2i
 var buildable: Buildable
 ## Every tile from just outside the hub to the target, in order.
 var _route: Array[Vector2i] = []
-## The tile this worker is heading for or working on, or null.
+## The tile this Builder is heading for or working on, or null.
 var _job_tile: Variant = null
 var _turns_worked := 0
 ## Display name -> how many we've built, for the completion message.
@@ -109,7 +109,7 @@ func get_progress_text() -> String:
 
 func get_completion_text() -> String:
 	if _built.is_empty():
-		return "left the work on (%d, %d) to other workers" % [target.x, target.y]
+		return "left the work on (%d, %d) to other Builders" % [target.x, target.y]
 	var parts: PackedStringArray = []
 	for name in _built:
 		var n: int = _built[name]
@@ -122,7 +122,7 @@ func get_target_hex() -> Variant:
 	return target
 
 
-## Where the worker is heading: the hub between jobs or while waiting for
+## Where the Builder is heading: the hub between jobs or while waiting for
 ## resources, else the tile of its current job; before setting off, the target.
 func get_travel_hex() -> Variant:
 	if (_waiting_for_resources or _going_home) and unit:
@@ -144,7 +144,7 @@ func get_work_turns() -> int:
 
 
 ## The jobs that could be done next on the route - each tile's next job -
-## lowest layer first (the order workers pick them in), for planners.
+## lowest layer first (the order Builders pick them in), for planners.
 func get_next_jobs(player: Player, map: HexMap, from: Vector2i) -> Array[Buildable]:
 	var jobs: Array[Buildable] = []
 	for entry in _next_jobs_by_tile(player, map, from, {}):
@@ -167,7 +167,7 @@ func _next_jobs_by_tile(player: Player, map: HexMap, from: Vector2i, skip: Dicti
 
 
 ## How many of those next jobs `budget` (Type -> int) pays for, cheapest
-## layers first - i.e. how many more workers could set to work right now.
+## layers first - i.e. how many more Builders could set to work right now.
 ## Leaves out tiles in `skip` (e.g. ones builders already took materials
 ## for). Takes what they'd cost out of `budget`, at most `limit` jobs' worth.
 func take_startable(player: Player, map: HexMap, from: Vector2i, budget: Dictionary, limit: int,
@@ -213,12 +213,12 @@ func get_job_counts(player: Player, map: HexMap, from: Vector2i) -> Array:
 	return jobs
 
 
-## Paid job by job as the worker goes, not up front.
+## Paid job by job as the Builder goes, not up front.
 func get_cost() -> Dictionary:
 	return {}
 
 
-## A worker waiting at the hub for resources can be called off (anything it
+## A Builder waiting at the hub for resources can be called off (anything it
 ## already built stays; nothing was paid for the jobs it hasn't started).
 func can_cancel_at_hub() -> bool:
 	return _waiting_for_resources
@@ -235,7 +235,7 @@ func get_invalid_reason(u: Unit) -> String:
 		return "no way to build a line there"
 	if _count_jobs(u.player, u.map, route) == 0:
 		return "nothing left to build there"
-	return ""  # Can't afford it yet? The worker waits at the hub until we can.
+	return ""  # Can't afford it yet? The Builder waits at the hub until we can.
 
 
 ## Ordered: pick the first job and take its materials from the hub straight
@@ -344,7 +344,7 @@ func _choose_next_job() -> void:
 		elif _built.is_empty() and not _others_building():
 			fail("nothing left to build")
 		else:
-			complete()  # Done, or the rest is in other workers' hands.
+			complete()  # Done, or the rest is in other Builders' hands.
 		return
 	_waiting_for_resources = false
 	_job_tile = job[0]
@@ -359,7 +359,7 @@ func _choose_next_job() -> void:
 
 ## The best job `budget` (Type -> int) pays for, as [tile, layer], or [] if
 ## none: the lowest layer first (foundations before belts before the
-## extractor), then the tile nearest the hub. Skips tiles other workers on
+## extractor), then the tile nearest the hub. Skips tiles other Builders on
 ## this order claimed.
 func _pick_job(budget: Dictionary) -> Array:
 	var best: Array = []
@@ -385,7 +385,7 @@ static func _covers(budget: Dictionary, cost: Dictionary) -> bool:
 	return true
 
 
-## Whether any tile on the line still needs a job no other worker has claimed.
+## Whether any tile on the line still needs a job no other Builder has claimed.
 func _has_unclaimed_jobs() -> bool:
 	for h in _route:
 		if not _claimed_by_another(h) and not _pending_layers(unit.player, unit.map, h).is_empty():
@@ -527,7 +527,7 @@ func plan_route(player: Player, map: HexMap, from: Vector2i, to: Vector2i) -> Ar
 
 # --- Sharing the work ------------------------------------------------------
 
-## The tile this worker has claimed (is heading for or working on), or null.
+## The tile this Builder has claimed (is heading for or working on), or null.
 func get_claimed_tile() -> Variant:
 	if result != Result.IN_PROGRESS or _waiting_for_resources:
 		return null

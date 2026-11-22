@@ -14,8 +14,10 @@ extends RefCounted
 ## One round is fought per turn:
 ##   1. Units already below half their max HP (broken in an earlier battle)
 ##      flee straight away without firing.
-##   2. Each colony's other units go into a list, in random order, and the
-##      lists are taken in a random order.
+##   2. Each colony's other units go into a list, in random order. The lists
+##      are taken highest initiative first (Player.get_initiative() - from
+##      command points and Initiative techs); colonies with the same
+##      initiative go in a random order.
 ##   3. Working through the lists side by side - the first unit of each list
 ##      in turn, then the second of each, and so on (a list that runs out is
 ##      skipped) - every unit fires once, at an enemy unit still in the
@@ -178,9 +180,7 @@ static func _fight(sides: Dictionary, rng: RandomNumberGenerator, events: Array)
 			if u.is_broken():
 				fled.append(u)
 				events.append({"type": "flee", "unit": u.id})
-	var order: Array = sides.keys()
-	order.sort()
-	_shuffle(order, rng)
+	var order := _side_order(sides, rng)
 	var longest := 0
 	for side in order:
 		_shuffle(sides[side], rng)
@@ -229,6 +229,27 @@ static func _fire(attacker: Unit, sides: Dictionary, order: Array, side: Variant
 	return true
 
 
+## The colonies (side ids) in the order they fire: highest initiative first,
+## ties in a random order.
+static func _side_order(sides: Dictionary, rng: RandomNumberGenerator) -> Array:
+	var order: Array = sides.keys()
+	order.sort()
+	_shuffle(order, rng)
+	var initiative := {}
+	for side in order:
+		var unit: Unit = sides[side][0]
+		initiative[side] = unit.player.get_initiative()
+	# Stable insertion sort, so ties keep their shuffled order.
+	for i in range(1, order.size()):
+		var j := i
+		while j > 0 and initiative[order[j]] > initiative[order[j - 1]]:
+			var swap: Variant = order[j]
+			order[j] = order[j - 1]
+			order[j - 1] = swap
+			j -= 1
+	return order
+
+
 ## Fisher-Yates with our own rng (Array.shuffle() would use the global one).
 static func _shuffle(list: Array, rng: RandomNumberGenerator) -> void:
 	for i in range(list.size() - 1, 0, -1):
@@ -246,7 +267,7 @@ static func _describe_hexes(hexes: Array[Vector2i]) -> String:
 	return ", ".join(parts)
 
 
-## e.g. "Your colony lost 1 Infantry; Pink colony lost 1 Worker. Fled:
+## e.g. "Your colony lost 1 Infantry; Pink colony lost 1 Builder. Fled:
 ## Infantry 2 (Pink colony)"
 static func _describe_outcome(events: Array, dead: Array[Unit], broken: Array[Unit]) -> String:
 	var hits := 0
@@ -264,7 +285,7 @@ static func _describe_outcome(events: Array, dead: Array[Unit], broken: Array[Un
 	return text
 
 
-## e.g. "Your colony lost 2 Infantry; Rival colony lost 2 Infantry, 1 Worker"
+## e.g. "Your colony lost 2 Infantry; Rival colony lost 2 Infantry, 1 Miner"
 static func _describe_losses(dead: Array[Unit]) -> String:
 	# faction -> {unit_name -> count}
 	var losses := {}

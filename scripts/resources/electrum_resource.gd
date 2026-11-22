@@ -2,7 +2,7 @@ class_name ElectrumResource
 extends ResourceType
 ## A rare metal, needed (with every other stored resource) for command
 ## points - see CommandPointBuildable. Deposits only lie far out - more than 10 tiles from every hub and
-## from each other. Workers can carry it home 1 a trip, or an extractor at
+## from each other. the Miner can carry it home 1 a trip, or an extractor at
 ## the end of a long belt line brings in 1 a turn. It also pays for research
 ## (see TechTrees).
 
@@ -11,8 +11,8 @@ func _init() -> void:
 	type = ResourceDeposit.Type.ELECTRUM
 	display_name = "Electrum"
 	color = Color(0.15, 0.55, 1.0)
-	min_amount = 100
-	max_amount = 120
+	min_amount = 999
+	max_amount = 999
 	spawn_chance = 0.0  # Placed by distance instead (below).
 	terrains = [Terrain.Type.REGOLITH, Terrain.Type.DUST_PLAINS, Terrain.Type.DUNES, Terrain.Type.HIGHLANDS]
 	min_distance_from_hubs = 10
