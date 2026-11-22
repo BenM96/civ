@@ -35,6 +35,8 @@ var requires: Array[String] = []
 ## to the target, e.g. "conveyor" for an extractor so it's connected, or the
 ## buildable's own id for foundations and belts. "" = a single-tile build.
 var line_of := ""
+## What to pick on the map when ordering it, for the Mission Briefing tooltip.
+var site_name := "a tile"
 
 
 ## Why this can't be built at `h`, or "" if it can.

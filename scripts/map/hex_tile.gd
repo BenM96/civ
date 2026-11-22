@@ -10,6 +10,9 @@ var deposit: ResourceDeposit
 var structure: Structure.Type = Structure.Type.NONE
 ## Faction that built the structure (Faction.NONE if there is none).
 var structure_owner := Faction.NONE
+## A control point: build a command point on every one of these to win (see
+## HexMap.control_points and CommandPointBuildable).
+var control_point := false
 
 
 func _init(p_coord: Vector2i, p_terrain: Terrain.Type) -> void:

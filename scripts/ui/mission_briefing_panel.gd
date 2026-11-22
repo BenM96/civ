@@ -128,7 +128,7 @@ func _mission_choices(unit: Unit) -> Array:
 			"Stand by in the QRF room. After everyone else has moved each turn, head for the nearest enemy on one of our extractors or belts; come back when they've gone. Stays on duty until you drag it out of the QRF room.", true])
 	if unit.can_take("capture"):
 		choices.append(["capture", "Capture",
-			"Take over another colony's extractor or conveyor belt. Takes 1 turn on the spot.", true])
+			"Take over another colony's extractor, conveyor belt or command point. Takes 1 turn on the spot.", true])
 	if unit.can_take("harvest"):
 		choices.append(["harvest", "Harvest", "Bring back 1 resource from a deposit.", true])
 	if unit.can_take("build"):
@@ -144,12 +144,12 @@ func _mission_choices(unit: Unit) -> Array:
 			elif b.line_of != "":
 				var line_name := player.get_buildable(b.line_of).display_name
 				choices.append(["build:" + b.id, "Build %s (%s, + %ss to hub)" % [b.display_name, b.get_cost_text(), line_name],
-					"Pick a deposit: lays foundations and %ss from the hub to it where missing, then builds the %s. Pays as it goes." % [
+					"Pick %s: lays foundations and %ss from the hub to it where missing, then builds the %s. Pays as it goes." % [b.site_name, 
 						line_name, b.display_name], true])
 			else:
 				choices.append(["build:" + b.id, "Build %s (%s)" % [b.display_name, b.get_cost_text()],
 					"Costs %s." % b.get_cost_text(), player.can_afford(b.cost)])
 	if unit.can_take("demolish"):
 		choices.append(["demolish", "Demolish",
-			"Tear down foundations, bridges, extractors or conveyors on a tile, leaving rubble.", true])
+			"Tear down foundations, bridges, extractors, conveyors or command points on a tile, leaving rubble.", true])
 	return choices

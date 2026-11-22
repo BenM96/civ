@@ -8,13 +8,13 @@ extends RefCounted
 ## scripts/resources/ - see ResourceType. To add a new resource: add it to
 ## Type, write its file, and list it in _type_scripts().
 
-enum Type { BIOMASS, TITANIUM, SEDIMENT, GOLD, UNOBTAINIUM }
+enum Type { BIOMASS, TITANIUM, SEDIMENT, GOLD, ELECTRUM }
 
 ## Every resource's script. Deposits are placed in this order, one per tile
 ## at most - Gold first, as it's rare and small, so commoner resources don't
 ## crowd it out.
 static func _type_scripts() -> Array:
-	return [GoldResource, TitaniumResource, SedimentResource, BiomassResource, UnobtainiumResource]
+	return [GoldResource, TitaniumResource, SedimentResource, BiomassResource, ElectrumResource]
 
 ## Type -> ResourceType, made on first use.
 static var _infos: Dictionary = {}

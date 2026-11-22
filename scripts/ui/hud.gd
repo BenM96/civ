@@ -65,6 +65,8 @@ const WILTED_SVG := """<svg xmlns="http://www.w3.org/2000/svg" width="64" height
 var _turn_label: Label
 ## ResourceDeposit.Type -> Label
 var _inventory_labels: Dictionary = {}
+## "Command points: 1/5" - progress towards victory.
+var _command_points_label: Label
 var _hint_label: Label
 var _help_label: Label
 var _end_turn_button: Button
@@ -194,6 +196,12 @@ func set_inventory(inventory: Dictionary, income: Dictionary = {}) -> void:
 		label.text = "%s: %d" % [type_name, inventory.get(type, 0)]
 		if not is_zero_approx(income.get(type, 0.0)):
 			label.text += " (%s)" % ResourceDeposit.format_change(income[type])
+
+
+## Progress towards victory: linked command points held of the map's
+## control points.
+func set_command_points(held: int, total: int) -> void:
+	_command_points_label.text = "Command points: %d/%d" % [held, total]
 
 
 ## Makes sure the player notices that one of their units has starved (see
@@ -524,7 +532,7 @@ func _build_top_bar(root: Control) -> void:
 	top_row.add_child(_turn_label)
 	# One coloured label per resource, in a fixed order.
 	for type in [ResourceDeposit.Type.BIOMASS, ResourceDeposit.Type.TITANIUM, ResourceDeposit.Type.SEDIMENT,
-			ResourceDeposit.Type.GOLD, ResourceDeposit.Type.UNOBTAINIUM]:
+			ResourceDeposit.Type.GOLD, ResourceDeposit.Type.ELECTRUM]:
 		var gap := Control.new()
 		gap.custom_minimum_size.x = 10
 		top_row.add_child(gap)
@@ -533,6 +541,15 @@ func _build_top_bar(root: Control) -> void:
 		label.add_theme_color_override("font_color", ResourceDeposit.get_type_color(type))
 		top_row.add_child(label)
 		_inventory_labels[type] = label
+	var gap_cp := Control.new()
+	gap_cp.custom_minimum_size.x = 14
+	top_row.add_child(gap_cp)
+	_command_points_label = Label.new()
+	_command_points_label.add_theme_font_size_override("font_size", 16)
+	_command_points_label.add_theme_color_override("font_color", Color(1.0, 0.82, 0.3))
+	_command_points_label.mouse_filter = Control.MOUSE_FILTER_PASS  # So the tooltip shows.
+	_command_points_label.tooltip_text = "Command points you hold on the map's control points (gold-ringed tiles with a flag), linked to your hub by belts.\nHold every one at the end of a turn to win."
+	top_row.add_child(_command_points_label)
 	# Hint (shown while choosing a target; replaces the controls help)
 	_hint_label = Label.new()
 	_hint_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS

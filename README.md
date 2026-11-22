@@ -2,8 +2,8 @@
 
 A turn-based colony strategy game on Mars, played on a hex map. You run one
 colony against four computer-controlled rivals: gather resources, build a
-supply network, grow your workforce and race to be the first to stockpile
-**50 Unobtainium**.
+supply network, grow your workforce and race to be the first to hold a
+**command point on every control point** on the map.
 
 Made with [Godot 4.7](https://godotengine.org/).
 
@@ -16,11 +16,32 @@ come home on their own.
 
 ### Winning and losing
 
-- **Win:** be the first colony to hold 50 Unobtainium at the end of a turn.
-  You can keep playing afterwards.
+- **Win:** be the first colony with a command point on every control point
+  at the end of a turn, each one linked to your hub by conveyor belts (see
+  Control points). You can keep playing afterwards.
 - **Lose:** your colony has no units left and none in training.
 - A rival with no units left (and none in training) collapses. Outlast every
   rival and you also win.
+
+### Control points
+
+Every map has one **control point** per colony, 5 to 10 tiles from its hub
+(and nearer that hub than any other): a gold-ringed tile with a white flag.
+To win you need a **Command Point** on all of them - yours and every
+rival's.
+
+- A Worker builds one with **Build Command Point** in Mission Briefing: pick
+  a control point and, like an extractor, it lays foundations and conveyor
+  belts from the hub out to it, then builds the command point on the end.
+  It costs 20 Titanium, 20 Sediment, 20 Gold and 20 Electrum.
+- A command point only counts while it's linked to your hub by belts. Its
+  light shows green when it is and red when it isn't. Cutting or capturing
+  a belt on the way stops it counting until the link is restored.
+- Infantry can **capture** another colony's command point (it then needs
+  your belts to count) or **demolish** it, freeing the control point.
+- The top bar shows how many you hold, e.g. "Command points: 2/5".
+
+The computer colonies don't go for control points yet.
 
 ### Biomass and starvation
 
@@ -43,13 +64,13 @@ shows it, e.g. "Biomass: +2 a turn".
 | Resource | Used for |
 |---|---|
 | Biomass | Feeding your units (production per turn, not stored - see above) |
-| Gold | Training units |
-| Titanium | Training units, conveyor belts, extractors, bridges |
-| Sediment | Foundations, extractors, bridges |
-| Unobtainium | Winning (50 wins the game) |
+| Gold | Training units, command points |
+| Titanium | Training units, conveyor belts, extractors, bridges, hub buildings, command points |
+| Sediment | Foundations, extractors, bridges, hub buildings, command points |
+| Electrum | Command points |
 
 Every hub has at least one deposit of each resource within 4 tiles (but none
-right next to it), except Unobtainium: its deposits are only found more than
+right next to it), except Electrum: its deposits are only found more than
 10 tiles from every hub and from each other, and it can only be mined with an
 extractor connected by belts - Workers can't harvest it by hand.
 
@@ -245,13 +266,13 @@ QRF room. If it breaks in battle, it drops QRF duty and comes home.
 ### Building an economy
 
 Harvesting by hand brings back 1 resource per trip (not Biomass or
-Unobtainium - only extractors get those). For a steady income:
+Electrum - only extractors get those). For a steady income:
 
 1. Lay **foundations** from your hub out to a deposit, and on the deposit.
 2. Build **conveyor belts** on the foundations, including on the deposit.
 3. Build an **extractor** on top of the belt on the deposit. A Biomass
    extractor adds 1 to your biomass production while its deposit lasts; an
-   Unobtainium extractor delivers 1 per turn; Titanium, Sediment and Gold
+   Electrum extractor delivers 1 per turn; Titanium, Sediment and Gold
    extractors deliver 0.2 per turn (1 every 5 turns).
 
 Each resource's numbers (deposit sizes, where it appears, what a Worker

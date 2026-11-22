@@ -30,6 +30,15 @@ var players: Dictionary = {}
 var last_seed := 0
 ## The id the next new unit in this game gets (see take_unit_id()).
 var next_unit_id := 1
+## The control points (see place_control_points()): a colony that has a
+## command point on every one, each linked to its hub, wins.
+var control_points: Array[Vector2i] = []
+
+## How far from its colony's hub each control point is placed.
+const CONTROL_POINT_MIN_DISTANCE := 5
+const CONTROL_POINT_MAX_DISTANCE := 10
+## Control points are never closer together than this.
+const CONTROL_POINT_SPACING := 4
 
 
 ## Hands out a unit id no other unit in this game has had.
@@ -43,6 +52,7 @@ func take_unit_id() -> int:
 func generate(seed_override := 0) -> void:
 	tiles.clear()
 	_foundation_anchors.clear()
+	control_points.clear()
 	var seed_value := seed_override if seed_override != 0 else (map_seed if map_seed != 0 else randi())
 	if seed_value == 0:
 		seed_value = 1  # 0 means "random", so it could never be regenerated.
@@ -89,6 +99,7 @@ func to_dict() -> Dictionary:
 			tile.deposit.amount if tile.deposit else 0,
 		])
 	return {
+		"control_points": control_points.map(func(h: Vector2i) -> Array: return [h.x, h.y]),
 		"seed": last_seed,
 		"next_unit_id": next_unit_id,
 		"width": width,
@@ -114,6 +125,10 @@ func load_dict(data: Dictionary) -> void:
 		tile.deposit = null
 		if entry[5] != null:
 			tile.deposit = ResourceDeposit.new(ResourceDeposit.Type[entry[5]], h, int(entry[6]))
+	for entry: Array in data["control_points"]:
+		var h := Vector2i(int(entry[0]), int(entry[1]))
+		tiles[h].control_point = true
+		control_points.append(h)
 	_rebuild_pathfinding()
 	queue_redraw()
 
@@ -148,7 +163,7 @@ func _scatter_deposits(rng: RandomNumberGenerator) -> void:
 				break
 
 
-## Places the "remote" resources (e.g. Unobtainium - see
+## Places the "remote" resources (e.g. Electrum - see
 ## ResourceType.min_distance_from_hubs): as many deposits as fit on tiles
 ## more than min_distance_from_hubs from every hub and more than min_spacing
 ## from each other, on their usual terrain, reachable from a hub. Tiles are
@@ -186,6 +201,52 @@ func place_remote_deposits(hub_spots: Array[Vector2i]) -> int:
 		placed += mine.size()
 	queue_redraw()
 	return placed
+
+
+## Places one control point per hub, CONTROL_POINT_MIN_DISTANCE to
+## CONTROL_POINT_MAX_DISTANCE tiles from it: on open, passable ground with no
+## deposit, nearer that hub than any other (so nobody's is handed to a
+## rival), at least CONTROL_POINT_SPACING from the others, and reachable on
+## foot. Picked at random from the map's seed, so the same map always gets
+## the same points. If a hub has no such tile, the "nearer than any other
+## hub" rule is dropped for it.
+func place_control_points(hub_spots: Array[Vector2i]) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = last_seed + 11
+	for spot in hub_spots:
+		var h: Variant = _pick_control_point(spot, hub_spots, rng, true)
+		if h == null:
+			h = _pick_control_point(spot, hub_spots, rng, false)
+		if h == null:
+			push_warning("No room for a control point near %s" % spot)
+			continue
+		tiles[h].control_point = true
+		control_points.append(h)
+	queue_redraw()
+
+
+func _pick_control_point(spot: Vector2i, hub_spots: Array[Vector2i], rng: RandomNumberGenerator,
+		nearest_only: bool) -> Variant:
+	var candidates: Array[Vector2i] = []
+	for h in tiles:
+		var tile: HexTile = tiles[h]
+		var d := Hex.distance(h, spot)
+		if d < CONTROL_POINT_MIN_DISTANCE or d > CONTROL_POINT_MAX_DISTANCE:
+			continue
+		if not tile.is_passable() or tile.deposit != null or h in hub_spots:
+			continue
+		if not _farther_than(h, control_points, CONTROL_POINT_SPACING - 1):
+			continue
+		if nearest_only and hub_spots.any(func(other: Vector2i) -> bool:
+				return other != spot and Hex.distance(h, other) <= d):
+			continue
+		candidates.append(h)
+	candidates.sort()  # Dictionary order isn't guaranteed; keep it repeatable.
+	while not candidates.is_empty():
+		var h: Vector2i = candidates.pop_at(rng.randi_range(0, candidates.size() - 1))
+		if not find_path(spot, h).is_empty():
+			return h
+	return null
 
 
 ## Whether `h` is more than `distance` tiles from every one of `spots`.
@@ -467,6 +528,11 @@ func _draw() -> void:
 	for h in tiles:
 		if tiles[h].structure == Structure.Type.EXTRACTOR:
 			_draw_extractor(h)
+	for h in control_points:
+		if tiles[h].structure == Structure.Type.COMMAND_POINT:
+			_draw_command_point(h)
+		else:
+			_draw_control_point(h)
 
 
 ## Which faction's supply network this tile could belong to: the owner of
@@ -571,6 +637,58 @@ func _draw_extractor(h: Vector2i) -> void:
 		light = Color(0.35, 1.0, 0.4) if _is_supply_connected(h, tile.structure_owner) else Color(1.0, 0.3, 0.25)
 	draw_circle(top, 0.09 * s, dark)
 	draw_circle(top, 0.065 * s, light)
+
+
+## An unclaimed control point: a gold ring round the tile and a white
+## marker flag.
+func _draw_control_point(h: Vector2i) -> void:
+	var s := hex_size
+	var c := Hex.to_pixel(h, s)
+	var gold := Color(1.0, 0.82, 0.3)
+	var ring := Hex.corners(c, s * 0.8)
+	ring.append(ring[0])
+	draw_polyline(ring, Color(0.15, 0.1, 0.05, 0.6), 5.0, true)
+	draw_polyline(ring, gold, 2.5, true)
+	_draw_flag(c, s, Color(0.95, 0.95, 0.9), gold)
+
+
+## A command point: a squat bunker with an antenna and a flag in its
+## owner's colour, plus a status light - green when linked to its hub by
+## belts (it counts towards victory), red when it isn't.
+func _draw_command_point(h: Vector2i) -> void:
+	var s := hex_size
+	var c := Hex.to_pixel(h, s)
+	var tile := get_tile(h)
+	var owner_color := Faction.get_color(tile.structure_owner)
+	var dark := Color(0.2, 0.21, 0.25)
+	var ring := Hex.corners(c, s * 0.8)
+	ring.append(ring[0])
+	draw_polyline(ring, Color(0.15, 0.1, 0.05, 0.6), 5.0, true)
+	draw_polyline(ring, owner_color, 2.5, true)
+	# Bunker.
+	var bunker := PackedVector2Array([
+		c + Vector2(-0.36, 0.3) * s, c + Vector2(-0.26, 0.02) * s,
+		c + Vector2(0.26, 0.02) * s, c + Vector2(0.36, 0.3) * s])
+	draw_colored_polygon(bunker, Color(0.62, 0.64, 0.68))
+	bunker.append(bunker[0])
+	draw_polyline(bunker, dark, 2.0, true)
+	draw_rect(Rect2(c + Vector2(-0.16, 0.1) * s, Vector2(0.32, 0.07) * s), dark)
+	_draw_flag(c, s, owner_color, Color(0.85, 0.85, 0.88))
+	var light := Color(0.35, 1.0, 0.4) if _is_supply_connected(h, tile.structure_owner) else Color(1.0, 0.3, 0.25)
+	draw_circle(c + Vector2(-0.22, -0.05) * s, 0.08 * s, dark)
+	draw_circle(c + Vector2(-0.22, -0.05) * s, 0.055 * s, light)
+
+
+## A flagpole rising from the middle of the tile with a pennant.
+func _draw_flag(c: Vector2, s: float, flag_color: Color, pole_color: Color) -> void:
+	var foot := c + Vector2(0.06, 0.05) * s
+	var top := c + Vector2(0.06, -0.55) * s
+	draw_line(foot, top, Color(0.1, 0.08, 0.06), 3.5)
+	draw_line(foot, top, pole_color, 1.8)
+	var pennant := PackedVector2Array([top, top + Vector2(0.34, 0.1) * s, top + Vector2(0, 0.22) * s])
+	draw_colored_polygon(pennant, flag_color)
+	pennant.append(pennant[0])
+	draw_polyline(pennant, Color(0.1, 0.08, 0.06), 1.5, true)
 
 
 func _draw_decoration(terrain: Terrain.Type, c: Vector2, h: Vector2i) -> void:

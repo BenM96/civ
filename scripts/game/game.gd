@@ -189,12 +189,13 @@ var _hub_spots: Array[Vector2i] = []
 
 
 ## A fresh game: a new map with a hub for every colony, each with every kind
-## of resource nearby but none right next to it.
+## of resource nearby but none right next to it, and a control point.
 func _new_world() -> void:
 	_generate_world()
 	map.clear_deposits_around(_hub_spots)
 	map.guarantee_deposits_near(_hub_spots, starting_deposit_radius)
-	map.place_remote_deposits(_hub_spots)  # Unobtainium, far from everyone.
+	map.place_remote_deposits(_hub_spots)  # Electrum, far from everyone.
+	map.place_control_points(_hub_spots)
 	for faction in _hub_spots.size():
 		players.append(_create_player(faction, _hub_spots[faction]))
 
@@ -339,6 +340,7 @@ func _setup_turns(start_turn: int) -> void:
 	turns.event_logged.connect(hud.log_event)
 	turns.turn_started.connect(func(turn: int) -> void:
 		hud.set_turn(turn)
+		_update_inventory()
 		_refresh_markers())
 	turns.battles_fought.connect(_show_battles)
 	turns.unit_starved.connect(_on_unit_starved)
@@ -365,30 +367,23 @@ func _show_battles(reports: Array[Dictionary]) -> void:
 	_show_pending_starvation()
 
 
-## Someone reached the win goal first: say who won. Play can carry on.
+## Someone holds every control point (see TurnManager._winners()): say who
+## won. Play can carry on.
 func _on_win_goal_reached(winners: Array[Player]) -> void:
 	_cancel_targeting()
 	turns.paused = true  # Until the popup is closed.
-	var goal := "%d %s" % [TurnManager.AMOUNT_TO_WIN, ResourceDeposit.get_type_name(TurnManager.WIN_RESOURCE)]
+	var winner := winners[0]
+	var goal := "a command point on all %d control points, every one linked to its hub" % map.control_points.size()
 	var title: String
 	var message: String
-	var color: Color
-	if winners.size() > 1:
-		var names: PackedStringArray = []
-		for w in winners:
-			names.append(Faction.get_display_name(w.id))
-		title = "It's a Tie!"
-		message = "%s reached %s on the same turn and share the win." % [" and ".join(names), goal]
-		color = ResourceDeposit.get_type_color(TurnManager.WIN_RESOURCE)
-	elif winners[0] == local_player:
+	if winner == local_player:
 		title = "You Win!"
-		message = "Your colony was the first to gather %s." % goal
-		color = local_player.get_color()
+		message = "Your colony was the first to hold %s." % goal
 	else:
-		var name := Faction.get_display_name(winners[0].id)
+		var name := Faction.get_display_name(winner.id)
 		title = "%s Wins" % name
-		message = "The %s was the first to gather %s." % [name.to_lower(), goal]
-		color = Faction.get_color(winners[0].id)
+		message = "The %s was the first to hold %s." % [name.to_lower(), goal]
+	var color := winner.get_color()
 	message += "\n\nYou can keep playing, or start a new game."
 	hud.log_event("%s (turn %d)" % [title, turns.turn])
 	hud.show_winner(title, message, color)
@@ -550,6 +545,8 @@ func _update_hover_info() -> void:
 	info += "  -  move cost %d" % tile.get_move_cost() if tile.is_passable() else "  -  impassable"
 	if tile.has_deposit():
 		info += "\n" + tile.deposit.get_info_text()
+	if tile.control_point and tile.structure != Structure.Type.COMMAND_POINT:
+		info += "\nControl point - build a Command Point here (and on every other control point), linked to your hub, to win"
 	if tile.structure != Structure.Type.NONE:
 		info += "\n" + _structure_info(tile)
 	var player_here := map.get_player_at(_hover_hex)
@@ -620,11 +617,16 @@ func _structure_info(tile: HexTile) -> String:
 			return text + " - connected, %s %s per turn" % [
 				ResourceDeposit.format_change(ExtractorBuildable.output_for(tile.deposit.type)), tile.deposit.get_display_name()]
 		return text + " - NOT connected (needs conveyor belts to the hub)"
+	if tile.structure == Structure.Type.COMMAND_POINT:
+		if connected:
+			return text + " on a control point - linked to the hub, counts towards victory"
+		return text + " on a control point - NOT linked to the hub, doesn't count towards victory"
 	return text + (" - connected to the hub" if connected else " - not connected to the hub")
 
 
 func _update_inventory() -> void:
 	hud.set_inventory(local_player.inventory, local_player.get_net_income())
+	hud.set_command_points(local_player.count_linked_command_points(), map.control_points.size())
 
 
 func _refresh_markers() -> void:

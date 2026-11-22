@@ -22,8 +22,9 @@ extends Node
 ##   8. Starvation  - a colony whose biomass production is below zero (it
 ##                    makes less than its units eat) loses one unit: the
 ##                    most injured first, Workers last (see Player.starve()).
-##   9. Victory     - the first colony to hold AMOUNT_TO_WIN of WIN_RESOURCE
-##                    (Unobtainium) wins (once per game; play can carry on
+##   9. Victory     - the first colony with a command point on every
+##                    control point on the map, each linked to its hub by
+##                    belts, wins (once per game; play can carry on
 ##                    afterwards). A colony with no units left and none in
 ##                    training is eliminated (the player loses; a rival
 ##                    collapses, and outlasting every rival wins).
@@ -47,16 +48,12 @@ signal unit_starved(player: Player, report: Dictionary)
 ## Colonies with no units left and none in training. The game decides what
 ## happens (see remove_colony() and stop()).
 signal colonies_eliminated(eliminated: Array[Player])
-## The first colony (or colonies, if tied) to hold AMOUNT_TO_WIN of
-## WIN_RESOURCE. Only ever happens once per game.
+## The colony that has a linked command point on every control point (see
+## _winners()). Only ever happens once per game.
 signal win_goal_reached(winners: Array[Player])
 
 ## Seconds to wait after units finish moving before the next skipped turn runs.
 const SKIP_PAUSE := 0.5
-## The resource a colony must stockpile to win, and how much of it it must
-## hold at the end of a turn.
-const WIN_RESOURCE := ResourceDeposit.Type.UNOBTAINIUM
-const AMOUNT_TO_WIN := 50
 
 var turn := 1
 ## Skip straight past turns where every unit is already busy when the turn
@@ -70,7 +67,7 @@ var local_player: Player
 var players: Array[Player] = []
 var ais: Array[AiController] = []
 
-## Someone has already reached AMOUNT_TO_WIN (so it isn't announced again).
+## Someone has already won (so it isn't announced again).
 ## Part of the saved game.
 var win_goal_reached_already := false
 ## While true (e.g. a popup is open) turns can't be ended.
@@ -176,20 +173,17 @@ func end_turn() -> void:
 	_skip_wait = 0.0
 
 
-## The colonies that win this turn: whoever holds the most WIN_RESOURCE, if
-## that's at least AMOUNT_TO_WIN (several only on an exact tie). Empty if
-## nobody has reached it, or someone already did earlier in the game.
+## The colony that wins this turn - the one with a command point on every
+## control point, each linked to its hub (see
+## Player.holds_every_control_point()) - in an array, or an empty array if
+## nobody has done it, or someone already did earlier in the game. (Only one
+## colony can own every control point, so there are no ties.)
 func _winners() -> Array[Player]:
 	var winners: Array[Player] = []
 	if win_goal_reached_already:
 		return winners
-	var best := AMOUNT_TO_WIN
 	for player in players:
-		var held := player.get_resource(WIN_RESOURCE)
-		if held > best:
-			best = held
-			winners.clear()
-		if held >= best:
+		if player.holds_every_control_point():
 			winners.append(player)
 	return winners
 

@@ -1,14 +1,14 @@
-class_name UnobtainiumResource
+class_name ElectrumResource
 extends ResourceType
-## The prize: the first colony to stockpile TurnManager.AMOUNT_TO_WIN of it
-## wins. Deposits only lie far out - more than 10 tiles from every hub and
+## A rare metal, needed (with every other stored resource) for command
+## points - see CommandPointBuildable. Deposits only lie far out - more than 10 tiles from every hub and
 ## from each other - and it can't be harvested by hand: a colony has to run
 ## belts all the way out and build an extractor on it.
 
 
 func _init() -> void:
-	type = ResourceDeposit.Type.UNOBTAINIUM
-	display_name = "Unobtainium"
+	type = ResourceDeposit.Type.ELECTRUM
+	display_name = "Electrum"
 	color = Color(0.15, 0.55, 1.0)
 	min_amount = 100
 	max_amount = 120

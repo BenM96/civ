@@ -101,6 +101,7 @@ func _init() -> void:
 	buildables.append(BridgeBuildable.new())
 	buildables.append(ExtractorBuildable.new())
 	buildables.append(ConveyorBuildable.new())
+	buildables.append(CommandPointBuildable.new())
 
 
 ## "Your colony" for the player at this computer, otherwise e.g. "Pink colony".
@@ -612,6 +613,22 @@ func get_network_parent(h: Vector2i) -> Vector2i:
 ## Whether `h` is linked to the hub by conveyor belts.
 func is_supply_connected(h: Vector2i) -> bool:
 	return _network.has(h)
+
+
+## How many of the map's control points have one of our command points on
+## them, linked to the hub by belts (only those count towards victory).
+func count_linked_command_points() -> int:
+	var count := 0
+	for h in map.control_points:
+		var tile := map.get_tile(h)
+		if tile.structure == Structure.Type.COMMAND_POINT and tile.structure_owner == id and is_supply_connected(h):
+			count += 1
+	return count
+
+
+## The win condition: a linked command point on every control point.
+func holds_every_control_point() -> bool:
+	return not map.control_points.is_empty() and count_linked_command_points() == map.control_points.size()
 
 
 ## Extractors linked to the hub that still have something to mine.

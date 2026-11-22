@@ -23,6 +23,7 @@ func _init() -> void:
 	carries_resources = true
 	requires = ["conveyor"]
 	line_of = "conveyor"
+	site_name = "a deposit"
 
 
 func get_invalid_reason(map: HexMap, h: Vector2i) -> String:
