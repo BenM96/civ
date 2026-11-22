@@ -33,18 +33,21 @@ const RADIUS := 13.0
 @export var unit_name := "Unit"
 ## Short label drawn on the unit's icon, e.g. "W", "I" or "AA" (1-3 letters).
 @export var short_name := ""
-## How the training price rises with each one built (see cost_rises_after):
-##   DOUBLE  - each costs double the last: x1, x2, x4, x8...
-##   ADD_ONE - each costs 1 more of every resource in `cost` than the last:
-##             1 Gold + 1 Titanium, then 2 + 2, then 3 + 3...
-enum CostGrowth { DOUBLE, ADD_ONE }
+## How the training price changes with each one built (see cost_rises_after):
+##   FIXED  - always costs `cost` (every unit but the Worker)
+##   DOUBLE - each costs double the last: x1, x2, x4, x8... (the Worker)
+enum CostGrowth { FIXED, DOUBLE }
 ## What kind of unit this is (see unit_type). Add new kinds at the end.
 enum UnitType { INFANTRY, CIVILIAN, AIR, ARMOUR }
 
 ## Resources paid to train the first of this unit: ResourceDeposit.Type -> int.
-## Later ones cost more (see cost_growth and cost_rises_after).
+## Only Workers get dearer (see cost_growth and cost_rises_after).
+## Specialist units (ones needing their own tech) add SPECIALIST_COST.
 var cost: Dictionary = {}
-@export var cost_growth := CostGrowth.DOUBLE
+## What specialist units (Assault, AT and Stinger Infantry, Tank Destroyer,
+## Tank, AA Gun, Fighter, Bomber) pay on top of their type's price.
+const SPECIALIST_COST := {ResourceDeposit.Type.ELECTRUM: 1}
+@export var cost_growth := CostGrowth.FIXED
 ## How many of this unit a colony can have built before its training cost
 ## starts rising. E.g. 1: after 1 the next costs `cost`, then it rises with
 ## each one after that. Every one ever had counts (starting units, ones in

@@ -70,25 +70,24 @@ func get_info_text() -> String:
 
 
 ## The price of one more, for a colony that has built `built` of this unit so
-## far (including any lost since, and any in training): base_cost, raised
-## once for every one beyond cost_rises_after. E.g. with cost_rises_after = 1
-## and base 1 Gold: built 0 or 1 -> 1, then DOUBLE: 2, 4, 8...; ADD_ONE: 2, 3, 4...
+## far (including any lost since, and any in training). FIXED: always
+## base_cost. DOUBLE: base_cost, doubled once for every one beyond
+## cost_rises_after - e.g. with cost_rises_after = 1 and base 1 Gold:
+## built 0 or 1 -> 1, then 2, 4, 8...
 func cost_for(built: int) -> Dictionary:
+	if cost_growth == Unit.CostGrowth.FIXED:
+		return base_cost.duplicate()
 	var rises := maxi(built - cost_rises_after, 0)
 	var cost := {}
 	for type in base_cost:
-		match cost_growth:
-			Unit.CostGrowth.ADD_ONE:
-				cost[type] = base_cost[type] + rises
-			_:
-				cost[type] = base_cost[type] * (1 << rises)
+		cost[type] = base_cost[type] * (1 << rises)
 	return cost
 
 
 ## How the price rises, for tooltips.
 func get_cost_growth_text() -> String:
-	if cost_growth == Unit.CostGrowth.ADD_ONE:
-		return "Each %s you build adds 1 of each resource to the price of the next, even if it's later lost." % unit_name
+	if cost_growth == Unit.CostGrowth.FIXED:
+		return "Always the same price."
 	return "Each %s you build doubles the price of the next, even if it's later lost." % unit_name
 
 

@@ -8,7 +8,6 @@ func _init() -> void:
 	super()
 	unit_name = "Chopper"
 	short_name = "CH"
-	cost = {ResourceDeposit.Type.GOLD: 2, ResourceDeposit.Type.TITANIUM: 3}
 	train_turns = 4
 	#                    infantry, civilian, armour, air
 	damage = damage_vs(4, 4, 4, 4)

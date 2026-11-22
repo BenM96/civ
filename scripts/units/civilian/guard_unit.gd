@@ -8,8 +8,6 @@ func _init() -> void:
 	unit_name = "Guard"
 	short_name = "G"
 	cost = {ResourceDeposit.Type.GOLD: 1, ResourceDeposit.Type.TITANIUM: 1}
-	cost_growth = CostGrowth.ADD_ONE
-	cost_rises_after = 0
 	train_turns = 2
 	upkeep = 1
 	max_movement = 3

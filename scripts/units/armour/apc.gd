@@ -8,7 +8,6 @@ func _init() -> void:
 	super()
 	unit_name = "APC"
 	short_name = "APC"
-	cost = {ResourceDeposit.Type.GOLD: 2, ResourceDeposit.Type.TITANIUM: 2}
 	train_turns = 4
 	#                    infantry, civilian, armour, air
 	damage = damage_vs(4, 6, 4, 2)

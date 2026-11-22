@@ -9,8 +9,7 @@ extends Unit
 func _init() -> void:
 	unit_type = UnitType.ARMOUR
 	shots_per_turn = 2
-	cost_growth = CostGrowth.ADD_ONE
-	cost_rises_after = 0
+	cost = {ResourceDeposit.Type.GOLD: 1, ResourceDeposit.Type.TITANIUM: 3, ResourceDeposit.Type.SEDIMENT: 2}
 	upkeep = 1
 	max_movement = 3
 	allowed_missions = ["move", "guard", "escort", "qrf"]

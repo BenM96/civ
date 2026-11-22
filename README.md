@@ -174,12 +174,15 @@ faster. Aircraft are repaired by refitting in the Hangar.
 ### Units
 
 Train units from **Training** on the bottom bar. Each Worker you build
-doubles the price of the next; every other unit adds 1 of each resource to
-the price of the next of its kind (Infantry: 1 Gold + 1 Titanium, then
-2 + 2, 3 + 3...). Every unit you have ever built counts. Losing units
-doesn't make the next one cheaper. Infantry need a Barracks, armour a Garage
-and air units a Hangar before you can train them (see Buildings). Infantry,
-APC and Chopper need only their building; every other infantry, armour and
+(after the one you start with) doubles the price of the next. Every Worker
+you have ever built counts, so losing one doesn't make the next cheaper.
+Every other unit always costs the same: Guards 1 Gold + 1 Titanium,
+Infantry 1 Gold + 2 Titanium, armour 1 Gold + 3 Titanium + 2 Sediment and
+air units 3 Gold + 2 Titanium. Specialist units (every infantry, armour or
+air unit except Infantry, APC and Chopper) cost 1 Electrum on top.
+
+Infantry need a Barracks, armour a Garage and air units a Hangar before you
+can train them (see Buildings). Infantry, APC and Chopper need only their building; every other infantry, armour and
 air unit also needs its own tech (see Research). Workers are capped by your
 Worker limit.
 
@@ -195,21 +198,21 @@ takes, how it moves and fights, and which room it waits in:
 
 Each icon shows the unit's short name, e.g. W, I, AA.
 
-| Unit | Type | Label | Cost (first one) | Turns | Missions |
+| Unit | Type | Label | Cost | Turns | Missions |
 |---|---|---|---|---|---|
-| Worker | Civilian | W | 1 Gold, 1 Titanium | 2 | Harvest, build |
+| Worker | Civilian | W | 1 Gold, 1 Titanium (doubles) | 2 | Harvest, build |
 | Guard | Civilian | G | 1 Gold, 1 Titanium | 2 | Move, guard, QRF |
-| Infantry | Infantry | I | 1 Gold, 1 Titanium | 3 | Move, guard, escort, capture, demolish, QRF |
-| Assault Infantry | Infantry | AS | 2 Gold, 1 Titanium | 3 | As Infantry |
-| AT Infantry | Infantry | AT | 2 Gold, 1 Titanium | 3 | As Infantry |
-| Stinger Infantry | Infantry | ST | 2 Gold, 1 Titanium | 3 | As Infantry |
-| APC | Armour | APC | 2 Gold, 2 Titanium | 4 | Move, guard, escort, QRF |
-| Tank Destroyer | Armour | TD | 3 Gold, 3 Titanium | 5 | As APC |
-| Tank | Armour | T | 3 Gold, 3 Titanium | 5 | As APC |
-| Anti-Aircraft Gun | Armour | AA | 3 Gold, 3 Titanium | 5 | As APC |
-| Chopper | Air | CH | 2 Gold, 3 Titanium | 4 | Sortie |
-| Fighter | Air | F | 3 Gold, 3 Titanium | 5 | Sortie |
-| Bomber | Air | B | 3 Gold, 4 Titanium | 5 | Sortie |
+| Infantry | Infantry | I | 1 Gold, 2 Titanium | 3 | Move, guard, escort, capture, demolish, QRF |
+| Assault Infantry | Infantry | AS | 1 Gold, 2 Titanium, 1 Electrum | 3 | As Infantry |
+| AT Infantry | Infantry | AT | 1 Gold, 2 Titanium, 1 Electrum | 3 | As Infantry |
+| Stinger Infantry | Infantry | ST | 1 Gold, 2 Titanium, 1 Electrum | 3 | As Infantry |
+| APC | Armour | APC | 1 Gold, 3 Titanium, 2 Sediment | 4 | Move, guard, escort, QRF |
+| Tank Destroyer | Armour | TD | 1 Gold, 3 Titanium, 2 Sediment, 1 Electrum | 5 | As APC |
+| Tank | Armour | T | 1 Gold, 3 Titanium, 2 Sediment, 1 Electrum | 5 | As APC |
+| Anti-Aircraft Gun | Armour | AA | 1 Gold, 3 Titanium, 2 Sediment, 1 Electrum | 5 | As APC |
+| Chopper | Air | CH | 3 Gold, 2 Titanium | 4 | Sortie |
+| Fighter | Air | F | 3 Gold, 2 Titanium, 1 Electrum | 5 | Sortie |
+| Bomber | Air | B | 3 Gold, 2 Titanium, 1 Electrum | 5 | Sortie |
 
 The computer colonies follow the plan in `scripts/ai/aiStratergy.txt`: train
 Workers up to their limit, build Titanium, Sediment and Gold extractors and
