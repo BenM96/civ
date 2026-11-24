@@ -68,7 +68,7 @@ func get_travel_hex() -> Variant:
 	if _site != null:
 		return _site
 	if unit:
-		return find_work_site(unit.map, unit.hex)
+		return find_work_site(unit.map, unit.hex, unit.player.id)
 	return target
 
 
@@ -83,9 +83,9 @@ func get_cost() -> Dictionary:
 ## The tile to work from when starting at `from`, or null if none is
 ## reachable. For build_from_adjacent: the passable neighbour of the target
 ## with the cheapest route.
-func find_work_site(map: HexMap, from: Vector2i) -> Variant:
+func find_work_site(map: HexMap, from: Vector2i, faction := Faction.NONE) -> Variant:
 	if not buildable.works_from_adjacent(map, target):
-		return target if from == target or not map.find_path(from, target).is_empty() else null
+		return target if from == target or not map.find_path(from, target, faction).is_empty() else null
 	var best: Variant = null
 	var best_cost := 0
 	for n in Hex.neighbors(target):
@@ -93,7 +93,7 @@ func find_work_site(map: HexMap, from: Vector2i) -> Variant:
 			continue
 		var cost := 0
 		if n != from:
-			var path := map.find_path(from, n)
+			var path := map.find_path(from, n, faction)
 			if path.is_empty():
 				continue
 			cost = map.get_path_cost(path)
@@ -109,13 +109,13 @@ func get_invalid_reason(u: Unit) -> String:
 	var reason := buildable.get_invalid_reason(u.map, target)
 	if reason != "":
 		return reason
-	if find_work_site(u.map, u.hex) == null:
+	if find_work_site(u.map, u.hex, u.player.id) == null:
 		return "unreachable"
 	return ""
 
 
 func begin() -> void:
-	_site = find_work_site(unit.map, unit.hex)
+	_site = find_work_site(unit.map, unit.hex, unit.player.id)
 	if _site == null:
 		fail("no route to (%d, %d)" % [target.x, target.y])
 		return

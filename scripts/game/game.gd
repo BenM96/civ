@@ -833,7 +833,7 @@ func _update_hover_info() -> void:
 		if valid:
 			var line := mission as LineBuildMission
 			var path: Array[Vector2i] = line.plan_route(local_player, map, local_player.hex, _hover_hex) if line \
-				else map.find_path(local_player.hex, mission.get_travel_hex())
+				else map.find_path(local_player.hex, mission.get_travel_hex(), local_player.id)
 			preview.append(local_player.hex)
 			preview.append_array(path)
 			if line:

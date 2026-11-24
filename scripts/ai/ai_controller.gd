@@ -297,7 +297,7 @@ func _choose_project() -> void:
 func _rival_site_before(wanted: Callable, target: Variant) -> Variant:
 	var limit := 1 << 30
 	if target != null:
-		var to_project := map.find_path(player.hex, target)
+		var to_project := map.find_path(player.hex, target, player.id)
 		if not to_project.is_empty():
 			limit = map.get_path_cost(to_project)
 	var best: Variant = null
@@ -309,7 +309,7 @@ func _rival_site_before(wanted: Callable, target: Variant) -> Variant:
 			continue
 		if not wanted.call(tile.deposit.type, Hex.distance(player.hex, h)):
 			continue
-		var path := map.find_path(player.hex, h)
+		var path := map.find_path(player.hex, h, player.id)
 		if path.is_empty():
 			continue
 		var cost := map.get_path_cost(path)
@@ -414,7 +414,7 @@ func _open_sites(wanted: Callable) -> Array[Vector2i]:
 			continue
 		if not wanted.call(tile.deposit.type, Hex.distance(player.hex, h)):
 			continue
-		var path := map.find_path(player.hex, h)
+		var path := map.find_path(player.hex, h, player.id)
 		if not path.is_empty():
 			walk[h] = map.get_path_cost(path)
 	var result: Array[Vector2i] = []
@@ -456,7 +456,7 @@ func _pick_command_point_site() -> Variant:
 				open = tile.structure_owner == player.id and not player.is_supply_connected(h)
 		if not open:
 			continue
-		var path := map.find_path(player.hex, h)
+		var path := map.find_path(player.hex, h, player.id)
 		if not path.is_empty():
 			walk[h] = map.get_path_cost(path)
 	var sites: Array = walk.keys()
@@ -718,7 +718,7 @@ func _harvestable_deposits_by_walk(wanted: Dictionary) -> Array[Vector2i]:
 			continue  # Already being mined.
 		if Hex.distance(player.hex, h) > _harvest_range(tile.deposit.type):
 			continue
-		var path := map.find_path(player.hex, h)
+		var path := map.find_path(player.hex, h, player.id)
 		if not path.is_empty():
 			walk[h] = map.get_path_cost(path)
 	var result: Array[Vector2i] = []

@@ -61,7 +61,7 @@ func get_invalid_reason(u: Unit) -> String:
 		var reason := buildable.get_invalid_reason(u.map, target)
 		if reason != "":
 			return reason
-		return "" if find_work_site(u.map, u.hex) != null else "unreachable"
+		return "" if find_work_site(u.map, u.hex, u.player.id) != null else "unreachable"
 	var tile := u.map.get_tile(target)
 	if tile:
 		_what = DemolitionBuildable.describe(tile)

@@ -40,7 +40,7 @@ func get_invalid_reason(u: Unit) -> String:
 		return "already there"
 	if not u.map.is_passable(target):
 		return "impassable"
-	if u.map.find_path(u.hex, target).is_empty():
+	if u.map.find_path(u.hex, target, u.player.id).is_empty():
 		return "unreachable"
 	return ""
 

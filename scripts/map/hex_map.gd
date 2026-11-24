@@ -24,6 +24,9 @@ signal structure_lost(h: Vector2i, type: Structure.Type, owner_faction: int, by_
 var tiles: Dictionary = {}
 
 var _astar := AStar2D.new()
+## Command point hex -> owner faction (other colonies route round them - see
+## find_path()).
+var _command_points: Dictionary = {}
 var _point_ids: Dictionary = {}  # Vector2i -> int
 var _id_to_hex: Array[Vector2i] = []
 var _foundation_anchors: Array[Vector2i] = []
@@ -81,6 +84,7 @@ func take_unit_id() -> int:
 func generate(seed_override := 0) -> void:
 	tiles.clear()
 	_foundation_anchors.clear()
+	_command_points.clear()
 	control_points.clear()
 	var seed_value := seed_override if seed_override != 0 else (map_seed if map_seed != 0 else randi())
 	if seed_value == 0:
@@ -151,6 +155,8 @@ func load_dict(data: Dictionary) -> void:
 		tile.terrain = Terrain.from_save_name(entry[2])
 		tile.structure = Structure.Type[entry[3]]
 		tile.structure_owner = int(entry[4])
+		if tile.structure == Structure.Type.COMMAND_POINT:
+			_command_points[h] = tile.structure_owner
 		tile.deposit = null
 		if entry[5] != null:
 			tile.deposit = ResourceDeposit.new(ResourceDeposit.Type[entry[5]], h, int(entry[6]))
@@ -362,7 +368,8 @@ func set_terrain(h: Vector2i, terrain: Terrain.Type) -> void:
 
 
 ## Places (or clears, with Structure.Type.NONE) a structure on a tile,
-## owned by the faction whose hub built it. Structures don't affect movement.
+## owned by the faction whose hub built it. Only command points affect
+## movement: other colonies' units can't pass through them (see find_path()).
 ## `by_faction`: who did it, when clearing (demolishing) - defaults to the
 ## new owner (building or capturing). See structure_lost.
 func set_structure(h: Vector2i, type: Structure.Type, owner_faction := Faction.NONE, by_faction := Faction.NONE) -> void:
@@ -377,6 +384,10 @@ func set_structure(h: Vector2i, type: Structure.Type, owner_faction := Faction.N
 	var by := by_faction if by_faction != Faction.NONE else new_owner
 	tile.structure = type
 	tile.structure_owner = new_owner
+	if type == Structure.Type.COMMAND_POINT:
+		_command_points[h] = new_owner
+	else:
+		_command_points.erase(h)
 	mark_dirty(h)
 	tile_changed.emit(h)
 	if old_owner != Faction.NONE and new_owner != old_owner and by != old_owner:
@@ -468,10 +479,28 @@ func get_world_rect() -> Rect2:
 
 ## Returns the path from `from` to `to`, NOT including `from`.
 ## Empty if unreachable (or if from == to).
-func find_path(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
+## `faction`: whose unit is moving. Other colonies' command points block it
+## - it has to go round them - though it can still end its move on one
+## (`to`, e.g. to capture or demolish it) or set off from one.
+func find_path(from: Vector2i, to: Vector2i, faction := Faction.NONE) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
 	if from == to or not _point_ids.has(from) or not _point_ids.has(to):
 		return result
+	var blocked: Array[int] = []
+	if faction != Faction.NONE:
+		for h: Vector2i in _command_points:
+			var id: int = _point_ids[h]
+			if _command_points[h] != faction and h != from and h != to and not _astar.is_point_disabled(id):
+				_astar.set_point_disabled(id, true)
+				blocked.append(id)
+	result = _find_path(from, to)
+	for id in blocked:
+		_astar.set_point_disabled(id, false)
+	return result
+
+
+func _find_path(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
 	# A unit can be left standing on a tile that became impassable (a bridge
 	# collapsing under it): let it path off, just not back on.
 	var from_id: int = _point_ids[from]

@@ -158,7 +158,7 @@ func _nearest_intruder() -> Variant:
 			continue
 		var cost := 0
 		if enemy.hex != unit.hex:
-			var path := map.find_path(unit.hex, enemy.hex)
+			var path := map.find_path(unit.hex, enemy.hex, unit.player.id)
 			if path.is_empty():
 				continue
 			cost = map.get_path_cost(path)

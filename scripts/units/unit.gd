@@ -614,7 +614,7 @@ func set_destination(target: Vector2i) -> bool:
 	if target == hex:
 		_path.clear()
 		return true
-	var path := map.find_path(hex, target)
+	var path := map.find_path(hex, target, player.id if player else Faction.NONE)
 	if path.is_empty():
 		return false
 	_path = path

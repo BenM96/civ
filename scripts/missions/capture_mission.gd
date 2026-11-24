@@ -55,7 +55,7 @@ func get_invalid_reason(u: Unit) -> String:
 	var reason := _get_target_invalid_reason(u.map, u.player.id)
 	if reason != "":
 		return reason
-	if u.map.find_path(u.hex, target).is_empty():
+	if u.map.find_path(u.hex, target, u.player.id).is_empty():
 		return "unreachable"
 	return ""
 

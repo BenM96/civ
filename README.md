@@ -66,6 +66,9 @@ rival's.
   a belt on the way stops it counting until the link is restored.
 - Infantry can **capture** another colony's command point (it then needs
   your belts to count) or **demolish** it, freeing the control point.
+- Nobody can walk through another colony's command point (allies'
+  included): units route round it, though they can still stop on it to
+  capture or demolish it.
 - Each linked command point also gives you **+1 initiative**. Initiative
   isn't stored - like biomass, it's worked out each turn from your linked
   command points plus your Initiative techs. In a battle, the colony with

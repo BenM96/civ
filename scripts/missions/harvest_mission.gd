@@ -80,7 +80,7 @@ func get_invalid_reason(u: Unit) -> String:
 		return "%s can only be mined by an extractor" % tile.deposit.get_display_name()
 	if tile.structure == Structure.Type.EXTRACTOR:
 		return "an extractor is already mining this deposit"
-	if u.map.find_path(u.hex, target).is_empty():
+	if u.map.find_path(u.hex, target, u.player.id).is_empty():
 		return "unreachable"
 	return ""
 

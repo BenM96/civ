@@ -55,7 +55,7 @@ func get_invalid_reason(u: Unit) -> String:
 		return "impassable"
 	if u.map.get_player_at(target) != null:
 		return "not on a hub"
-	if u.map.find_path(u.hex, target).is_empty():
+	if u.map.find_path(u.hex, target, u.player.id).is_empty():
 		return "unreachable"
 	return ""
 
