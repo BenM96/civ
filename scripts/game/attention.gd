@@ -96,6 +96,8 @@ func dismiss_section(section: Hud.Section) -> void:
 ## A short reason, e.g. "2 unit(s) need orders" - for the Next button's
 ## tooltip and the blockers list. Names only what's new.
 func describe(issue: Issue) -> String:
+	if issue == Issue.NONE:
+		return ""
 	var items := _new_items(issue)
 	match issue:
 		Issue.ORDERS:
