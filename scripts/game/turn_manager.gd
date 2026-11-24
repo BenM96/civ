@@ -212,19 +212,39 @@ func end_turn() -> void:
 	_skip_wait = 0.0
 
 
-## The colony that wins this turn - the one with a command point on every
-## control point, each linked to its hub (see
-## Player.holds_every_control_point()) - in an array, or an empty array if
-## nobody has done it, or someone already did earlier in the game. (Only one
-## colony can own every control point, so there are no ties.)
+## The team that wins this turn - the one whose colonies between them have a
+## command point on every control point, each linked to the hub of the
+## colony that owns it (see Player.team) - as its colonies still in the
+## game, or an empty array if no team has done it, or one already did
+## earlier in the game. (Only one team can own every control point, so
+## there are no ties.)
 func _winners() -> Array[Player]:
 	var winners: Array[Player] = []
-	if win_goal_reached_already:
+	if win_goal_reached_already or map.control_points.is_empty():
 		return winners
+	var teams := {}
 	for player in players:
-		if player.holds_every_control_point():
-			winners.append(player)
+		teams[player.team] = true
+	for team: int in teams:
+		if _team_holds_every_control_point(team):
+			for player in players:
+				if player.team == team and not player.collapsed:
+					winners.append(player)
+			return winners
 	return winners
+
+
+## Whether every control point has a command point owned by a colony on
+## `team`, linked to that colony's hub.
+func _team_holds_every_control_point(team: int) -> bool:
+	for h in map.control_points:
+		var tile := map.get_tile(h)
+		if tile.structure != Structure.Type.COMMAND_POINT:
+			return false
+		var owner: Player = map.players.get(tile.structure_owner)
+		if owner == null or owner.team != team or owner.collapsed or not owner.is_supply_connected(h):
+			return false
+	return true
 
 
 # --- Auto-skip -------------------------------------------------------------
@@ -292,7 +312,7 @@ func _in_contact() -> bool:
 			var hub := map.get_player_at(u.hex)
 			if hub:
 				owner = hub.id
-			if owner == Faction.NONE or owner == colony.id:
+			if owner == Faction.NONE or map.are_allied(owner, colony.id):
 				continue
 			if colony == local_player or owner == local_player.id:
 				return true

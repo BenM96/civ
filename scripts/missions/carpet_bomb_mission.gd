@@ -62,11 +62,14 @@ func get_invalid_reason(u: Unit) -> String:
 		return "off the map"
 	var hub := u.map.get_player_at(target)
 	if hub:
-		if hub == u.player:
-			return "can't bomb our own hub"
+		if u.player.is_ally(hub):
+			return "can't bomb our own hub" if hub == u.player else "can't bomb an ally's hub"
 		_what = "the %s's %s" % [Faction.get_display_name(hub.id).to_lower(), Player.HUB_NAME]
 	else:
-		_what = DemolitionBuildable.describe(u.map.get_tile(target))
+		var tile := u.map.get_tile(target)
+		_what = DemolitionBuildable.describe(tile)
+		if tile.structure_owner != u.player.id and u.map.are_allied(tile.structure_owner, u.player.id):
+			return "that belongs to an ally"
 	return DemolitionBuildable.new().get_invalid_reason(u.map, target)
 
 

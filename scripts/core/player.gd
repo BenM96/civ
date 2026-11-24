@@ -54,6 +54,14 @@ var id := Faction.NONE
 ## Played by the computer (an AiController gives its orders) rather than a
 ## human.
 var is_ai := false
+## Colonies on the same team are allies: they never fight each other (their
+## units don't start battles or shoot each other), can't aim missions at
+## each other's structures or hubs, and win together (control points held
+## by any of them count for all - see TurnManager). At the moment you play
+## alone (HUMAN_TEAM) against every AI (AI_TEAM).
+var team := 0
+const HUMAN_TEAM := 0
+const AI_TEAM := 1
 ## Where the hub stands on the map. Units set out from and return here.
 var hex: Vector2i
 var map: HexMap
@@ -900,6 +908,16 @@ func holds_every_control_point() -> bool:
 	return not map.control_points.is_empty() and count_linked_command_points() == map.control_points.size()
 
 
+## Whether `other` is on our team (we count as our own ally).
+func is_ally(other: Player) -> bool:
+	return other != null and other.team == team
+
+
+## Whether `other` is a colony we fight: not on our team.
+func is_enemy(other: Player) -> bool:
+	return other != null and other.team != team
+
+
 ## Extractors linked to the hub that still have something to mine.
 func get_producing_extractors() -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
@@ -1352,6 +1370,7 @@ func to_dict() -> Dictionary:
 		"extractor_progress": progress,
 		"id": id,
 		"is_ai": is_ai,
+		"team": team,
 		"buildings": buildings.map(func(b: Building) -> String: return b.id),
 		"building_queue": building_queue.duplicate(),
 		"researched": researched.duplicate(),
@@ -1373,6 +1392,7 @@ func to_dict() -> Dictionary:
 
 ## Restores what to_dict() saved. The hub must already be placed.
 func load_dict(data: Dictionary) -> void:
+	team = int(data["team"])
 	inventory = SaveGame.resources_from_data(data["inventory"])
 	_extractor_progress = {}
 	for entry in data.get("extractor_progress", []):  # Older saves lack it.

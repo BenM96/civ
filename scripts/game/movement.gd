@@ -18,7 +18,8 @@ extends RefCounted
 ##     once): that tile becomes a battle hex, or
 ##   - try to pass through each other, swapping tiles on the same tick:
 ##     neither gets across, and both tiles become battle hexes.
-## Friendly units never start a battle.
+## Friendly units, and allies (colonies on the same team - Player.team), never
+## start a battle.
 ##
 ## Every unit on a battle hex stops there for the rest of the turn, and so
 ## does any unit that steps onto one later in the turn (it joins the
@@ -155,7 +156,7 @@ static func _plan_intercepts(map: HexMap, interceptors: Array[Unit]) -> void:
 			var ours := 0
 			for u in aircraft:
 				if u.hex == h:
-					if u.player == colony:
+					if colony.is_ally(u.player):  # Allies count as ours.
 						ours += 1
 					else:
 						enemies += 1
@@ -171,7 +172,7 @@ static func _plan_intercepts(map: HexMap, interceptors: Array[Unit]) -> void:
 static func _intruder_hexes(map: HexMap, colony: Player, aircraft: Array[Unit]) -> Array[Vector2i]:
 	var hexes: Array[Vector2i] = []
 	for u in aircraft:
-		if u.player == colony or u.hex in hexes:
+		if colony.is_ally(u.player) or u.hex in hexes:
 			continue
 		var tile := map.get_tile(u.hex)
 		var on_ours := tile != null and tile.structure != Structure.Type.NONE and tile.structure_owner == colony.id
@@ -215,7 +216,7 @@ static func _run_ticks(map: HexMap, units: Array[Unit], outbreaks: Array, battle
 		for u in units:
 			if u.get_next_step_tick() == tick:
 				movers.append(u)
-		for crossing in _find_crossings(movers):
+		for crossing in _find_crossings(map, movers):
 			_add_battle(crossing, outbreaks, battle_hexes)
 		for u in movers:
 			if not battle_hexes.has(u.hex):  # Caught in a battle: stays put.
@@ -238,7 +239,7 @@ static func _add_battle(hexes: Array, outbreaks: Array, battle_hexes: Dictionary
 
 ## Pairs of tiles that opposing units are about to swap this tick, each as
 ## [Vector2i, Vector2i].
-static func _find_crossings(movers: Array[Unit]) -> Array:
+static func _find_crossings(map: HexMap, movers: Array[Unit]) -> Array:
 	# (from, to) -> {faction -> true} of the units stepping that way.
 	var crossing := {}
 	for u in movers:
@@ -254,22 +255,23 @@ static func _find_crossings(movers: Array[Unit]) -> Array:
 			continue
 		done[key] = true
 		done[reverse] = true
-		if _opposed(crossing[key], crossing[reverse]):
+		if _opposed(map, crossing[key], crossing[reverse]):
 			result.append([Vector2i(key.x, key.y), Vector2i(key.z, key.w)])
 	return result
 
 
-## True if some faction in `a` is different from some faction in `b`
-## (friendly units passing each other don't fight).
-static func _opposed(a: Dictionary, b: Dictionary) -> bool:
+## True if some faction in `a` is an enemy of some faction in `b` (friendly
+## or allied units passing each other don't fight - see Player.team).
+static func _opposed(map: HexMap, a: Dictionary, b: Dictionary) -> bool:
 	for fa in a:
 		for fb in b:
-			if fa != fb:
+			if not map.are_allied(fa, fb):
 				return true
 	return false
 
 
-## Tiles holding units of more than one colony.
+## Tiles holding units of colonies that are enemies (allies sharing a tile
+## don't fight - see Player.team).
 static func _find_meetings(map: HexMap) -> Array[Vector2i]:
 	# hex -> {faction -> true}
 	var factions_at := {}
@@ -279,7 +281,7 @@ static func _find_meetings(map: HexMap) -> Array[Vector2i]:
 		factions_at[u.hex][u.player.id] = true
 	var result: Array[Vector2i] = []
 	for h: Vector2i in factions_at:
-		if factions_at[h].size() >= 2:
+		if factions_at[h].size() >= 2 and _opposed(map, factions_at[h], factions_at[h]):
 			result.append(h)
 	return result
 

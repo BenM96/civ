@@ -150,7 +150,7 @@ func _nearest_intruder() -> Variant:
 	var best: Variant = null
 	var best_cost := 1 << 30
 	for enemy in map.get_units_in_world():
-		if enemy.player == unit.player:
+		if unit.player.is_ally(enemy.player):  # Ours, or an ally's.
 			continue
 		var tile := map.get_tile(enemy.hex)
 		var on_ours := tile != null and tile.structure != Structure.Type.NONE and tile.structure_owner == unit.player.id

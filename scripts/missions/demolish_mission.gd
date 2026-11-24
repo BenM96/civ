@@ -55,8 +55,8 @@ func get_completion_text() -> String:
 func get_invalid_reason(u: Unit) -> String:
 	var hub := u.map.get_player_at(target)
 	if hub:
-		if hub == u.player:
-			return "can't demolish our own hub"
+		if u.player.is_ally(hub):
+			return "can't demolish our own hub" if hub == u.player else "can't demolish an ally's hub"
 		_what = "the %s's %s" % [Faction.get_display_name(hub.id).to_lower(), Player.HUB_NAME]
 		var reason := buildable.get_invalid_reason(u.map, target)
 		if reason != "":
@@ -65,4 +65,6 @@ func get_invalid_reason(u: Unit) -> String:
 	var tile := u.map.get_tile(target)
 	if tile:
 		_what = DemolitionBuildable.describe(tile)
+		if tile.structure_owner != u.player.id and u.map.are_allied(tile.structure_owner, u.player.id):
+			return "that belongs to an ally"
 	return super(u)

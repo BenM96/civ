@@ -303,7 +303,7 @@ func _rival_site_before(wanted: Callable, target: Variant) -> Variant:
 	var best: Variant = null
 	for h in map.tiles:
 		var tile: HexTile = map.tiles[h]
-		if not tile.has_deposit() or tile.structure_owner == Faction.NONE or tile.structure_owner == player.id:
+		if not tile.has_deposit() or tile.structure_owner == Faction.NONE or map.are_allied(tile.structure_owner, player.id):
 			continue
 		if tile.structure != Structure.Type.EXTRACTOR and tile.structure != Structure.Type.CONVEYOR:
 			continue
@@ -853,7 +853,7 @@ func _take_command_points(infantry: Array[Unit]) -> Array[Unit]:
 		if taken.has(h):
 			continue
 		var tile := map.get_tile(h)
-		if tile.structure == Structure.Type.COMMAND_POINT and tile.structure_owner != player.id:
+		if tile.structure == Structure.Type.COMMAND_POINT and not map.are_allied(tile.structure_owner, player.id):
 			captures.append(h)
 		elif (tile.structure == Structure.Type.COMMAND_POINT and tile.structure_owner == player.id) \
 				or (project_kind == CommandPointBuildable.ID and h == project):
@@ -965,15 +965,15 @@ func _plan_sorties() -> void:
 		return
 	var targets: Array[Vector2i] = []
 	for u in map.get_units_in_world():
-		if u.player == player or u.player == null or map.get_player_at(u.hex) != null:
+		if u.player == null or player.is_ally(u.player) or map.get_player_at(u.hex) != null:
 			continue
 		if not u.hex in targets:
 			targets.append(u.hex)
 	if targets.is_empty():
 		return
 	targets.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		var a_ours := map.get_tile(a).structure_owner == player.id
-		var b_ours := map.get_tile(b).structure_owner == player.id
+		var a_ours := map.are_allied(map.get_tile(a).structure_owner, player.id)
+		var b_ours := map.are_allied(map.get_tile(b).structure_owner, player.id)
 		if a_ours != b_ours:
 			return a_ours
 		return Hex.distance(player.hex, a) < Hex.distance(player.hex, b))
@@ -983,12 +983,13 @@ func _plan_sorties() -> void:
 
 # --- Shared helpers -------------------------------------------------------------
 
-## The other colonies still in the game, nearest hub first.
+## The enemy colonies (not on our team - Player.team) still in the game,
+## nearest hub first.
 func _rivals_by_distance() -> Array[Player]:
 	var rivals: Array[Player] = []
 	for faction in map.players:
 		var other: Player = map.players[faction]
-		if other != player and not other.collapsed:
+		if player.is_enemy(other) and not other.collapsed:
 			rivals.append(other)
 	rivals.sort_custom(func(a: Player, b: Player) -> bool:
 		return Hex.distance(player.hex, a.hex) < Hex.distance(player.hex, b.hex))

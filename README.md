@@ -28,6 +28,16 @@ icon then "5 (+1)" (hover over one for its name), then your command points
 - A rival that loses all its units (with none in training) or its hub
   collapses. Outlast every rival and you also win.
 
+### Teams
+
+Colonies on the same team are allies. You play alone; every computer
+colony is on one team against you. Allies never fight each other: their
+units share tiles and pass each other without starting a battle, and in a
+battle they never shoot each other. They can't capture, demolish or carpet
+bomb each other's structures or hubs, and their QRF and interceptors only go
+after enemies. A team wins together: the control-point win counts command
+points held by any colony on the team (each linked to its own hub).
+
 ### Hub health
 
 Every hub has **10 health**. Enemy Infantry can **demolish** a hub: they

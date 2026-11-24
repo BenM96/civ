@@ -279,6 +279,7 @@ func _create_player(faction: int, spot: Vector2i) -> Player:
 	var new_player := Player.new()
 	new_player.id = faction
 	new_player.is_ai = faction != Faction.PLAYER
+	new_player.team = Player.AI_TEAM if new_player.is_ai else Player.HUMAN_TEAM
 	players_root.add_child(new_player)
 	new_player.place(map, spot)
 	map.remove_deposit(spot)
@@ -467,13 +468,19 @@ func _on_win_goal_reached(winners: Array[Player]) -> void:
 	var goal := "a command point on all %d control points, every one linked to its hub" % map.control_points.size()
 	var title: String
 	var message: String
-	if winner == local_player:
+	if local_player in winners:
 		title = "You Win!"
-		message = "Your colony was the first to hold %s." % goal
-	else:
+		message = "Your %s the first to hold %s." % ["colony was" if winners.size() == 1 else "team was", goal]
+	elif winners.size() == 1:
 		var name := Faction.get_display_name(winner.id)
 		title = "%s Wins" % name
 		message = "The %s was the first to hold %s." % [name.to_lower(), goal]
+	else:
+		var names: PackedStringArray = []
+		for w in winners:
+			names.append(Faction.get_display_name(w.id).to_lower())
+		title = "The Enemy Team Wins"
+		message = "Together, the %s were the first to hold %s." % [", ".join(names), goal]
 	var color := winner.get_color()
 	message += "\n\nYou can keep playing, or start a new game."
 	hud.log_event("%s (turn %d)" % [title, turns.turn])
@@ -541,7 +548,7 @@ func _on_colonies_eliminated(eliminated: Array[Player]) -> void:
 					" by the %s" % Faction.get_display_name(by.id).to_lower() if by else ""])
 		else:
 			hud.log_event("The %s has lost every unit and collapsed." % colony_name)
-	if turns.players.size() == 1 and local_player in turns.players:
+	if local_player in turns.players and turns.players.all(local_player.is_ally):
 		_end_game("Victory",
 			"Every rival colony has collapsed. Mars is yours (turn %d)." % turns.turn,
 			Color(0.45, 0.95, 0.4))
@@ -574,7 +581,7 @@ func _check_intruders() -> void:
 	var now := {}
 	var newcomers: Array[Unit] = []
 	for colony in players:
-		if colony == local_player or colony.collapsed:
+		if local_player.is_ally(colony) or colony.collapsed:
 			continue
 		for u in colony.units:
 			if not u.is_in_world():

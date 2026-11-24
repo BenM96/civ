@@ -81,6 +81,8 @@ func _get_target_invalid_reason(map: HexMap, faction: int) -> String:
 		return "nothing to capture there"
 	if tile.structure_owner == faction:
 		return "it's already ours"
+	if map.are_allied(tile.structure_owner, faction):
+		return "it belongs to an ally"
 	_what = "%s's %s" % [Faction.get_display_name(tile.structure_owner),
 		Structure.get_display_name(tile.structure)]
 	return ""

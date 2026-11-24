@@ -22,7 +22,8 @@ extends RefCounted
 ##      in turn, then the second of each, and so on (a list that runs out is
 ##      skipped) - every unit fires once, at an enemy unit still in the
 ##      fight, taking that much HP off it: the attacker's damage against
-##      the target's unit type (Unit.damage, Unit.unit_type). Armour takes
+##      the target's unit type (Unit.damage, Unit.unit_type) - never at an
+##      ally (a colony on the same team, Player.team). Armour takes
 ##      two shots one after the other when its turn comes (each picking a
 ##      target afresh - Unit.shots_per_turn).
 ##      Targets: each unit prefers the type it does most damage to, and
@@ -205,7 +206,7 @@ static func _fire(attacker: Unit, sides: Dictionary, order: Array, side: Variant
 		rng: RandomNumberGenerator, fled: Array[Unit], events: Array) -> bool:
 	var targets: Array[Unit] = []
 	for other in order:
-		if other == side:
+		if attacker.player.is_ally(sides[other][0].player):  # Ourselves, or an ally.
 			continue
 		for u: Unit in sides[other]:
 			if u.health > 0 and not u in fled:

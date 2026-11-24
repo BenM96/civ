@@ -58,6 +58,18 @@ const CONTROL_POINT_SPACING := 4
 const CHUNK_TILES := 8
 
 
+## Whether factions `a` and `b` are on the same team (see Player.team): the
+## same faction is its own ally; Faction.NONE (no owner) is nobody's.
+func are_allied(a: int, b: int) -> bool:
+	if a == Faction.NONE or b == Faction.NONE:
+		return false
+	if a == b:
+		return true
+	var pa: Player = players.get(a)
+	var pb: Player = players.get(b)
+	return pa != null and pa.is_ally(pb)
+
+
 ## Hands out a unit id no other unit in this game has had.
 func take_unit_id() -> int:
 	next_unit_id += 1
