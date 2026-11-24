@@ -52,6 +52,9 @@ var turns: TurnManager
 ## What the player could still do this turn - drives the Next button and
 ## stops auto-skip (see Attention).
 var attention: Attention
+## Seconds between refreshes of the Next button and the blockers list.
+const BLOCKERS_REFRESH := 0.2
+var _blockers_wait := 0.0
 
 var _hover_hex := Vector2i.ZERO
 var _has_hover := false
@@ -130,6 +133,7 @@ func _ready() -> void:
 		var reason := _submit(Orders.recall(unit))
 		if reason != "":
 			hud.log_event("Can't recall %s: %s" % [unit.display_name, reason]))
+	hud.location_requested.connect(func(h: Vector2i) -> void: camera.focus_on(map.hex_to_world(h)))
 	hud.notice_shown.connect(func(notice: Dictionary) -> void:
 		if notice.get("at") != null:
 			camera.focus_on(map.hex_to_world(notice["at"])))
@@ -671,10 +675,14 @@ func _end_game(title: String, message: String, color: Color) -> void:
 
 # --- Input -----------------------------------------------------------------
 
-func _process(_delta: float) -> void:
-	if attention:
+func _process(delta: float) -> void:
+	_blockers_wait -= delta
+	if attention and _blockers_wait <= 0.0:
+		_blockers_wait = BLOCKERS_REFRESH
 		var issue := attention.first_active()
 		hud.set_next_turn_hint(issue != Attention.Issue.NONE, attention.describe(issue))
+		hud.set_blockers(_skip_blockers(), "Nothing - idle turns are skipped while something's under way." if turns.auto_skip
+			else "Nothing. (Skip idle turns is off, so every turn waits for you.)")
 	var h := map.world_to_hex(get_global_mouse_position())
 	var has := map.has_tile(h)
 	if h != _hover_hex or has != _has_hover:
@@ -682,6 +690,33 @@ func _process(_delta: float) -> void:
 		_has_hover = has
 		overlay.set_hover(h, has)
 		_update_hover_info()
+
+
+## What's stopping idle turns being skipped, for the list down the right
+## (see Hud.set_blockers()): each open Attention issue (opening its panel),
+## then every tile where our units and the enemy's are in each other's
+## territory (centring the map there - see TurnManager.get_contacts()).
+func _skip_blockers() -> Array:
+	var entries := []
+	for issue in attention.all_active():
+		var text := attention.describe(issue)
+		if issue == Attention.Issue.ORDERS:
+			text = "%d unit(s) need orders" % local_player.get_units_needing_orders().filter(
+				func(u: Unit) -> bool: return u.repeats_left == 0).size()
+		entries.append({"text": text, "section": Attention.SECTIONS[issue]})
+	var by_hex := {}  # Hex -> [ours?, owner, unit names].
+	for contact: Dictionary in turns.get_contacts():
+		var u: Unit = contact["unit"]
+		if not by_hex.has(u.hex):
+			by_hex[u.hex] = [contact["ours"], contact["owner"], []]
+		by_hex[u.hex][2].append(u.display_name)
+	for h: Vector2i in by_hex:
+		var info: Array = by_hex[h]
+		var names := ", ".join(info[2])
+		var text := "Your %s in %s territory at (%d, %d)" % [names, _colony(info[1]), h.x, h.y] if info[0] \
+			else "Enemy %s in your territory at (%d, %d)" % [names, h.x, h.y]
+		entries.append({"text": text, "at": h})
+	return entries
 
 
 ## End Turn / Next: while something wants the player's attention (see

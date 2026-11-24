@@ -33,6 +33,8 @@ signal recall_all_requested
 signal recall_requested(unit: Unit)
 ## The Central Hub panel's Regroup button (see Player.start_regroup()).
 signal regroup_requested
+## A blockers-list entry (see set_blockers()) with a map location was clicked.
+signal location_requested(h: Vector2i)
 ## An event banner (see Notices) has just come on screen.
 signal notice_shown(notice: Dictionary)
 ## Asks to move a unit to `index` in its room's healing queue (see Room).
@@ -112,6 +114,11 @@ var _log_label: Label
 var _log_lines: PackedStringArray = []
 ## The event log window (top right), shown or hidden by _events_button.
 var _log_panel: PanelContainer
+## What's stopping auto-skip (see set_blockers()), under the event log.
+var _blockers_panel: PanelContainer
+var _blockers_list: VBoxContainer
+## The entries on show, so the list is only rebuilt when they change.
+var _blockers_shown: Array = []
 ## Bottom-bar toggle for the event log (EVENTS_KEY).
 var _events_button: Button
 var _tile_panel: PanelContainer
@@ -714,6 +721,44 @@ func _update_section_buttons() -> void:
 		b.set_pressed_no_signal(section == _section)
 
 
+## Fills the "Waiting on you" list down the right: what's stopping idle
+## turns being skipped. Each entry is {"text": String, and either "section":
+## Section (opens that panel when clicked) or "at": Vector2i (centres the
+## map there - see location_requested)}. `idle_note` is shown when the list
+## is empty. Only rebuilds when something changed.
+func set_blockers(entries: Array, idle_note: String) -> void:
+	var shown := entries.duplicate()
+	shown.append(idle_note)
+	if shown == _blockers_shown:
+		return
+	_blockers_shown = shown
+	for child in _blockers_list.get_children():
+		_blockers_list.remove_child(child)
+		child.queue_free()
+	if entries.is_empty():
+		var note := Label.new()
+		note.text = idle_note
+		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		note.custom_minimum_size.x = 290
+		note.modulate = Color(1, 1, 1, 0.6)
+		_blockers_list.add_child(note)
+		return
+	for entry: Dictionary in entries:
+		var on_click: Callable
+		if entry.has("at"):
+			var h: Vector2i = entry["at"]
+			on_click = func() -> void: location_requested.emit(h)
+		else:
+			var section: Section = entry["section"]
+			on_click = func() -> void: open_section(section)
+		var b := UiStyle.make_button(entry["text"], on_click)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		b.custom_minimum_size.x = 290
+		b.tooltip_text = "Show me" if entry.has("at") else "Open %s" % _panels[entry["section"]].title
+		_blockers_list.add_child(b)
+
+
 ## A message box in the middle of the screen that blocks clicks to the map.
 ## Always has Play Again; `can_continue` adds Keep Playing, which closes it.
 func _show_popup(title: String, message: String, color: Color, can_continue: bool) -> void:
@@ -796,13 +841,19 @@ func _build() -> void:
 	_section_scroll.add_child(_section_list)
 
 	# Event log (top right)
+	# Right column (top right): the event log, then what's stopping turns
+	# being skipped.
+	var right := VBoxContainer.new()
+	_pin(right, Vector2(1, 0), Vector2(-12, 52), Control.GROW_DIRECTION_BEGIN, Control.GROW_DIRECTION_END)
+	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	right.add_theme_constant_override("separation", 8)
+	root.add_child(right)
 	var log_panel := PanelContainer.new()
 	_log_panel = log_panel
-	_pin(log_panel, Vector2(1, 0), Vector2(-12, 52), Control.GROW_DIRECTION_BEGIN, Control.GROW_DIRECTION_END)
 	log_panel.custom_minimum_size = Vector2(300, 0)
 	log_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	log_panel.add_theme_stylebox_override("panel", UiStyle.box_style(Color(0.1, 0.07, 0.07, 0.8), Color(1, 1, 1, 0.1), 1, 6))
-	root.add_child(log_panel)
+	right.add_child(log_panel)
 	var log_box := VBoxContainer.new()
 	log_panel.add_child(log_box)
 	var log_title := Label.new()
@@ -812,6 +863,20 @@ func _build() -> void:
 	_log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_log_label.modulate = Color(1, 1, 1, 0.8)
 	log_box.add_child(_log_label)
+
+	_blockers_panel = PanelContainer.new()
+	_blockers_panel.custom_minimum_size = Vector2(300, 0)
+	_blockers_panel.add_theme_stylebox_override("panel", UiStyle.box_style(Color(0.1, 0.07, 0.07, 0.8), Color(1.0, 0.75, 0.3, 0.35), 1, 6))
+	right.add_child(_blockers_panel)
+	var blockers_box := VBoxContainer.new()
+	_blockers_panel.add_child(blockers_box)
+	var blockers_title := Label.new()
+	blockers_title.text = "Waiting on you"
+	blockers_title.tooltip_text = "What's stopping idle turns being skipped. Click one to deal with it."
+	blockers_title.mouse_filter = Control.MOUSE_FILTER_PASS
+	blockers_box.add_child(blockers_title)
+	_blockers_list = VBoxContainer.new()
+	blockers_box.add_child(_blockers_list)
 
 	# Hovered tile info (bottom right, above the bar)
 	_tile_panel = PanelContainer.new()

@@ -299,10 +299,18 @@ func _process(delta: float) -> void:
 		end_turn()
 
 
-## Whether our units and the enemy's are in each other's territory (a tile
-## with a structure the colony owns, or its hub): ours on theirs, or theirs
-## on ours. Turns aren't skipped then, so the player can react.
+## Whether our units and the enemy's are in each other's territory (see
+## get_contacts()). Turns aren't skipped then, so the player can react.
 func _in_contact() -> bool:
+	return not get_contacts().is_empty()
+
+
+## Every unit in enemy territory (a tile with a structure the colony owns,
+## or its hub) that involves the local player: ours on theirs, or theirs on
+## ours. Each is {"unit": Unit, "owner": faction whose territory it is,
+## "ours": true if it's our unit}.
+func get_contacts() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
 	for colony in players:
 		for u in colony.units:
 			if not u.is_in_world():
@@ -315,5 +323,5 @@ func _in_contact() -> bool:
 			if owner == Faction.NONE or map.are_allied(owner, colony.id):
 				continue
 			if colony == local_player or owner == local_player.id:
-				return true
-	return false
+				result.append({"unit": u, "owner": owner, "ours": colony == local_player})
+	return result

@@ -505,14 +505,18 @@ chasms.
 nothing needs you, and nobody is in enemy territory (your units on a
 rival's structures or hub, or theirs on yours). Something needs you when
 units are waiting for orders,
-when you can train a unit (you can afford it and feed it), when research
-has unlocked a new hub building, or when you can afford a research. Then
-the End Turn button says **Next**: clicking it (or pressing Space) opens
-Mission Briefing, Training, Buildings or Research, in that order. Closing
-that panel counts it as dealt with for the rest of the turn (unless
-something new turns up), but next turn anything still waiting stops you
-again - even if you ended the turn with Enter. A new building only needs
-seeing once.
+when you can train a unit (you can afford it and feed it), when you can
+build a hub building (unlocked, room for it and affordable), or when you
+can afford a research. Then the End Turn button says **Next**: clicking it
+(or pressing Space) opens Mission Briefing, Training, Buildings or
+Research, in that order. Closing that panel counts it as dealt with, and
+it stays that way turn after turn: it only stops you again when something
+new turns up (a unit, building or tech that wasn't on offer when you
+closed it, or one that went off offer and came back).
+
+The **Waiting on you** list down the right of the screen, under Events,
+always shows what's stopping turns being skipped: click an entry to open
+its panel, or, for units in enemy territory, to centre the map on them.
 
 Units waiting in Mission Briefing are a **hard stop**: the turn can't end
 (not even with Enter) until each has an order - or Wait, to park it off
