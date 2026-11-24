@@ -11,8 +11,9 @@ extends Room
 ## Units that refit after every trip out (Unit.refit_turns - air units)
 ## come straight here when they get home and refit: one turn off
 ## Unit.refit_turns_left each turn. They can't leave until it's done; then
-## they move on to Mission Briefing - or, if damaged and this room repairs
-## them (the Hangar), join its healing queue first. Refitting repairs nothing.
+## they're repaired to full HP and move on to Mission Briefing (where a unit
+## on a standing duty, e.g. Intercept, takes it up again - see
+## Player.repeat_orders()).
 
 ## The only kind of unit allowed in.
 var unit_type := Unit.UnitType.INFANTRY
@@ -61,9 +62,8 @@ func holds_training(blueprint: UnitBlueprint) -> bool:
 	return blueprint.unit_type == unit_type
 
 
-## Heals (if this room heals - the Garage, the Hangar); refitting units get
-## a turn closer, and finished ones go to Mission Briefing (or, damaged, stay
-## to be repaired).
+## Heals (if this room heals - the Garage); refitting units get a turn
+## closer, and finished ones are repaired and go to Mission Briefing.
 func process_turn(player: Player) -> void:
 	super(player)
 	for unit in player.get_units_in_room(id):
@@ -73,11 +73,9 @@ func process_turn(player: Player) -> void:
 		if unit.refit_turns_left > 0:
 			unit.state_changed.emit(unit)  # Show the new count.
 			continue
-		if unit.is_injured() and heals_unit(unit):
-			player.unit_event.emit("%s has finished refitting and is waiting for repairs in the %s" % [unit.display_name, display_name])
-			continue
+		unit.heal(unit.max_health)
 		unit.set_room(MissionBriefingRoom.ID)
-		player.unit_event.emit("%s has finished refitting and is in Mission Briefing" % unit.display_name)
+		player.unit_event.emit("%s has finished refitting (fully repaired) and is in Mission Briefing" % unit.display_name)
 	# Timed waits (the Wait button's number) count down; then back to work.
 	for unit in player.get_units_in_room(id):
 		if unit.wait_turns_left <= 0 or unit.state != Unit.State.IN_HUB or unit.refit_turns_left > 0:

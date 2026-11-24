@@ -9,31 +9,36 @@ extends Node
 ##                    the turn doesn't stall planning them all at once.
 ##   2. Set out     - deployed units leave their hubs; units already out
 ##                    re-plan their routes and start work if they've arrived.
-##   3. Movement    - every unit moves at the same time; units of opposing
+##   3. Movement    - aircraft fly straight to their targets first (sorties
+##                    and carpet bombings, then interceptors); then every
+##                    ground unit moves at the same time; units of opposing
 ##                    colonies that meet start battles and stop. QRF
 ##                    units move last, once everyone else has. The
 ##                    movement phase then passes the battles (each an array
 ##                    of hexes) to Combat (see Movement).
-##   4. Layout      - units sharing a tile are laid out side by side.
-##   5. Work        - units that spent the turn at their site build,
+##   4. Air return  - every aircraft still out finishes its trip (a Carpet
+##                    Bomb drops its bombs) and flies home, to refit in
+##                    the Hangar (see Movement.return_aircraft()).
+##   5. Layout      - units sharing a tile are laid out side by side.
+##   6. Work        - units that spent the turn at their site build,
 ##                    harvest or demolish. Units killed in combat don't.
-##   6. Production  - extractors deliver, hub buildings make resources
+##   7. Production  - extractors deliver, hub buildings make resources
 ##                    (Greenhouse biomass).
-##   7. Hub         - buildings ordered this turn are finished, training
+##   8. Hub         - buildings ordered this turn are finished, training
 ##                    progresses and the hub rooms work on their units
 ##                    (the Med Bay and Garage heal, the Hangar refits), and
 ##                    units back in Mission Briefing with a repeating order
 ##                    are given it again.
-##   8. Starvation  - a colony whose biomass production is below zero (it
+##   9. Starvation  - a colony whose biomass production is below zero (it
 ##                    makes less than its units eat) loses one unit: the
 ##                    most injured first, Workers last (see Player.starve()).
-##   9. Victory     - the first colony with a command point on every
+##  10. Victory     - the first colony with a command point on every
 ##                    control point on the map, each linked to its hub by
 ##                    belts, wins (once per game; play can carry on
 ##                    afterwards). A colony with no units left and none in
 ##                    training is eliminated (the player loses; a rival
 ##                    collapses, and outlasting every rival wins).
-##  10. Next turn   - refresh supply networks, advance the turn counter and
+##  11. Next turn   - refresh supply networks, advance the turn counter and
 ##                    decide whether the next turn can be auto-skipped.
 ##
 ## To add something that happens every turn, add it as a step in end_turn().
@@ -146,23 +151,28 @@ func end_turn() -> void:
 	for report in battles:
 		event_logged.emit(report["message"])
 
-	# 4. Layout - now we know who's standing where, fit shared tiles' icons
+	# 4. Air return - lay out the aircraft over their targets first, for
+	# their flight there.
+	UnitStackLayout.arrange(map)
+	Movement.return_aircraft(map)
+
+	# 5. Layout - now we know who's standing where, fit shared tiles' icons
 	# side by side.
 	UnitStackLayout.arrange(map)
 
-	# 5. Work
+	# 6. Work
 	for player in players:
 		player.units_work()
 
-	# 6. Production
+	# 7. Production
 	for player in players:
 		player.produce()
 
-	# 7. Hub
+	# 8. Hub
 	for player in players:
 		player.run_hub()
 
-	# 8. Starvation
+	# 9. Starvation
 	var starvations: Array = []  # [player, report] pairs.
 	for player in players:
 		var rng := RandomNumberGenerator.new()
@@ -171,14 +181,14 @@ func end_turn() -> void:
 		if not report.is_empty():
 			starvations.append([player, report])
 
-	# 9. Victory
+	# 10. Victory
 	var winners := _winners()
 	var eliminated: Array[Player] = []
 	for player in players:
 		if player.is_wiped_out():
 			eliminated.append(player)
 
-	# 10. Next turn
+	# 11. Next turn
 	for player in players:
 		player.finish_turn()
 	turn += 1

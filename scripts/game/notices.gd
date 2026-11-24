@@ -17,19 +17,19 @@ extends RefCounted
 enum Kind { HUB_BREACHED, HUB_ATTACKED, ENEMY_IN_TERRITORY, STRUCTURE_LOST }
 
 const LIST := {
-	# Our Infantry knocked health off a rival's hub.
+	# Our Infantry or Bombers knocked health off a rival's hub.
 	# {other}: their colony, {left}: "4/10 health left", {cheer}: a closing line.
 	Kind.HUB_BREACHED: {
 		"good": true,
 		"title": "HUB BREACHED!",
-		"body": "Our Infantry tore into the {other}'s hub - {left}.\n{cheer}",
+		"body": "Our forces tore into the {other}'s hub - {left}.\n{cheer}",
 	},
-	# Enemy Infantry knocked health off our hub.
+	# Enemy Infantry or Bombers knocked health off our hub.
 	# {other}: their colony, {left}: "4/10 health left".
 	Kind.HUB_ATTACKED: {
 		"good": false,
 		"title": "YOUR HUB IS UNDER ATTACK!",
-		"body": "The {other}'s Infantry are demolishing your hub - {left}.\nAt 0 your colony is lost. Drive them off and repair the hub (Central Hub).",
+		"body": "The {other} is attacking your hub - {left}.\nAt 0 your colony is lost. Drive them off and repair the hub (Central Hub).",
 	},
 	# Enemy units stepped onto one of our structures (our territory) - once
 	# when they arrive, not every turn they stay.

@@ -13,9 +13,10 @@ extends RefCounted
 ##
 ## One round is fought per turn. Everyone takes part, hurt or not - a unit
 ## only flees when a hit leaves it at or below half its HP (step 3):
-##   1. Each colony's units go into a list, in random order. The lists
-##      are taken highest initiative first (Player.get_initiative() - from
-##      command points and Initiative techs); colonies with the same
+##   1. Each colony's units go into a list, in random order - except that
+##      aircraft always come first (in random order among themselves). The
+##      lists are taken highest initiative first (Player.get_initiative() -
+##      from command points and Initiative techs); colonies with the same
 ##      initiative go in a random order.
 ##   2. Working through the lists side by side - the first unit of each list
 ##      in turn, then the second of each, and so on (a list that runs out is
@@ -28,21 +29,23 @@ extends RefCounted
 ##      shoots a random enemy of that type if there is one; otherwise the
 ##      next most damaged type, and so on. Civilians always come last, so
 ##      fighters shoot civilians only when nothing else is left
-##      (Unit.get_target_preference()).
+##      (Unit.get_target_preference()). Aircraft always shoot enemy aircraft
+##      first (AirUnit). Nobody shoots at a type it does no damage to (a
+##      Bomber never fires at ground units).
 ##   3. A unit hit down to 0 HP or below dies on the spot. One hit leaving it at
 ##      or below half its max HP (even one already there) breaks it and it
 ##      flees on the spot. Either way it's out of the
 ##      fight: it doesn't fire if its turn hadn't come yet, and can't be shot.
 ##   4. Afterwards the dead are removed, and everyone who fled drops their
 ##      mission and retreats one tile towards their hub (Unit.break_off());
-##      aircraft fly home at the start of the next turn instead.
+##      aircraft fly home in the air return phase instead.
 ## Units still sharing a tile next turn fight again (see Movement).
 ##
 ## Each battle also comes back as a report - plain data describing who was
 ## there and every shot, in order - so the game can replay it (BattleView):
 ##   {"core": [Vector2i] (where enemies met), "hexes": [Vector2i] (the core
 ##    and every tile around it), "message": String,
-##    "units": {unit id: {"name", "type", "short", "unit_type", "faction",
+##    "units": {unit id: {"name", "type", "short", "silhouette", "unit_type", "faction",
 ##                        "color", "hex", "home",
 ##                        "hp", "max_hp"}},   # As they were before the battle.
 ##    "events": [{"type": "shot", "from": id, "to": id, "damage": int,
@@ -158,6 +161,7 @@ static func _describe_units(sides: Dictionary) -> Dictionary:
 				"name": u.display_name,
 				"type": u.unit_name,
 				"short": u.get_short_label(),
+				"silhouette": u.silhouette,
 				"unit_type": u.unit_type,
 				"faction": u.player.id,
 				"color": u.body_color,
@@ -177,6 +181,7 @@ static func _fight(sides: Dictionary, rng: RandomNumberGenerator, events: Array)
 	var longest := 0
 	for side in order:
 		_shuffle(sides[side], rng)
+		_air_first(sides[side])
 		longest = maxi(longest, sides[side].size())
 	for i in longest:
 		for side in order:
@@ -205,6 +210,12 @@ static func _fire(attacker: Unit, sides: Dictionary, order: Array, side: Variant
 		for u: Unit in sides[other]:
 			if u.health > 0 and not u in fled:
 				targets.append(u)
+	# Only at enemies it can hurt (a Bomber's guns can't touch ground units).
+	var hurtable: Array[Unit] = []
+	for u in targets:
+		if attacker.get_damage_against(u) > 0:
+			hurtable.append(u)
+	targets = hurtable
 	if targets.is_empty():
 		return false
 	targets = attacker.pick_preferred_targets(targets)
@@ -241,6 +252,13 @@ static func _side_order(sides: Dictionary, rng: RandomNumberGenerator) -> Array:
 			order[j - 1] = swap
 			j -= 1
 	return order
+
+
+## Moves the aircraft in `list` to the front, keeping the order otherwise.
+static func _air_first(list: Array) -> void:
+	var air := list.filter(func(u: Unit) -> bool: return u.flies)
+	var ground := list.filter(func(u: Unit) -> bool: return not u.flies)
+	list.assign(air + ground)
 
 
 ## Fisher-Yates with our own rng (Array.shuffle() would use the global one).

@@ -30,6 +30,8 @@ static var pending_load: Dictionary = {}
 @export var min_edge_distance := 5
 ## How many random layouts to try on each map before generating another.
 const HUB_LAYOUT_TRIES := 300
+## Most seconds the battle replays wait for this turn's moves to play first.
+const MAX_MOVE_WAIT := 5.0
 
 @onready var map: HexMap = $HexMap
 @onready var players_root: Node2D = $Players
@@ -408,6 +410,10 @@ func _show_battles(reports: Array[Dictionary]) -> void:
 		return
 	turns.showing_battles = true
 	_cancel_targeting()
+	# Let this turn's moves play out on the map first; aircraft then hang
+	# over their targets until the replays are over (see Unit.hold_air_return).
+	Unit.hold_air_return = true
+	await _moves_shown(MAX_MOVE_WAIT)
 	for report: Dictionary in ours:
 		if _game_over:
 			break
@@ -417,9 +423,31 @@ func _show_battles(reports: Array[Dictionary]) -> void:
 		camera.focus_on(center / report["core"].size())
 		if await hud.play_battle(report, map):
 			break
+	Unit.hold_air_return = false
+	for colony: Player in map.players.values():
+		for u in colony.units:
+			u.release_return()
 	turns.showing_battles = false
 	_show_pending_starvation()
 	_show_notices()
+
+
+## Waits until no unit is still playing its move (or `limit` seconds).
+func _moves_shown(limit: float) -> void:
+	var waited := 0.0
+	while waited < limit:
+		var moving := false
+		for colony: Player in map.players.values():
+			for u in colony.units:
+				if u.is_animating():
+					moving = true
+					break
+			if moving:
+				break
+		if not moving:
+			return
+		await get_tree().process_frame
+		waited += get_process_delta_time()
 
 
 ## Whether any of our units fought in a battle (see Combat's report).
@@ -727,6 +755,10 @@ func _begin_targeting(unit: Unit, kind: String, repeats := 1) -> void:
 	var what := "a destination"
 	if kind == "demolish":
 		what = "something man-made, or an enemy hub, to demolish"
+	elif kind == "carpet_bomb":
+		what = "something man-made, or an enemy hub, to bomb"
+	elif kind == "sortie":
+		what = "any tile but a hub to fly a sortie to"
 	elif kind == "harvest":
 		what = "a deposit to harvest"
 	elif kind == "guard":

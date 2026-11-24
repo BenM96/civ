@@ -151,7 +151,7 @@ now.
 | Regen Lab | Regeneration | Med Bay | 2 | Units in the Med Bay heal 1 HP a turn faster. |
 | Repair Bay | Vehicle Repair | Garage | 2 | One more vehicle is repaired in the Garage at a time. |
 | Machine Shop | Machine Tools | Garage | 2 | Vehicles in the Garage are repaired 1 HP a turn faster. |
-| Flight Crew Quarters | Flight Crews | Hangar | 3 | Aircraft refit 1 turn faster after a sortie, and the Hangar repairs one more aircraft at a time. |
+| Flight Crew Quarters | Flight Crews | Hangar | 3 | Aircraft refit 1 turn faster after every flight. |
 
 ### The central hub's rooms
 
@@ -187,7 +187,7 @@ the start. The others show a padlock until you build their building.
 | Quick Reaction Force | Units on QRF duty (or Regroup) stand by here (see Missions). Drag a unit in to put it on QRF duty for 20 turns; drag one out to take it off. |
 | Break Room | Off-duty civilian units (Miner, Builders, Guards). Civilians in training are shown here. |
 | Barracks | The same, for infantry. |
-| Hangar | The same, for air units. Aircraft back from a sortie refit here for 5 turns (less with Flight Crew Quarters) and can't leave until they're done; damaged ones are then repaired here (see Healing). |
+| Hangar | The same, for air units. Aircraft back from any flight refit here for 10 turns (1 less per Flight Crew Quarters) and can't leave until they're done; refitting repairs them fully. Interceptors stand by here too (drag one out to take it off duty). |
 | Garage | The same, for armour units. Also repairs damaged armour (see Healing). |
 
 Units only get to the Airlock by being given a mission, and to the QRF
@@ -211,9 +211,8 @@ Only one unit heals at a time, 1 HP a turn; the rest wait their turn. The
 ones waiting are listed at the top of the room in healing order. Drag a unit
 onto another one in the queue to put it in that place. Surgical Wards
 and Repair Bays heal more units at once; Regen Labs and Machine Shops heal
-faster. Damaged aircraft are repaired in the **Hangar** the same way, once
-they've finished refitting (refitting itself repairs nothing); each Flight
-Crew Quarters repairs one more at once.
+faster. Aircraft are repaired by refitting in the **Hangar** after every
+flight (see Missions): they come out of it at full HP.
 
 ### Units
 
@@ -251,9 +250,9 @@ takes, how it moves and fights, and which room it waits in:
 | Civilian | Circle | - |
 | Infantry | Pentagon | - |
 | Armour | Square | Fires **twice** each time its turn comes in a battle. Can't capture or demolish. |
-| Air | Triangle | Only flies **sorties** (see Missions), then refits in the Hangar for 5 turns. |
+| Air | Top-down outline of the aircraft | Flies straight to its target and home again in one turn (see Missions), then refits in the Hangar for 10 turns. Drawn above the ground units on its tile, pointing the way it flies. |
 
-Each icon shows the unit's short name, e.g. W, I, AA.
+Each ground unit's icon shows its short name, e.g. W, I, AA. Aircraft show no label: each has its own outline - Chopper a helicopter, Fighter a Spitfire, Fighter Bomber a Eurofighter, Bomber a Lancaster.
 
 | Unit | Type | Label | Cost | Turns | Missions |
 |---|---|---|---|---|---|
@@ -268,9 +267,10 @@ Each icon shows the unit's short name, e.g. W, I, AA.
 | Tank Destroyer | Armour | TD | 1 Gold, 3 Titanium, 2 Sediment, 1 Electrum | 5 | As APC |
 | Tank | Armour | T | 1 Gold, 3 Titanium, 2 Sediment, 1 Electrum | 5 | As APC |
 | Anti-Aircraft Gun | Armour | AA | 1 Gold, 3 Titanium, 2 Sediment, 1 Electrum | 5 | As APC |
-| Chopper | Air | CH | 1 Gold, 2 Titanium, 2 Electrum | 4 | Sortie |
-| Fighter | Air | F | 1 Gold, 2 Titanium, 3 Electrum | 5 | Sortie |
-| Bomber | Air | B | 1 Gold, 2 Titanium, 3 Electrum | 5 | Sortie |
+| Chopper | Air | CH | 1 Gold, 2 Titanium, 2 Electrum | 4 | Sortie, intercept |
+| Fighter | Air | F | 1 Gold, 2 Titanium, 3 Electrum | 5 | Sortie, intercept |
+| Fighter Bomber | Air | FB | 1 Gold, 2 Titanium, 3 Electrum | 5 | Sortie, intercept |
+| Bomber | Air | B | 1 Gold, 2 Titanium, 3 Electrum | 5 | Carpet bomb |
 
 The computer colonies (`scripts/ai/ai_controller.gd`) build up in phases,
 each ending at a milestone, and drop back a phase if they lose what got them
@@ -297,7 +297,7 @@ nothing else is left). They repair their own hub whenever it's damaged.
 In the last phase each wave picks at
 random between a raid and going for command points - capturing rivals'
 command points, or guarding their own when there are none to take.
-Aircraft fly sorties at enemy units.
+Half their aircraft (that can intercept) stand by on Intercept; Bombers carpet bomb the nearest rival's structures (or its hub); the rest fly sorties at enemy units.
 
 ### Combat
 
@@ -309,16 +309,17 @@ target's type (hover over a unit in Training to see its numbers):
 | Miner, Builder | 1 | 2 | 0 | 0 |
 | Guard | 3 | 4 | 0 | 0 |
 | Infantry | 4 | 6 | 2 | 2 |
-| Assault Infantry | 6 | 10 | 5 | 5 |
-| AT Infantry | 5 | 7 | 10 | 3 |
-| Stinger Infantry | 4 | 5 | 6 | 4 |
+| Assault Infantry | 6 | 10 | 5 | 2 |
+| AT Infantry | 5 | 7 | 10 | 2 |
+| Stinger Infantry | 4 | 5 | 6 | 10 |
 | APC (x2 shots) | 4 | 6 | 4 | 2 |
-| Tank Destroyer (x2) | 2 | 4 | 8 | 1 |
+| Tank Destroyer (x2) | 2 | 4 | 8 | 2 |
 | Tank (x2) | 6 | 8 | 4 | 2 |
-| Anti-Aircraft Gun (x2) | 4 | 6 | 4 | 8 |
-| Chopper | 4 | 4 | 4 | 4 |
-| Fighter | 2 | 3 | 2 | 8 |
-| Bomber | 7 | 7 | 7 | 1 |
+| Anti-Aircraft Gun (x2) | 4 | 6 | 4 | 10 |
+| Chopper | 6 | 6 | 6 | 6 |
+| Fighter | 6 | 6 | 2 | 10 |
+| Fighter Bomber | 6 | 6 | 10 | 6 |
+| Bomber | 0 | 0 | 0 | 2 |
 
 **Preferred targets.** Each unit would rather shoot the type it does the
 most damage to: if any enemy of that type is in the fight it shoots one of
@@ -345,7 +346,7 @@ fought:
    already there, so a hurt unit fights on until it's hit again. Either way it's out of
    the fight and doesn't get to fire.
 3. Units that fled abandon their mission, retreat a tile towards their
-   hub, then walk home. Aircraft fly home at the start of the next turn.
+   hub, then walk home. Aircraft fly home in the air return phase that turn.
 
 Units still sharing a tile next turn fight another round. Damaged units
 show a health bar, and heal in the hub once they get home (see Healing).
@@ -357,11 +358,11 @@ the rest for that turn.
 ### Missions
 
 Open **Mission Briefing** on the bottom bar, pick a mission from a unit's
-dropdown, press **Select Target** and click a tile. (Escort, QRF, Regroup,
+dropdown, press **Select Target** and click a tile. (Escort, QRF, Intercept, Regroup,
 Wait and Heal need no tile: the button says **Give Order**.)
 
 The second dropdown says how many times to do it: 1 (the default), 5, 10,
-20 or INF for forever (Guard can't be INF; for QRF and Wait it's the
+20 or INF for forever (Guard can't be INF; for QRF, Intercept and Wait it's the
 number of turns). Each time the unit is back in Mission Briefing (hurt units
 once healed, aircraft once refitted) it's given the same order again at the
 end of the turn, and sets out the turn after. If the hub can't pay for it
@@ -387,16 +388,42 @@ them. A bridge order goes to just the Builder you picked.
 | Demolish | Infantry | Tear down foundations, bridges, belts, extractors or command points (3 turns on the spot), or knock 1 health off an enemy hub from next to it (see Hub health) |
 | QRF | Guard, infantry, armour | Stand by in the Quick Reaction Force room and defend your extractors, belts and hub (see below) |
 | Regroup | Infantry, armour | Stand by like the QRF until every military unit is home and healed, then the whole army goes to Mission Briefing (see The central hub's rooms) |
-| Sortie | Air | Fly straight to any tile but a hub and fight there (see below) |
+| Sortie | Chopper, Fighter, Fighter Bomber | Fly straight to any tile but a hub and fight there (see below) |
+| Intercept | Chopper, Fighter, Fighter Bomber | Stand by in the Hangar and fly at enemy aircraft that come into your territory (see below) |
+| Carpet Bomb | Bomber | Fly to a tile and flatten everything man-made on it, or knock 1 health off an enemy hub, in one turn (see below) |
 
-**Sortie.** Aircraft don't walk. Before anyone else moves, each aircraft on
-a sortie jumps straight to its target, over anything in between - so it
-catches whoever is on that tile at the start of the turn, and they stay to
-fight. It starts or joins battles there like anyone else, and enemies that
-walk onto it that turn join in.
-At the start of the next turn it flies straight home, and refits in the
-Hangar for 5 turns. If it's damaged it's then repaired there (see Healing).
-It then goes to Mission Briefing, ready for another sortie.
+**Aircraft.** Aircraft don't walk, and every flight takes one turn. Before
+anyone on the ground moves, each aircraft on a sortie or carpet bombing
+jumps straight to its target, over anything in between - so it catches
+whoever is on that tile at the start of the turn, and they stay to fight. It
+starts or joins battles there like anyone else, and enemies that walk onto
+it that turn join in. Then interceptors fly (see Intercept), and only then
+does everyone on the ground move. After combat comes
+the **air return** phase: every aircraft still out flies straight home and
+refits in the Hangar for 10 turns (1 less per Flight Crew Quarters), which
+repairs it fully. It then goes to Mission Briefing - or, on Intercept duty,
+straight back on standby.
+
+In battle, aircraft fire before any ground unit and always shoot enemy
+aircraft first. Most ground units do only 2 damage to aircraft; the
+Anti-Aircraft Gun and Stinger Infantry do 10. In the battle replay aircraft
+fly above their hexes, and ones shot down crash and burn.
+
+**Sortie.** Fly to any tile but a hub and fight whoever is there.
+
+**Intercept.** The air force's QRF: the aircraft stands by in the Hangar for
+the turns picked in the second dropdown (INF: until you drag it out). When
+enemy aircraft land in your territory (on one of your structures, or next to
+your hub), interceptors fly at them the same turn: the enemy nearest your
+hub first, sending interceptors until you have 2 aircraft there for each of
+theirs (counting any of yours already there), then the next. Interceptors
+not needed stay on standby.
+
+**Carpet Bomb.** The Bomber's only mission. Pick something man-made or an
+enemy hub; if the Bomber comes through the battle there, it flattens
+everything man-made on the tile (leaving Rubble, or the Chasm for a bridge)
+or knocks 1 health off the hub, in the same turn. Its guns can't hurt ground
+units at all, and do only 2 to aircraft.
 
 **QRF (quick reaction force).** QRF units don't move with everyone else.
 Once every other unit has finished moving, each QRF unit heads for the

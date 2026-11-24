@@ -47,8 +47,8 @@ Techs are researched with Electrum from **Research (R)**. Each game deals every 
 | **Tank** | Lets you train Tank. | Garage (tier 1) |
 | **Anti-Aircraft Gun** | Lets you train Anti-Aircraft Gun. | Garage (tier 1) |
 | **Fighter** | Lets you train Fighter. | Hangar (tier 2) |
+| **Fighter Bomber** | Lets you train Fighter Bomber. | Hangar (tier 2) |
 | **Initiative II** | +1 initiative (whoever has the most fires first in battle). | Initiative I (tier 2) |
-| **All-Terrain Drives** | +1 movement for every land unit. | - |
 
 ## Tier 5 (9-10 Electrum)
 
@@ -81,4 +81,4 @@ Techs are researched with Electrum from **Research (R)**. Each game deals every 
 | **Flak Guns** | Anti-Aircraft Gun does +1 damage to everything. | Anti-Aircraft Gun (tier 4) |
 | **Fighter Weapons** | Fighter does +1 damage to everything. | Fighter (tier 4) |
 | **Bomber Weapons** | Bomber does +1 damage to everything. | Bomber (tier 5) |
-| **All-Terrain Drives II** | +1 movement for every land unit. | All-Terrain Drives (tier 4) |
+| **All-Terrain Drives** | +1 movement for every land unit. | - |

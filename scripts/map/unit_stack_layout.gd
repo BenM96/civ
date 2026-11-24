@@ -20,22 +20,48 @@ const LAYOUTS := {
 }
 
 
+## Aircraft fly above the ground units on their tile: in a row this far up
+## (in hex sizes), spread across at most AIR_ROW_WIDTH, no bigger than
+## AIR_SCALE.
+const AIR_ROW_Y := -0.62
+const AIR_ROW_WIDTH := 1.6
+const AIR_SCALE := 0.75
+
+
 ## Lays out every unit out on the map. Call after units move or die.
+## Aircraft get a row of their own above the tile (see AIR_ROW_Y); the
+## ground units share the tile as above.
 static func arrange(map: HexMap) -> void:
 	var by_tile := {}
+	var air_by_tile := {}
 	for u in map.get_units_in_world():
-		if not by_tile.has(u.hex):
-			by_tile[u.hex] = []
-		by_tile[u.hex].append(u)
+		var group := air_by_tile if u.flies else by_tile
+		if not group.has(u.hex):
+			group[u.hex] = []
+		group[u.hex].append(u)
 	for h in by_tile:
 		var units: Array = by_tile[h]
-		# Keep each colony's units together, in a stable order.
-		units.sort_custom(func(a: Unit, b: Unit) -> bool:
-			if a.player.id != b.player.id:
-				return a.player.id < b.player.id
-			return a.display_name < b.display_name)
+		_sort(units)
 		var layout: Array = LAYOUTS[mini(units.size(), MAX_SHOWN)]
 		var slots: Array = layout[1]
 		for i in units.size():
 			var slot: Vector2 = slots[mini(i, slots.size() - 1)]
 			units[i].set_icon_layout(slot * map.hex_size, layout[0])
+	for h in air_by_tile:
+		var aircraft: Array = air_by_tile[h]
+		_sort(aircraft)
+		var shown := mini(aircraft.size(), MAX_SHOWN)
+		var spacing := minf(0.8, AIR_ROW_WIDTH / shown)
+		# Sized so neighbours' wings (about 3 icon radii across) don't touch.
+		var icon_scale := minf(AIR_SCALE, spacing * map.hex_size / (Unit.RADIUS * 3.2))
+		for i in aircraft.size():
+			var x := (mini(i, shown - 1) - (shown - 1) / 2.0) * spacing
+			aircraft[i].set_icon_layout(Vector2(x, AIR_ROW_Y) * map.hex_size, icon_scale)
+
+
+## Keeps each colony's units together, in a stable order.
+static func _sort(units: Array) -> void:
+	units.sort_custom(func(a: Unit, b: Unit) -> bool:
+		if a.player.id != b.player.id:
+			return a.player.id < b.player.id
+		return a.display_name < b.display_name)

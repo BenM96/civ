@@ -50,7 +50,7 @@ func get_info_text() -> String:
 	if _shots_per_turn > 1:
 		lines[0] += " Fires %d shots a turn." % _shots_per_turn
 	if _refit_turns > 0:
-		lines[0] += " Refits for %d turns after each sortie." % _refit_turns
+		lines[0] += " Refits (and is repaired) for %d turns after each flight." % _refit_turns
 	var hits: PackedStringArray = []
 	for type in [Unit.UnitType.INFANTRY, Unit.UnitType.CIVILIAN, Unit.UnitType.ARMOUR, Unit.UnitType.AIR]:
 		hits.append("%s %d" % [Unit.get_type_name(type), _damage.get(type, 0)])

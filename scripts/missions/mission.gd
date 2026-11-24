@@ -30,7 +30,7 @@ enum Result { IN_PROGRESS, COMPLETE, FAILED }
 ## TRAVELLING: heading for get_travel_hex(). WORKING: there, doing the job.
 enum Phase { TRAVELLING, WORKING }
 ## When in the movement phase the unit moves (see get_move_phase()).
-enum MovePhase { NORMAL, REACTION, AIR }
+enum MovePhase { NORMAL, REACTION, AIR, INTERCEPT }
 
 var unit: Unit
 var result := Result.IN_PROGRESS
@@ -128,9 +128,24 @@ func sets_out_last() -> bool:
 
 ## Which part of the movement phase the unit moves in (see Movement):
 ## NORMAL with everyone else; REACTION once they've all finished (a QRF,
-## which reacts to where enemies ended up); AIR last of all (a sortie).
+## which reacts to where enemies ended up); AIR before anyone (a sortie or a
+## carpet bombing - see fly()); INTERCEPT straight after AIR (see
+## InterceptMission).
 func get_move_phase() -> MovePhase:
 	return MovePhase.NORMAL
+
+
+## AIR phase missions: called by Movement before anyone on the ground
+## moves, to fly the unit straight to its target (Unit.fly_to()).
+func fly() -> void:
+	pass
+
+
+## Aircraft only: the air return phase, after combat (see
+## Unit.return_from_air()). The trip is over: finish (or fail) the mission
+## so the unit flies home. A Carpet Bomb drops its bombs here first.
+func air_return() -> void:
+	complete()
 
 
 ## The hub room (see Room) the unit waits in once given this mission.

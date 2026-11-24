@@ -9,12 +9,14 @@ extends Node2D
 ## Subclasses (Miner, Tank, ...) set ALL their data in _init() - stats,
 ## training cost, training time, upkeep and the short label drawn on their
 ## icon - and can add new abilities for missions. Units of each type share
-## a base: ArmourUnit (fires twice a round) and AirUnit (flies sorties, then
-## refits). To make a hub able to train a unit, add its class to the list
-## in Player._init().
+## a base: ArmourUnit (fires twice a round) and AirUnit (flies straight to
+## its target and home again in one turn, then refits). To make a hub able to
+## train a unit, add its class to the list in Player._init().
 ##
-## Icons are shaped by unit type: civilians are round, infantry pentagons,
-## armour squares and air triangles (see draw_icon()).
+## Icons are shaped by unit type: civilians are round, infantry pentagons and
+## armour squares (see draw_icon()). Aircraft are drawn as a top-down outline
+## of the aircraft itself (see silhouette and draw_aircraft()), above the
+## ground units on their tile, pointing the way they fly.
 
 signal state_changed(unit: Unit)
 signal mission_completed(unit: Unit, mission: Mission)
@@ -64,9 +66,12 @@ const SPECIALIST_COST := {ResourceDeposit.Type.ELECTRUM: 1}
 ## Shots fired one after another each time its turn comes round in a
 ## battle (armour fires twice - see Combat).
 @export var shots_per_turn := 1
-## Flies instead of walking: goes out and comes home in a single jump (see
-## SortieMission), ignoring terrain.
+## Flies instead of walking: goes out and comes home in a single jump each
+## (see AirUnit), ignoring terrain.
 @export var flies := false
+## Which aircraft outline to draw (see draw_aircraft()): "helicopter",
+## "spitfire", "eurofighter" or "lancaster". "" for ground units.
+@export var silhouette := ""
 ## Turns spent refitting in its quarters (e.g. the Hangar) after every trip
 ## out, before it can go to Mission Briefing again. Refitting also repairs
 ## it to full HP. 0 = never refits.
@@ -111,7 +116,7 @@ var repeat_target := Vector2i.ZERO
 ## Briefing by itself (the Wait button's number - see Player.move_unit_to_room()).
 ## 0 means it stays until moved.
 var wait_turns_left := 0
-## A standby duty (QRF or Regroup) this unit left to heal, to take up again
+## A standby duty (QRF, Regroup or Intercept) this unit left to heal or refit, to take up again
 ## once it's back in Mission Briefing (see Player.repeat_orders()): the
 ## mission kind ("" for none), and for QRF the turns of duty it had left
 ## (REPEAT_FOREVER for no limit).
@@ -137,18 +142,34 @@ var _icon_scale := 1.0
 var _path: Array[Vector2i] = []
 var _anim_steps: Array[Vector2] = []
 var _move_tween: Tween
+## Which way an aircraft's nose points, in radians (0 = up the screen).
+var _heading := 0.0
+
+## Seconds an aircraft hangs over its target before its flight home plays.
+const HOVER_TIME := 0.6
+## While true (the game is replaying this turn's battles), aircraft hang
+## over their targets instead of flying home, until release_return().
+static var hold_air_return := false
+## Waiting over its target for hold_air_return to end.
+var _return_waiting := false
+## Seconds an aircraft's flight (out or home) takes to show, however far.
+const FLIGHT_TIME := 0.7
 
 
 func _ready() -> void:
-	z_index = 10
+	z_index = 12 if flies else 10  # Aircraft over everything on the ground.
 	health = max_health
 
 
 ## HP taken off `target` by one shot from this unit: its damage against
 ## that type, plus 1 for each of its colony's Weapons techs for this unit.
+## Types it can't hurt at all (0 damage) stay at 0.
 func get_damage_against(target: Unit) -> int:
+	var base: int = damage.get(target.unit_type, 0)
+	if base <= 0:
+		return 0
 	var bonus := player.get_damage_bonus(unit_name) if player else 0
-	return damage.get(target.unit_type, 0) + bonus
+	return base + bonus
 
 
 ## Movement points a turn: max_movement, plus its colony's All-Terrain
@@ -498,7 +519,7 @@ func start_turn() -> void:
 		mission.prepare()
 	_check_mission_end()
 	if state == State.RETURNING and flies:
-		fly_to(player.hex)  # Flown home before anyone moves (e.g. after breaking).
+		fly_to(player.hex)  # Normally home already (see return_from_air()).
 	elif state == State.RETURNING and not has_destination():
 		set_destination(player.hex)  # If cut off from home, try again next turn.
 
@@ -545,18 +566,34 @@ func _begin_return() -> void:
 		set_destination(player.hex)
 
 
-## Jumps straight to `target` (a flying unit; see SortieMission), whatever
-## lies between. Landing on its own hub brings it home.
+## Jumps straight to `target` (a flying unit; see AirUnit), whatever lies
+## between. Landing on its own hub brings it home. The flight is shown after
+## any move already playing or waiting to play (see play_movement()).
 func fly_to(target: Vector2i) -> void:
 	_path.clear()
+	var from := hex
 	hex = target
 	moved_this_turn = true
-	if hex == player.hex and state == State.RETURNING:
-		_anim_steps.clear()  # Hidden at home: nothing to show.
-		global_position = map.hex_to_world(hex)
-		_arrive_home()
-	else:
+	if from != target:
 		_anim_steps.append(map.hex_to_world(hex))
+	if hex == player.hex and state == State.RETURNING:
+		if _anim_steps.is_empty() and not is_animating():
+			global_position = map.hex_to_world(hex)  # Nothing to show.
+		_arrive_home()
+
+
+## The air return phase, after combat (see TurnManager): an aircraft out on
+## the map ends its mission (see Mission.air_return() - e.g. a Carpet Bomb
+## drops its bombs first) and flies home. One on standby at the hub (an
+## interceptor that wasn't called out) stays put.
+func return_from_air() -> void:
+	if not flies or not is_in_world() or hex == player.hex:
+		return
+	if state == State.ON_MISSION:
+		mission.air_return()
+		_check_mission_end()  # Flies home (see _begin_return()).
+	if state == State.RETURNING:
+		fly_to(player.hex)
 
 
 func _arrive_home() -> void:
@@ -656,7 +693,7 @@ func break_off() -> void:
 		return
 	_set_state(State.RETURNING)
 	if flies:
-		return  # Flies home at the start of next turn (see start_turn()).
+		return  # Flies home in the air return phase (see return_from_air()).
 	if not set_destination(player.hex) or _path.is_empty():
 		return  # Cut off from home: tries again next turn.
 	hex = _path.pop_front()
@@ -748,7 +785,8 @@ func _set_state(new_state: State) -> void:
 	if state == new_state:
 		return
 	state = new_state
-	if _move_tween == null or not _move_tween.is_running():
+	# Mid-move (or with a move still to show), the move's end sorts it out.
+	if not is_animating() and _anim_steps.is_empty():
 		_refresh_visibility()
 	state_changed.emit(self)
 
@@ -760,25 +798,66 @@ func is_animating() -> bool:
 
 ## Seconds play_movement() will take to show the steps taken this turn.
 func get_movement_anim_time() -> float:
-	return _anim_steps.size() * move_anim_time
+	return _anim_steps.size() * _get_step_time()
+
+
+## Seconds each step (for an aircraft, each whole flight) takes to show.
+func _get_step_time() -> float:
+	return FLIGHT_TIME if flies else move_anim_time
 
 
 ## Animates the steps taken this turn. Called once movement is resolved.
 ## `delay` holds the unit still first (a QRF waits for everyone else's move
-## to finish playing, since it moves after them).
+## to finish playing, since it moves after them). If a move is still
+## playing, these steps play once it ends instead (see _on_move_played()).
+## Aircraft turn to face each way they fly.
 func play_movement(delay := 0.0) -> void:
-	if _anim_steps.is_empty():
+	if _anim_steps.is_empty() or is_animating():
 		return
+	_play_steps(delay)
+
+
+func _play_steps(delay: float) -> void:
 	if _move_tween and _move_tween.is_valid():
 		_move_tween.kill()
 	visible = true
 	_move_tween = create_tween()
 	if delay > 0.0:
 		_move_tween.tween_interval(delay)
+	var from := global_position
 	for p in _anim_steps:
-		_move_tween.tween_property(self, "global_position", p, move_anim_time)
-	_move_tween.tween_callback(_refresh_visibility)
+		if flies and p != from:
+			_move_tween.tween_callback(_set_heading.bind((p - from).angle() + PI / 2.0))
+		_move_tween.tween_property(self, "global_position", p, _get_step_time())
+		from = p
 	_anim_steps.clear()
+	_move_tween.tween_callback(_on_move_played)
+
+
+## A move finished playing: play any steps added meanwhile (an aircraft's
+## flight home, after hanging over its target a moment - or until the
+## battle replays are over, see hold_air_return), or hide the unit if it's
+## now at home.
+func _on_move_played() -> void:
+	if not _anim_steps.is_empty():
+		if flies and hold_air_return:
+			_return_waiting = true  # Stays shown over its target.
+			return
+		_play_steps(HOVER_TIME if flies else 0.0)
+	else:
+		_refresh_visibility()
+
+
+## The battle replays are over: an aircraft held over its target flies home.
+func release_return() -> void:
+	if _return_waiting:
+		_return_waiting = false
+		_play_steps(0.2)
+
+
+func _set_heading(angle: float) -> void:
+	_heading = angle
+	queue_redraw()
 
 
 ## Units are only drawn while out in the world (not on their own hub, e.g.
@@ -830,6 +909,78 @@ static func draw_icon(canvas: CanvasItem, type: UnitType, c: Vector2, r: float,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.1, 0.1, 0.1, alpha))
 
 
+## Top-down outlines of each aircraft (see `silhouette`), nose up, in units
+## of about half the wingspan: [nose y, right-hand outline from nose to tail,
+## tail y]. The left half is the mirror image.
+const SILHOUETTES := {
+	"helicopter": [-0.62, [Vector2(0.12, -0.58), Vector2(0.2, -0.4), Vector2(0.22, -0.1),
+		Vector2(0.17, 0.12), Vector2(0.06, 0.25), Vector2(0.04, 0.78), Vector2(0.18, 0.76),
+		Vector2(0.2, 0.84), Vector2(0.18, 0.92), Vector2(0.04, 0.9)], 0.95],
+	"spitfire": [-1.0, [Vector2(0.07, -0.97), Vector2(0.1, -0.8), Vector2(0.11, -0.42),
+		Vector2(0.45, -0.4), Vector2(0.75, -0.34), Vector2(0.93, -0.25), Vector2(1.0, -0.15),
+		Vector2(0.96, -0.07), Vector2(0.78, -0.01), Vector2(0.45, 0.03), Vector2(0.11, 0.06),
+		Vector2(0.08, 0.58), Vector2(0.3, 0.62), Vector2(0.38, 0.69), Vector2(0.34, 0.78),
+		Vector2(0.07, 0.8)], 0.95],
+	"eurofighter": [-1.0, [Vector2(0.05, -0.82), Vector2(0.09, -0.6), Vector2(0.3, -0.5),
+		Vector2(0.3, -0.45), Vector2(0.1, -0.43), Vector2(0.12, -0.15), Vector2(0.78, 0.55),
+		Vector2(0.78, 0.66), Vector2(0.15, 0.66), Vector2(0.13, 0.88), Vector2(0.03, 0.88)], 0.84],
+	"lancaster": [-0.95, [Vector2(0.07, -0.9), Vector2(0.09, -0.72), Vector2(0.1, -0.42),
+		Vector2(0.2, -0.42), Vector2(0.21, -0.58), Vector2(0.28, -0.58), Vector2(0.29, -0.41),
+		Vector2(0.43, -0.4), Vector2(0.44, -0.55), Vector2(0.51, -0.55), Vector2(0.52, -0.39),
+		Vector2(1.0, -0.33), Vector2(1.0, -0.24), Vector2(0.1, -0.14), Vector2(0.07, 0.6),
+		Vector2(0.34, 0.62), Vector2(0.34, 0.54), Vector2(0.42, 0.54), Vector2(0.42, 0.8),
+		Vector2(0.34, 0.8), Vector2(0.34, 0.74), Vector2(0.05, 0.74)], 0.82],
+}
+
+
+## Draws an aircraft on `canvas`: its top-down outline (see SILHOUETTES) in
+## `body` colour, edged in the owner's colour, centred on `c`, about `r`
+## (an icon's radius) across each wing, its nose pointing `heading` radians
+## clockwise from straight up. Shared with the battle replay (BattleView).
+static func draw_aircraft(canvas: CanvasItem, kind: String, c: Vector2, r: float,
+		faction_color: Color, body: Color, heading := 0.0, alpha := 1.0) -> void:
+	var size := r * 1.5
+	var outline := aircraft_points(kind, c, size, heading)
+	var closed := outline.duplicate()
+	closed.append(outline[0])
+	var edge := maxf(1.5, r * 0.2)
+	canvas.draw_polyline(closed, Color(0, 0, 0, 0.7 * alpha), edge + 2.0, true)
+	var ring := faction_color
+	ring.a *= alpha
+	canvas.draw_polyline(closed, ring, edge, true)
+	var fill := body
+	fill.a *= alpha
+	canvas.draw_colored_polygon(outline, fill)
+	if kind == "helicopter":
+		# Main rotor: two blades across a faint disc.
+		var hub := c + Vector2(0, -0.15 * size).rotated(heading)
+		var disc := ring
+		disc.a *= 0.35
+		canvas.draw_arc(hub, size * 0.95, 0.0, TAU, 24, disc, maxf(1.0, r * 0.08), true)
+		# Blades along and across the body, so they don't read as a cross-out.
+		var blade := Color(0.2, 0.2, 0.22, 0.75 * alpha)
+		for angle in [0.0, PI / 2.0]:
+			var tip := Vector2(0, -size * 0.9).rotated(heading + angle)
+			canvas.draw_line(hub - tip, hub + tip, blade, maxf(1.0, r * 0.09), true)
+		canvas.draw_circle(hub, maxf(1.5, r * 0.12), blade)
+
+
+## The outline of aircraft `kind` (see SILHOUETTES) around `c`, `size`
+## pixels per unit, turned `heading` radians.
+static func aircraft_points(kind: String, c: Vector2, size: float, heading := 0.0) -> PackedVector2Array:
+	var data: Array = SILHOUETTES.get(kind, SILHOUETTES["spitfire"])
+	var half: Array = data[1]
+	var local: Array[Vector2] = [Vector2(0, data[0])]
+	local.append_array(half)
+	local.append(Vector2(0, data[2]))
+	for i in range(half.size() - 1, -1, -1):
+		local.append(Vector2(-half[i].x, half[i].y))
+	var points := PackedVector2Array()
+	for p in local:
+		points.append(c + (p * size).rotated(heading))
+	return points
+
+
 ## The outline of a unit type's icon around `c`, sized to look about as big
 ## as a circle of radius `r`: a pentagon (infantry), square (armour) or
 ## triangle (air). Civilians are round - this gives a 20-sided polygon.
@@ -861,7 +1012,10 @@ func _draw() -> void:
 	var s := _icon_scale
 	# Ring in the owner's colour so rival units are easy to tell apart.
 	var faction_color := Faction.get_color(player.id) if player else Color.BLACK
-	draw_icon(self, unit_type, c, RADIUS * s, faction_color, body_color, get_short_label())
+	if flies:
+		draw_aircraft(self, silhouette, c, RADIUS * s, faction_color, body_color, _heading)
+	else:
+		draw_icon(self, unit_type, c, RADIUS * s, faction_color, body_color, get_short_label())
 	# Health bar under the icon once it has taken damage.
 	if health < max_health:
 		var bar := Rect2(c + Vector2(-RADIUS, RADIUS + 5.0) * s, Vector2(RADIUS * 2.0, 4.0) * s)

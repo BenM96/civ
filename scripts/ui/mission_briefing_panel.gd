@@ -119,7 +119,7 @@ func _make_repeat_picker() -> OptionButton:
 		picker.add_item(choice[1])
 		picker.set_item_metadata(i, choice[0])
 	picker.selected = 0
-	picker.tooltip_text = "How many times to do this order (for Wait and QRF, how many turns; Heal and Regroup ignore it; Guard can't be INF)."
+	picker.tooltip_text = "How many times to do this order (for Wait, QRF and Intercept, how many turns; Heal and Regroup ignore it; Guard can't be INF)."
 	picker.tooltip_text += " Each time the unit gets back to Mission Briefing it's given the order again (if it's hurt, once it's healed). INF keeps going until you press Cancel in Field while it's waiting to set out, or press RTB in Central Hub."
 	return picker
 
@@ -175,9 +175,16 @@ func _mission_choices(unit: Unit) -> Array:
 				choices.append(["escort:%d" % other.id, "Escort %s%s" % [other.display_name, plans],
 					"Follow %s wherever it goes and fight beside it, then come home with it. Sets off as soon as %s does - no target to pick." % [
 						other.display_name, other.display_name], true])
+	var refit := player.get_refit_turns(unit)
 	if unit.can_take("sortie"):
 		choices.append(["sortie", "Sortie",
-			"Pick any tile but a hub. Before anyone else moves, flies straight there and fights whoever is on it (and anyone who walks onto it); flies home next turn, then refits in the Hangar for %d turns (and is repaired there afterwards if damaged)." % player.get_refit_turns(unit), true])
+			"Pick any tile but a hub. Before anyone on the ground moves, flies straight there and fights whoever is on it (and anyone who walks onto it); flies home at the end of the same turn, then refits in the Hangar for %d turns (fully repairing it)." % refit, true])
+	if unit.can_take("intercept"):
+		choices.append(["intercept", "Intercept",
+			"Stand by in the Hangar for the number of turns picked in the next dropdown (INF: until you drag it out). When enemy aircraft come onto our structures or next to our hub, flies straight at them that same turn (nearest the hub first, 2 of ours for each of theirs), fights, and flies home at the end of the turn. Then it refits for %d turns and goes back on standby." % refit, true])
+	if unit.can_take("carpet_bomb"):
+		choices.append(["carpet_bomb", "Carpet Bomb",
+			"Pick a tile with something man-made on it, or an enemy hub. Before anyone on the ground moves, flies straight there; if it comes through the battle, it flattens everything man-made on the tile (leaving rubble) or knocks 1 off the hub's health, then flies home that turn and refits for %d turns." % refit, true])
 	if unit.can_take("qrf"):
 		choices.append(["qrf", "QRF (quick reaction force)",
 			"Stand by in the QRF room for the number of turns picked in the next dropdown (INF: until you drag it out). After everyone else has moved each turn, head for the nearest enemy on one of our extractors or belts; come back when they've gone. Hurt, it goes to be healed and then back on duty. When the time is up it comes to Mission Briefing (once it's home, if it's out chasing).", true])

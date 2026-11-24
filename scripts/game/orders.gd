@@ -18,7 +18,7 @@ extends RefCounted
 ##       (see Player.repeat_orders()).
 ##       group: true (from the HUD) - a Builder's line job becomes the job all
 ##       Builders join (see Player.start_builder_group()).
-##       kind: "move", "harvest", "guard", "capture", "demolish", "qrf", "regroup", "sortie",
+##       kind: "move", "harvest", "guard", "capture", "demolish", "qrf", "regroup", "sortie", "intercept", "carpet_bomb",
 ##       "escort:<unit id>" or "build:<buildable id>" (see make_mission())
 ##   {"order": "cancel_mission", "unit": id}
 ##   {"order": "move_room", "unit": id, "room": room id, "turns": n}   (see Room)
@@ -81,10 +81,10 @@ static func start_regroup() -> Dictionary:
 	return {"order": "start_regroup"}
 
 
-## Whether a mission kind needs a tile picked on the map. Escorts and QRF
+## Whether a mission kind needs a tile picked on the map. Escorts, QRF and Intercept
 ## don't: the order is given straight away (with the hub as its target).
 static func needs_target(kind: String) -> bool:
-	return not (kind.begins_with("escort:") or kind == "qrf" or kind == "regroup")
+	return not (kind.begins_with("escort:") or kind == "qrf" or kind == "regroup" or kind == "intercept")
 
 
 static func train(unit_type: String) -> Dictionary:
@@ -284,6 +284,10 @@ static func make_mission(player: Player, kind: String, target: Vector2i) -> Miss
 			return RegroupMission.new()
 		"sortie":
 			return SortieMission.new(target)
+		"intercept":
+			return InterceptMission.new()
+		"carpet_bomb":
+			return CarpetBombMission.new(target)
 	return null
 
 

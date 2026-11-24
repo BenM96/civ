@@ -29,12 +29,19 @@ extends RefCounted
 ## enemies ended up and get a movement phase of their own (same ticks, same
 ## battle rules). Their move is also shown after everyone else's.
 ##
-## Aircraft on a sortie (SortieMission) go first, before anyone else moves:
-## each jumps straight to its target tile, so it catches whoever is there
-## at the start of the turn. Enemies on the tile it lands on make it a
-## battle hex (and they stay to fight), and the battle takes in the tiles
-## around it as usual. Enemies walking onto it later in the turn join in.
-## Their flight is also shown first.
+## Aircraft go first, before anyone on the ground moves. First those flying
+## out on a mission (a sortie or carpet bombing - Mission.MovePhase.AIR):
+## each jumps straight to its target tile, so it catches whoever is there at
+## the start of the turn. Enemies on the tile it lands on make it a battle
+## hex (and they stay to fight), and the battle takes in the tiles around it
+## as usual; enemies walking onto it later in the turn join in. Then
+## interceptors (InterceptMission): each colony sends its standby
+## interceptors at the enemy aircraft now in its territory (see
+## _plan_intercepts()), and they land the same way. Their flights are shown
+## first, in that order, then everyone else's moves.
+##
+## Aircraft fly home after combat, in the air return phase
+## (return_aircraft(), run by TurnManager).
 ##
 ## Battles that share a hex (e.g. several border clashes around one tile)
 ## are merged into one. What's passed to Combat is the list of battles, each
@@ -53,15 +60,18 @@ static func run(map: HexMap, turn: int) -> Array[Dictionary]:
 	return Combat.resolve(map, _move_units(map), turn)
 
 
-## Moves every unit, in three phases (see Mission.get_move_phase()): first
-## aircraft fly straight to their targets; then everyone else moves
-## together, tick by tick; then the QRF picks where to go from where
-## everyone ended up, and moves the same way. Returns the battles, as described above.
+## Moves every unit, in four phases (see Mission.get_move_phase()): first
+## aircraft fly straight to their targets; then interceptors go after enemy
+## aircraft; then everyone else moves together, tick by tick; then the QRF
+## picks where to go from where everyone ended up, and moves the same way.
+## Each phase is shown after the one before. Returns the battles, as
+## described above.
 static func _move_units(map: HexMap) -> Array:
 	var units := map.get_units_in_world()
 	var normal: Array[Unit] = []
 	var late: Array[Unit] = []
 	var air: Array[Unit] = []
+	var interceptors: Array[Unit] = []
 	for u in units:
 		var phase := u.mission.get_move_phase() if u.mission else Mission.MovePhase.NORMAL
 		match phase:
@@ -69,6 +79,8 @@ static func _move_units(map: HexMap) -> Array:
 				late.append(u)
 			Mission.MovePhase.AIR:
 				air.append(u)
+			Mission.MovePhase.INTERCEPT:
+				interceptors.append(u)
 			_:
 				normal.append(u)
 	# Each battle as it broke out: an Array of Vector2i. Merged at the end.
@@ -81,19 +93,22 @@ static func _move_units(map: HexMap) -> Array:
 	for u in units:
 		if battle_hexes.has(u.hex):
 			u.engage()
-	_fly(map, air, outbreaks, battle_hexes)
-	var normal_delay := 0.0
 	for u in air:
-		normal_delay = maxf(normal_delay, u.get_movement_anim_time())
+		u.mission.fly()
+	_land(map, outbreaks, battle_hexes)
+	var intercept_delay := _anim_end(air, 0.0)
+	_plan_intercepts(map, interceptors)
+	_land(map, outbreaks, battle_hexes)
+	var normal_delay := _anim_end(interceptors, intercept_delay)
 	_run_ticks(map, normal, outbreaks, battle_hexes)
-	var late_delay := normal_delay
-	for u in normal:
-		late_delay = maxf(late_delay, normal_delay + u.get_movement_anim_time())
+	var late_delay := _anim_end(normal, normal_delay)
 	for u in late:
 		u.mission.react()
 	_run_ticks(map, late, outbreaks, battle_hexes)
 	for u in air:
 		u.play_movement()  # Aircraft are shown first.
+	for u in interceptors:
+		u.play_movement(intercept_delay)
 	for u in normal:
 		u.play_movement(normal_delay)
 	for u in late:
@@ -101,13 +116,87 @@ static func _move_units(map: HexMap) -> Array:
 	return _merge(outbreaks)
 
 
-## Aircraft jump to their sortie targets; enemies where they land start
-## battles.
-static func _fly(map: HexMap, air: Array[Unit], outbreaks: Array, battle_hexes: Dictionary) -> void:
-	if air.is_empty():
+## When the moves of `units` will have finished playing, if they start
+## `delay` seconds in (at least `delay`).
+static func _anim_end(units: Array[Unit], delay: float) -> float:
+	var end := delay
+	for u in units:
+		end = maxf(end, delay + u.get_movement_anim_time())
+	return end
+
+
+## Each colony sends its interceptors on standby at the enemy aircraft in
+## its territory (on one of its structures, or next to its hub): the
+## nearest to its hub first, as many as it takes to have 2 of our aircraft
+## there for every enemy one (counting ours already there), then the next.
+## Interceptors go in unit id order. Every colony decides from the same
+## picture before anyone launches, so the order colonies are handled in
+## doesn't matter.
+static func _plan_intercepts(map: HexMap, interceptors: Array[Unit]) -> void:
+	# Player -> [Unit] on standby, in id order.
+	var ready := {}
+	for u in interceptors:
+		if (u.mission as InterceptMission).is_standing_by():
+			if not ready.has(u.player):
+				ready[u.player] = []
+			ready[u.player].append(u)
+	if ready.is_empty():
 		return
-	for u in air:
-		u.mission.fly()
+	var aircraft: Array[Unit] = []
+	for u in map.get_units_in_world():
+		if u.flies and u.hex != u.player.hex:
+			aircraft.append(u)
+	var launches: Array = []  # [Unit, Vector2i]
+	for colony: Player in ready:
+		var waiting: Array = ready[colony]
+		waiting.sort_custom(func(a: Unit, b: Unit) -> bool: return a.id < b.id)
+		for h in _intruder_hexes(map, colony, aircraft):
+			var enemies := 0
+			var ours := 0
+			for u in aircraft:
+				if u.hex == h:
+					if u.player == colony:
+						ours += 1
+					else:
+						enemies += 1
+			while ours < enemies * 2 and not waiting.is_empty():
+				launches.append([waiting.pop_front(), h])
+				ours += 1
+	for launch: Array in launches:
+		(launch[0].mission as InterceptMission).launch(launch[1])
+
+
+## The tiles in `colony`'s territory (one of its structures, or next to its
+## hub) with enemy aircraft from `aircraft` on them, nearest its hub first.
+static func _intruder_hexes(map: HexMap, colony: Player, aircraft: Array[Unit]) -> Array[Vector2i]:
+	var hexes: Array[Vector2i] = []
+	for u in aircraft:
+		if u.player == colony or u.hex in hexes:
+			continue
+		var tile := map.get_tile(u.hex)
+		var on_ours := tile != null and tile.structure != Structure.Type.NONE and tile.structure_owner == colony.id
+		if on_ours or Hex.distance(u.hex, colony.hex) == 1:
+			hexes.append(u.hex)
+	hexes.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var da := Hex.distance(a, colony.hex)
+		var db := Hex.distance(b, colony.hex)
+		return da < db or (da == db and _hex_less(a, b)))
+	return hexes
+
+
+## The air return phase, after combat: every aircraft out on the map ends
+## its trip (a Carpet Bomb drops its bombs) and flies home - shown once its
+## flight out has played (see Unit.return_from_air()).
+static func return_aircraft(map: HexMap) -> void:
+	for u in map.get_units_in_world():
+		if u.flies:
+			u.return_from_air()
+			u.play_movement()
+
+
+## Aircraft have just landed on their targets: enemies where they landed
+## start battles.
+static func _land(map: HexMap, outbreaks: Array, battle_hexes: Dictionary) -> void:
 	for h in _find_meetings(map):
 		if not battle_hexes.has(h):
 			_add_battle([h], outbreaks, battle_hexes)

@@ -11,5 +11,5 @@ func _init() -> void:
 	add_specialist_cost()
 	train_turns = 5
 	#                    infantry, civilian, armour, air
-	damage = damage_vs(4, 6, 4, 8)
+	damage = damage_vs(4, 6, 4, 10)
 	body_color = Color(0.7, 0.72, 0.55)

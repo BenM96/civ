@@ -134,7 +134,7 @@ func _init() -> void:
 			Miner, Builder, GuardUnit,
 			Infantry, AssaultInfantry, AtInfantry, StingerInfantry,
 			Apc, TankDestroyer, Tank, AntiAircraftGun,
-			Chopper, Fighter, Bomber]:
+			Chopper, Fighter, FighterBomber, Bomber]:
 		blueprints.append(UnitBlueprint.new(unit_script))
 	buildables.append(FoundationBuildable.new())
 	buildables.append(BridgeBuildable.new())
@@ -1192,7 +1192,7 @@ func _join_regroup() -> void:
 ## can't be given any more (e.g. the deposit has run out), the unit stops
 ## repeating and waits for new orders.
 ## Units back in Mission Briefing after healing take up the standby duty they
-## left to heal (Unit.rejoin_kind) - QRF with the turns it had left, or
+## left to heal or refit (Unit.rejoin_kind) - QRF or Intercept with the turns it had left, or
 ## Regroup if the regroup is still on.
 func _rejoin_duties() -> void:
 	for u in units:
@@ -1200,11 +1200,19 @@ func _rejoin_duties() -> void:
 			continue
 		var kind := u.rejoin_kind
 		u.rejoin_kind = ""
-		var m: QrfMission = RegroupMission.new() if kind == "regroup" else QrfMission.new(u.rejoin_turns)
+		var m: QrfMission
+		match kind:
+			"regroup":
+				m = RegroupMission.new()
+			"intercept":
+				m = InterceptMission.new(u.rejoin_turns)
+			_:
+				m = QrfMission.new(u.rejoin_turns)
 		if kind == "regroup" and not is_regrouping():
 			continue  # It ended while we were away.
 		if u.can_accept_mission(m) and assign_mission(u, m):
-			unit_event.emit("%s is healed and back on %s" % [u.display_name, m.get_display_name()])
+			var how := "refitted" if u.flies else "healed"
+			unit_event.emit("%s is %s and back on %s" % [u.display_name, how, m.get_display_name()])
 
 
 ## Before that: units back from healing take up the standby duty they left
@@ -1464,7 +1472,7 @@ func _on_unit_mission_failed(unit: Unit, _mission: Mission, reason: String) -> v
 func _on_unit_returned(unit: Unit) -> void:
 	var quarters := get_quarters_for(unit)
 	if unit.refit_turns > 0 and quarters:
-		# Refits (and is repaired) in its quarters, e.g. an aircraft in the Hangar.
+		# Refits in its quarters (repaired at the end), e.g. an aircraft in the Hangar.
 		unit.refit_turns_left = get_refit_turns(unit)
 		unit.set_room(quarters.id)
 		unit_event.emit("%s is back and refitting in the %s (%d turns)" % [unit.display_name, quarters.display_name, unit.refit_turns_left])

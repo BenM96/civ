@@ -108,8 +108,8 @@ static func _create_all() -> Array[Tech]:
 	techs.append(_unit("tank", "Tank", 4, "garage"))
 	techs.append(_unit("aa_gun", "Anti-Aircraft Gun", 4, "garage"))
 	techs.append(_unit("fighter", "Fighter", 4, "hangar"))
+	techs.append(_unit("fighter_bomber", "Fighter Bomber", 4, "hangar"))
 	techs.append(_initiative("initiative_2", "Initiative II", 4, "initiative_1"))
-	techs.append(_movement("all_terrain_drives", "All-Terrain Drives", 4))
 
 	# --- Tier 5 ----------------------------------------------------------
 	techs.append(_workforce(5))
@@ -136,7 +136,7 @@ static func _create_all() -> Array[Tech]:
 	techs.append(_weapons("flak_guns", "Flak Guns", 7, "Anti-Aircraft Gun", "aa_gun"))
 	techs.append(_weapons("fighter_weapons", "Fighter Weapons", 7, "Fighter", "fighter"))
 	techs.append(_weapons("bomber_weapons", "Bomber Weapons", 7, "Bomber", "bomber"))
-	techs.append(_movement("all_terrain_drives_2", "All-Terrain Drives II", 7, "all_terrain_drives"))
+	techs.append(_movement("all_terrain_drives_2", "All-Terrain Drives", 7))
 	return techs
 
 

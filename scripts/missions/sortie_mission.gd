@@ -1,17 +1,15 @@
 class_name SortieMission
 extends Mission
-## An air unit's only mission: fly to any tile (except a hub), whatever lies
-## between, and fight whoever is there.
+## An air unit flies to any tile (except a hub), whatever lies between, and
+## fights whoever is there.
 ##
 ## The unit leaves the hub at the end of the turn like anyone else, but
-## doesn't walk. At the start of the movement phase, before anyone else
-## moves, it jumps straight to the target (see Movement) - so it catches
-## whoever is there when the turn starts - and starts or joins battles
-## like anyone else (enemies who walk onto it that turn join in too). At the
-## start of the next turn it flies straight home (Unit.fly_to()), and then
-## refits in the Hangar (see AirUnit, QuartersRoom).
-##
-## If it breaks in battle it flies home at the start of the next turn too.
+## doesn't walk. Before anyone on the ground moves, it jumps straight to
+## the target (see Movement) - so it catches whoever is there at the start
+## of the turn, and they stay to fight - and starts or joins battles like
+## anyone else (enemies who walk onto it that turn join in). After combat, in
+## the air return phase of the same turn, it flies home (see
+## Unit.return_from_air()) and refits in the Hangar (see AirUnit).
 
 var target: Vector2i
 
@@ -33,9 +31,11 @@ func get_description() -> String:
 
 
 func get_progress_text() -> String:
-	if is_working():
-		return "Over (%d, %d) - flies home next turn" % [target.x, target.y]
-	return "Flying to (%d, %d) before anyone else moves" % [target.x, target.y]
+	return "Over (%d, %d) - flies home at the end of the turn" % [target.x, target.y]
+
+
+func get_deploying_text() -> String:
+	return "Flies a sortie to (%d, %d) at the end of the turn, before anyone on the ground moves" % [target.x, target.y]
 
 
 func get_completion_text() -> String:
@@ -65,13 +65,11 @@ func begin() -> void:
 	pass
 
 
-## The turn after it flew out: the sortie is over, and it heads home.
 func prepare() -> void:
-	if is_working():
-		complete()
+	pass
 
 
-## Called by Movement before anyone else moves.
+## Called by Movement before anyone on the ground moves.
 func fly() -> void:
 	if phase != Phase.TRAVELLING or unit.engaged:
 		return

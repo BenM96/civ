@@ -1,6 +1,6 @@
 class_name FlightCrewQuarters
 extends Building
-## Hangar upgrade: aircraft refit 1 turn faster after a sortie, per one
+## Hangar upgrade: aircraft refit 1 turn faster after every flight, per one
 ## built (see Player.get_refit_turns()).
 
 const ID := "flight_crew_quarters"
@@ -9,6 +9,6 @@ const ID := "flight_crew_quarters"
 func _init() -> void:
 	id = ID
 	display_name = "Flight Crew Quarters"
-	description = "Hangar upgrade: aircraft refit 1 turn faster after each sortie, and the Hangar repairs one more aircraft at a time."
+	description = "Hangar upgrade: aircraft refit 1 turn faster after every flight."
 	requires = HangarBuilding.ID
 	max_count = 3

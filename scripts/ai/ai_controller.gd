@@ -61,8 +61,10 @@ extends RefCounted
 ##      target) or, now and then or with nothing else left, its hub. In phase 5
 ##      each wave is a raid or, at random, a command-point wave: capture
 ##      rivals' command points, or with none to take, guard our own.
-##   3. Air - aircraft fly sorties at enemies on its structures, then those
-##      nearest its hub.
+##   3. Air - half the aircraft that can intercept stand by on Intercept;
+##      Bombers carpet bomb the nearest rival's structures (or its hub); the
+##      rest fly sorties at enemies on its structures, then those nearest
+##      its hub.
 
 enum Phase { WORKFORCE, CORE, GOLD, NEAR, ELECTRUM, EXPANSION }
 
@@ -159,7 +161,7 @@ func take_turn() -> void:
 	_plan_qrf()
 	_plan_capture()
 	_plan_attack_wave()
-	_plan_sorties()
+	_plan_air()
 
 
 # --- Budget ------------------------------------------------------------------
@@ -880,8 +882,9 @@ func _take_command_points(infantry: Array[Unit]) -> Array[Unit]:
 	return wave
 
 
-## `rival`'s structure nearest our hub that `u` could demolish, or null.
-func _nearest_structure_of(rival: Player, u: Unit, taken: Dictionary) -> Variant:
+## `rival`'s structure nearest our hub that `u` could demolish (or, with
+## `kind` "carpet_bomb", bomb), or null.
+func _nearest_structure_of(rival: Player, u: Unit, taken: Dictionary, kind := "demolish") -> Variant:
 	var candidates: Array[Vector2i] = []
 	for h in map.tiles:
 		var tile: HexTile = map.tiles[h]
@@ -890,7 +893,7 @@ func _nearest_structure_of(rival: Player, u: Unit, taken: Dictionary) -> Variant
 	candidates.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return Hex.distance(player.hex, a) < Hex.distance(player.hex, b))
 	for h in candidates:
-		var m := Orders.make_mission(player, "demolish", h)
+		var m := Orders.make_mission(player, kind, h)
 		if Orders.get_invalid_reason(player, u, m) == "":
 			return h
 	return null
@@ -908,6 +911,48 @@ func _post_by_hub(rival: Player, u: Unit, taken: Dictionary) -> Variant:
 
 
 # --- Military 3: Air ------------------------------------------------------------
+
+## Our aircraft: half of those that can intercept stand by on Intercept;
+## Bombers carpet bomb; the rest fly sorties.
+func _plan_air() -> void:
+	_plan_intercepts()
+	_plan_carpet_bombing()
+	_plan_sorties()
+
+
+## Keeps half our interceptor-capable aircraft (rounded down) on Intercept
+## duty - counting those refitting before going back on it.
+func _plan_intercepts() -> void:
+	var total := 0
+	var on_duty := 0
+	for u in player.units:
+		if not u.can_take("intercept"):
+			continue
+		total += 1
+		if u.mission is InterceptMission or u.rejoin_kind == "intercept":
+			on_duty += 1
+	for u in player.get_units_needing_orders():
+		if on_duty >= total / 2:
+			return
+		if u.can_take("intercept") and _order(Orders.mission(u, "intercept", player.hex, Orders.REPEAT_FOREVER)):
+			on_duty += 1
+
+
+## Sends ready Bombers at the nearest rival's structures nearest us (one
+## each), or its hub when there's nothing else.
+func _plan_carpet_bombing() -> void:
+	var taken := _targets_in_progress()
+	for u in player.get_units_needing_orders():
+		if not u.can_take("carpet_bomb"):
+			continue
+		for rival in _rivals_by_distance():
+			var target: Variant = _nearest_structure_of(rival, u, taken, "carpet_bomb")
+			if target != null and _order(Orders.mission(u, "carpet_bomb", target)):
+				taken[target] = true
+				break
+			if _order(Orders.mission(u, "carpet_bomb", rival.hex)):
+				break
+
 
 ## Sends ready aircraft on sorties: at enemies standing on our structures
 ## first, then the enemy units nearest our hub. Never at a hub.
