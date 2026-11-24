@@ -29,7 +29,7 @@ const AIR_HEIGHT := 1.05
 ## shots' worth of time.
 const MAX_SHOTS_AT_FULL_TIME := 12
 ## Space kept clear for the title and the buttons.
-const MARGIN_TOP := 70.0
+const MARGIN_TOP := 92.0
 const MARGIN_BOTTOM := 90.0
 const MARGIN_SIDE := 40.0
 
@@ -80,7 +80,8 @@ func _ready() -> void:
 	add_child(title)
 
 	var sides := Label.new()
-	sides.text = "  vs  ".join(_side_names())
+	sides.text = "  vs  ".join(_side_names()) + "
+(highest initiative fires first; ties at random)"
 	sides.modulate = Color(1, 1, 1, 0.75)
 	sides.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sides.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -101,12 +102,21 @@ func _ready() -> void:
 	buttons.add_theme_constant_override("separation", 12)
 	bottom.add_child(buttons)
 	buttons.add_child(_make_button("Skip", func() -> void: _skip = true))
-	buttons.add_child(_make_button("Skip all battles", func() -> void:
+	buttons.add_child(_make_button("Skip all battles (Space)", func() -> void:
 		_skip = true
 		_skip_rest = true))
 
 	resized.connect(_layout)
 	_layout()
+
+
+## Space skips every remaining battle this turn (like "Skip all battles").
+func _input(event: InputEvent) -> void:
+	var key := event as InputEventKey
+	if key and key.pressed and not key.echo and key.keycode == KEY_SPACE:
+		_skip = true
+		_skip_rest = true
+		get_viewport().set_input_as_handled()
 
 
 ## Plays the whole battle, then emits `finished`.
@@ -464,17 +474,24 @@ func _hexes_text() -> String:
 	return ", ".join(parts)
 
 
-## Each colony in the battle, e.g. ["Your colony (2)", "Pink colony (1)"].
+## Each colony in the battle with its unit count and initiative, in firing
+## order (highest initiative first), e.g. ["Your colony (2) - initiative 3",
+## "Pink colony (1) - initiative 1"].
 func _side_names() -> PackedStringArray:
 	var counts := {}
 	for id in _report["units"]:
 		var f: int = _report["units"][id]["faction"]
 		counts[f] = counts.get(f, 0) + 1
+	var initiative: Dictionary = _report.get("initiative", {})
 	var factions := counts.keys()
 	factions.sort()
+	factions.sort_custom(func(a: int, b: int) -> bool: return initiative.get(a, 0) > initiative.get(b, 0))
 	var names: PackedStringArray = []
 	for f in factions:
-		names.append("%s (%d)" % [Faction.get_display_name(f), counts[f]])
+		var text := "%s (%d)" % [Faction.get_display_name(f), counts[f]]
+		if initiative.has(f):
+			text += " - initiative %d" % initiative[f]
+		names.append(text)
 	return names
 
 

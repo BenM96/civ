@@ -49,6 +49,7 @@ extends RefCounted
 ##    "units": {unit id: {"name", "type", "short", "silhouette", "unit_type", "faction",
 ##                        "color", "hex", "home",
 ##                        "hp", "max_hp"}},   # As they were before the battle.
+##    "initiative": {faction: int} (each side's, before the battle),
 ##    "events": [{"type": "shot", "from": id, "to": id, "damage": int,
 ##                 "hp": int (target's HP after), "result": "hit",
 ##                 "broken" or "dead"}]}
@@ -69,6 +70,7 @@ static func resolve(map: HexMap, battles: Array, turn: int) -> Array[Dictionary]
 		rng.seed = hash([map.last_seed, turn, i])
 		var sides := _sides_on(map, hexes, core)
 		var report := {"core": core, "hexes": hexes, "units": _describe_units(sides), "events": []}
+		report["initiative"] = _describe_initiative(sides)
 		var fled := _fight(sides, rng, report["events"])
 		var dead: Array[Unit] = []
 		for side in sides:
@@ -232,6 +234,15 @@ static func _fire(attacker: Unit, sides: Dictionary, order: Array, side: Variant
 	events.append({"type": "shot", "from": attacker.id, "to": target.id,
 		"damage": amount, "hp": target.health, "result": result})
 	return true
+
+
+## Each side's initiative (faction -> int), for the replay.
+static func _describe_initiative(sides: Dictionary) -> Dictionary:
+	var result := {}
+	for side: int in sides:
+		var unit: Unit = sides[side][0]
+		result[side] = unit.player.get_initiative()
+	return result
 
 
 ## The colonies (side ids) in the order they fire: highest initiative first,

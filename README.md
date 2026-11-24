@@ -369,8 +369,9 @@ Units still sharing a tile next turn fight another round. Damaged units
 show a health bar, and heal in the hub once they get home (see Healing).
 
 After each turn the camera moves to every battle and replays it shot by
-shot. **Skip** jumps to the end of one battle; **Skip all battles** skips
-the rest for that turn.
+shot. The top of the screen shows each side's initiative (highest fires
+first). **Skip** jumps to the end of one battle; **Skip all battles** (or
+**Space**) skips the rest for that turn at once.
 
 ### Missions
 
