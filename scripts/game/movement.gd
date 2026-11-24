@@ -29,9 +29,12 @@ extends RefCounted
 ## enemies ended up and get a movement phase of their own (same ticks, same
 ## battle rules). Their move is also shown after everyone else's.
 ##
-## Aircraft on a sortie (SortieMission) go last of all, after the QRF: each
-## jumps straight to its target tile. Enemies on the tile it lands on make
-## it a battle hex, and the battle takes in the tiles around it as usual.
+## Aircraft on a sortie (SortieMission) go first, before anyone else moves:
+## each jumps straight to its target tile, so it catches whoever is there
+## at the start of the turn. Enemies on the tile it lands on make it a
+## battle hex (and they stay to fight), and the battle takes in the tiles
+## around it as usual. Enemies walking onto it later in the turn join in.
+## Their flight is also shown first.
 ##
 ## Battles that share a hex (e.g. several border clashes around one tile)
 ## are merged into one. What's passed to Combat is the list of battles, each
@@ -51,9 +54,9 @@ static func run(map: HexMap, turn: int) -> Array[Dictionary]:
 
 
 ## Moves every unit, in three phases (see Mission.get_move_phase()): first
-## everyone moves together, tick by tick; then the QRF picks where to go
-## from where everyone ended up, and moves the same way; then aircraft fly
-## straight to their targets. Returns the battles, as described above.
+## aircraft fly straight to their targets; then everyone else moves
+## together, tick by tick; then the QRF picks where to go from where
+## everyone ended up, and moves the same way. Returns the battles, as described above.
 static func _move_units(map: HexMap) -> Array:
 	var units := map.get_units_in_world()
 	var normal: Array[Unit] = []
@@ -78,23 +81,23 @@ static func _move_units(map: HexMap) -> Array:
 	for u in units:
 		if battle_hexes.has(u.hex):
 			u.engage()
+	_fly(map, air, outbreaks, battle_hexes)
+	var normal_delay := 0.0
+	for u in air:
+		normal_delay = maxf(normal_delay, u.get_movement_anim_time())
 	_run_ticks(map, normal, outbreaks, battle_hexes)
-	var late_delay := 0.0
+	var late_delay := normal_delay
 	for u in normal:
-		late_delay = maxf(late_delay, u.get_movement_anim_time())
+		late_delay = maxf(late_delay, normal_delay + u.get_movement_anim_time())
 	for u in late:
 		u.mission.react()
 	_run_ticks(map, late, outbreaks, battle_hexes)
-	var air_delay := late_delay
-	for u in late:
-		air_delay = maxf(air_delay, late_delay + u.get_movement_anim_time())
-	_fly(map, air, outbreaks, battle_hexes)
+	for u in air:
+		u.play_movement()  # Aircraft are shown first.
 	for u in normal:
-		u.play_movement()
+		u.play_movement(normal_delay)
 	for u in late:
 		u.play_movement(late_delay)  # Shown moving after everyone else.
-	for u in air:
-		u.play_movement(air_delay)  # And aircraft after the QRF.
 	return _merge(outbreaks)
 
 

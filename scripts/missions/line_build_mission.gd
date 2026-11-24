@@ -97,7 +97,7 @@ func get_progress_text() -> String:
 	var left := _count_jobs(unit.player, unit.map, _route)
 	if _waiting_for_resources:
 		var job := _cheapest_blocked_job()
-		var needs := ResourceDeposit.format_cost(_shortfall(job.cost)) if job else "resources"
+		var needs := ResourceDeposit.format_cost(_shortfall(_job_cost(job))) if not job.is_empty() else "resources"
 		var where := "Waiting at the hub" if unit.hex == unit.player.hex else "Heading back to the hub to wait"
 		return "%s for resources (needs %s) to build %s" % [where, needs, _what()]
 	if _going_home:
@@ -177,13 +177,14 @@ func take_startable(player: Player, map: HexMap, from: Vector2i, budget: Diction
 		var job: Buildable = entry[1]
 		if count >= limit:
 			break
+		var cost := job.get_cost_at(player, entry[0])
 		var fits := true
-		for type in job.cost:
-			if budget.get(type, 0) < job.cost[type]:
+		for type in cost:
+			if budget.get(type, 0) < cost[type]:
 				fits = false
 		if fits:
-			for type in job.cost:
-				budget[type] -= job.cost[type]
+			for type in cost:
+				budget[type] -= cost[type]
 			count += 1
 	return count
 
@@ -193,22 +194,30 @@ func get_total_cost(player: Player, map: HexMap, from: Vector2i) -> Dictionary:
 	var total := {}
 	for h in plan_route(player, map, from, target):
 		for layer in _pending_layers(player, map, h):
-			for type in layer.cost:
-				total[type] = total.get(type, 0) + layer.cost[type]
+			var cost := layer.get_cost_at(player, h)
+			for type in cost:
+				total[type] = total.get(type, 0) + cost[type]
 	return total
 
 
 ## Every job the route still needs, grouped by buildable, lowest layer first:
-## [[Buildable, count], ...]. e.g. 3 Foundations, 4 Conveyor Belts, 1 Extractor.
+## [[Buildable, count, total cost], ...]. e.g. 3 Foundations, 4 Conveyor
+## Belts, 1 Extractor.
 func get_job_counts(player: Player, map: HexMap, from: Vector2i) -> Array:
 	var counts := {}
+	var costs := {}
 	for h in plan_route(player, map, from, target):
 		for layer in _pending_layers(player, map, h):
 			counts[layer] = counts.get(layer, 0) + 1
+			var total: Dictionary = costs.get(layer, {})
+			var cost := layer.get_cost_at(player, h)
+			for type in cost:
+				total[type] = total.get(type, 0) + cost[type]
+			costs[layer] = total
 	var jobs := []
 	for layer in _expand(player, buildable.line_of) + _expand(player, buildable.id):
 		if counts.has(layer):
-			jobs.append([layer, counts[layer]])
+			jobs.append([layer, counts[layer], costs[layer]])
 			counts.erase(layer)
 	return jobs
 
@@ -243,7 +252,7 @@ func get_invalid_reason(u: Unit) -> String:
 func on_assigned() -> void:
 	_route = plan_route(unit.player, unit.map, unit.hex, target)
 	var job := _pick_job(unit.player.inventory)
-	if not job.is_empty() and unit.player.give_materials(unit, job[1].cost):
+	if not job.is_empty() and unit.player.give_materials(unit, _job_cost(job)):
 		_job_tile = job[0]
 
 
@@ -273,6 +282,9 @@ func prepare() -> void:
 	if not _waiting_for_resources:
 		super()
 		return
+	if _is_surplus():
+		_leave_to_others()
+		return
 	if not _pick_job(unit.player.inventory).is_empty() or _count_jobs(unit.player, unit.map, _route) == 0:
 		_choose_next_job()
 	elif unit.hex != unit.player.hex and not unit.has_destination():
@@ -294,7 +306,7 @@ func work() -> void:
 	if problem != "":
 		fail("(%d, %d): %s" % [h.x, h.y, problem])
 		return
-	if _turns_worked == 0 and not unit.use_materials(layer.cost):
+	if _turns_worked == 0 and not unit.use_materials(layer.get_cost_at(unit.player, h)):
 		# What we brought doesn't fit what this tile needs now (someone built
 		# part of it meanwhile): back to the hub to swap it and choose again.
 		_go_home()
@@ -332,12 +344,14 @@ func _choose_next_job() -> void:
 		if not route.is_empty():
 			_route = route  # Picks up foundations etc. built since we last planned.
 	var job := _pick_job(unit.player.inventory if at_hub else unit.materials)
-	if not job.is_empty() and at_hub and not unit.player.give_materials(unit, job[1].cost):
+	if not job.is_empty() and at_hub and not unit.player.give_materials(unit, _job_cost(job)):
 		job = []
 	if job.is_empty():
 		_job_tile = null
 		if _has_unclaimed_jobs():
-			if at_hub:
+			if at_hub and _is_surplus():
+				_leave_to_others()
+			elif at_hub:
 				_wait_for_resources()
 			else:
 				_go_home()
@@ -372,7 +386,7 @@ func _pick_job(budget: Dictionary) -> Array:
 			continue
 		var layer: Buildable = pending[0]
 		var depth := _depth(layer)
-		if depth < best_depth and _covers(budget, layer.cost):
+		if depth < best_depth and _covers(budget, layer.get_cost_at(unit.player, h)):
 			best = [h, layer]
 			best_depth = depth
 	return best
@@ -393,16 +407,47 @@ func _has_unclaimed_jobs() -> bool:
 	return false
 
 
-## For the waiting message: the cheapest job on the line we can't yet pay for.
-func _cheapest_blocked_job() -> Buildable:
-	var best: Buildable = null
+## For the waiting message: the cheapest job on the line we can't yet pay
+## for, as [tile, layer], or [] if none.
+func _cheapest_blocked_job() -> Array:
+	var best: Array = []
 	var best_depth := 1 << 30
 	for h in _route:
 		var pending := _pending_layers(unit.player, unit.map, h)
 		if not pending.is_empty() and _depth(pending[0]) < best_depth:
-			best = pending[0]
-			best_depth = _depth(best)
+			best = [h, pending[0]]
+			best_depth = _depth(pending[0])
 	return best
+
+
+## What a [tile, layer] job costs.
+func _job_cost(job: Array) -> Dictionary:
+	var layer: Buildable = job[1]
+	return layer.get_cost_at(unit.player, job[0])
+
+
+## Whether this Builder isn't needed: more Builders are on this order than
+## it has tiles left to work on, and the others come first (lower ids).
+func _is_surplus() -> bool:
+	var tiles := 0
+	for h in _route:
+		if not _pending_layers(unit.player, unit.map, h).is_empty():
+			tiles += 1
+	var ahead := 0
+	for other in unit.player.units:
+		if other != unit and other.id < unit.id and other.mission is LineBuildMission \
+				and other.mission.get_kind() == get_kind() and other.mission.target == target:
+			ahead += 1
+	return ahead >= tiles
+
+
+## Not needed here (see _is_surplus()): finish and go free for other orders,
+## without repeating this one.
+func _leave_to_others() -> void:
+	_waiting_for_resources = false
+	_job_tile = null
+	unit.repeats_left = 0
+	complete()
 
 
 ## Goes back to the hub (or stays there) until a job can be paid for.
@@ -410,7 +455,7 @@ func _wait_for_resources() -> void:
 	if not _waiting_for_resources:
 		var job := _cheapest_blocked_job()
 		unit.player.unit_event.emit("%s is waiting at the hub for resources (needs %s)" % [
-			unit.display_name, ResourceDeposit.format_cost(_shortfall(job.cost)) if job else "resources"])
+			unit.display_name, ResourceDeposit.format_cost(_shortfall(_job_cost(job))) if not job.is_empty() else "resources"])
 	_waiting_for_resources = true
 	unit.set_destination(unit.player.hex)  # Just clears the path if already there.
 	phase = Phase.WORKING if unit.hex == unit.player.hex else Phase.TRAVELLING
@@ -553,8 +598,9 @@ static func _step_cost(player: Player, map: HexMap, h: Vector2i, layers: Array[B
 			continue
 		if layer.get_site_reason(map, h) != "":
 			return -1
-		for type in layer.cost:
-			step += RESOURCE_COST * int(layer.cost[type])
+		var cost := layer.get_cost_at(player, h)
+		for type in cost:
+			step += RESOURCE_COST * int(cost[type])
 	return step
 
 

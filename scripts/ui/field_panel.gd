@@ -1,7 +1,8 @@
 class_name FieldPanel
 extends HudPanel
-## Every unit that is out of the hub or leaving it, grouped by what it's
-## doing, with Cancel (if it can still be called off) or Show.
+## Every unit out on the map (not at the hub - so not units waiting in the
+## Airlock or the QRF standing by), grouped by what it's doing, with Cancel
+## (if it can still be called off) or Show.
 
 
 func _init(p_hud: Hud) -> void:
@@ -19,17 +20,16 @@ func _init(p_hud: Hud) -> void:
 
 
 func get_button_text() -> String:
-	var out := player.get_field_units().size() if player else 0
+	var out := _units_out().size() if player else 0
 	return "Field  (%d)" % out if out > 0 else button_text
 
 
 func fill() -> void:
-	var field := player.get_field_units()
+	var field := _units_out()
 	if field.is_empty():
 		add_note("Nobody is out. Give orders from the Mission Briefing panel.")
 		return
 	var groups := [
-		[Unit.State.DEPLOYING, "Departing at end of turn"],
 		[Unit.State.ON_MISSION, "On a mission"],
 		[Unit.State.RETURNING, "Returning to the hub"],
 	]
@@ -72,3 +72,8 @@ func _make_row(unit: Unit) -> HBoxContainer:
 		show.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(show)
 	return row
+
+
+## Units away from the hub: on the map, not waiting in one of its rooms.
+func _units_out() -> Array[Unit]:
+	return player.get_field_units().filter(func(u: Unit) -> bool: return not u.is_in_hub())

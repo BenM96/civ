@@ -29,8 +29,14 @@ signal focus_requested(unit: Unit)
 signal room_move_requested(unit: Unit, room_id: String, turns: int)
 ## RTB: every unit is to drop its mission and come home.
 signal recall_all_requested
+## The Central Hub panel's Regroup button (see Player.start_regroup()).
+signal regroup_requested
+## An event banner (see Notices) has just come on screen.
+signal notice_shown(notice: Dictionary)
 ## Asks to move a unit to `index` in its room's healing queue (see Room).
 signal heal_order_requested(unit: Unit, index: int)
+## Repair 1 of the hub's health (see Player.repair_hub()).
+signal repair_hub_requested
 ## Emitted when the section panel closes.
 signal hub_panel_closed
 ## A section stopped being shown (closed, or another one opened instead).
@@ -54,10 +60,16 @@ signal popup_closed
 ## The bottom-bar sections, in the order their buttons appear.
 enum Section { NONE, HUB, BRIEFING, FIELD, TRAINING, BUILDINGS, RESEARCH }
 
-const END_TURN_TEXT := "End Turn (Enter)"
-const NEXT_TEXT := "Next (Enter)"
+const END_TURN_TEXT := "End Turn (Space)"
+const NEXT_TEXT := "Next (Space)"
 const MAX_LOG_LINES := 8
+## Shows or hides the event log (as does the Events button on the bottom bar).
+const EVENTS_KEY := KEY_E
 const BOTTOM_BAR_HEIGHT := 78.0
+## Room kept clear above an open section panel (for the top bar).
+const TOP_CLEARANCE := 64.0
+## Width of the section panel's scroll bar, added when the panel scrolls.
+const SCROLL_BAR_ROOM := 14.0
 const PANEL_WIDTH := 380.0
 ## Biomass below zero, and the starvation popup.
 const STARVING_COLOR := Color(1.0, 0.4, 0.35)
@@ -69,6 +81,20 @@ const WILTED_SVG := """<svg xmlns="http://www.w3.org/2000/svg" width="64" height
 <path d="M40 20c6 2 8 8 7 14-5-2-8-7-7-14z" fill="#8a7a3a"/>
 <path d="M33 30c-6-1-10 2-12 7 6 1 10-2 12-7z" fill="#7a6a32"/>
 <circle cx="47" cy="38" r="1.6" fill="#8a7a3a"/>
+</svg>"""
+## Our Infantry hit a rival hub (banner and knockout popup).
+const HUB_STRIKE_COLOR := Color(1.0, 0.8, 0.25)
+## A burst with a cracked dome, for hitting a rival hub.
+const STRIKE_SVG := """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">
+<path d="M32 2l6 14 14-8-6 15 16 3-14 8 10 12-16-3-1 16-9-13-9 13-1-16-16 3 10-12L2 26l16-3-6-15 14 8z" fill="#ffb02e" stroke="#fff1b8" stroke-width="2" stroke-linejoin="round"/>
+<path d="M20 40a12 12 0 0 1 24 0z" fill="#3a2a10" stroke="#fff1b8" stroke-width="2"/>
+<path d="M32 28l-3 6 4 2-2 4" fill="none" stroke="#ffb02e" stroke-width="2"/>
+</svg>"""
+## A warning triangle, for our hub being hit.
+const WARNING_SVG := """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">
+<path d="M32 4L62 58H2z" fill="#b01810" stroke="#ffd0c8" stroke-width="3" stroke-linejoin="round"/>
+<rect x="28" y="20" width="8" height="22" rx="2" fill="#fff"/>
+<circle cx="32" cy="50" r="4" fill="#fff"/>
 </svg>"""
 
 var _turn_label: Label
@@ -82,6 +108,10 @@ var _help_label: Label
 var _end_turn_button: Button
 var _log_label: Label
 var _log_lines: PackedStringArray = []
+## The event log window (top right), shown or hidden by _events_button.
+var _log_panel: PanelContainer
+## Bottom-bar toggle for the event log (EVENTS_KEY).
+var _events_button: Button
 var _tile_panel: PanelContainer
 var _tile_label: Label
 
@@ -90,6 +120,13 @@ var _panels: Dictionary = {}
 var _section_panel: PanelContainer
 var _section_title: Label
 var _section_list: VBoxContainer
+## Scrolls the section's contents once they'd run off the top of the screen;
+## the title row (with any of the panel's header buttons) stays put.
+var _section_scroll: ScrollContainer
+## The panel's own header buttons (HudPanel.fill_header()), left of the X.
+var _section_header_extras: HBoxContainer
+## The section whose scroll position _section_scroll holds.
+var _scrolled_section := Section.NONE
 ## Section -> Button
 var _section_buttons: Dictionary = {}
 var _section := Section.NONE
@@ -101,6 +138,8 @@ var _popup: Control = null
 ## Popups waiting for the open one to close (e.g. a starvation notice and a
 ## winner on the same turn), shown in turn: Callables that show them.
 var _waiting_popups: Array[Callable] = []
+## Event banners waiting to play (see show_notice()); the first is on screen.
+var _notice_queue: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -127,6 +166,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			toggle_section(section)
 			get_viewport().set_input_as_handled()
 			return
+	if key.keycode == EVENTS_KEY:
+		_events_button.button_pressed = not _events_button.button_pressed
+		get_viewport().set_input_as_handled()
 
 
 # --- Public API ------------------------------------------------------------
@@ -175,6 +217,7 @@ func close_section() -> void:
 		return
 	var closed := _section
 	_section = Section.NONE
+	_scrolled_section = Section.NONE  # Reopened panels start at the top.
 	section_closed.emit(closed)
 	_section_panel.visible = false
 	_update_section_buttons()
@@ -377,6 +420,174 @@ func show_winner(title: String, message: String, color: Color) -> void:
 	_show_popup(title, message, color, true)
 
 
+## Shows an event banner (see Notices) at the top of the screen. Good news:
+## a gold banner punches in with a flash, to feel like a win. A warning: the
+## screen edges pulse red and a red banner shakes. Doesn't stop play; fades
+## out by itself. Banners queue up and play one after another.
+func show_notice(notice: Dictionary) -> void:
+	if _game_over:
+		return
+	_notice_queue.append(notice)
+	if _notice_queue.size() == 1:
+		_play_notice(notice)
+
+
+## Plays the first queued banner, then the next once it has faded.
+func _play_notice(notice: Dictionary) -> void:
+	notice_shown.emit(notice)
+	var good: bool = notice["good"]
+	var color := HUB_STRIKE_COLOR if good else STARVING_COLOR
+	var layer := Control.new()
+	layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(layer)
+	if _popup:
+		move_child(_popup, -1)
+
+	# Flash (good news) or red pulses round the edges (warning).
+	var flash := ColorRect.new()
+	flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if good:
+		flash.color = Color(1.0, 0.85, 0.4, 0.0)
+	else:
+		flash.color = Color(0, 0, 0, 0)
+		var edges := StyleBoxFlat.new()
+		edges.bg_color = Color(0, 0, 0, 0)
+		edges.set_border_width_all(28)
+		edges.border_color = Color(0.9, 0.05, 0.02, 0.85)
+		edges.border_blend = true
+		var frame := Panel.new()
+		frame.set_anchors_preset(Control.PRESET_FULL_RECT)
+		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		frame.add_theme_stylebox_override("panel", edges)
+		frame.modulate.a = 0.0
+		layer.add_child(frame)
+		var pulse := create_tween()
+		for i in 3:
+			pulse.tween_property(frame, "modulate:a", 1.0, 0.22)
+			pulse.tween_property(frame, "modulate:a", 0.15, 0.38)
+		pulse.tween_property(frame, "modulate:a", 0.0, 0.6)
+	layer.add_child(flash)
+
+	# The banner.
+	var panel := PanelContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_theme_stylebox_override("panel", UiStyle.box_style(
+		Color(0.16, 0.11, 0.03, 0.96) if good else Color(0.2, 0.03, 0.03, 0.96), color, 3, 10))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	panel.add_child(row)
+	var icon := TextureRect.new()
+	icon.texture = UiStyle.svg_texture(STRIKE_SVG if good else WARNING_SVG)
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	row.add_child(icon)
+	var box := VBoxContainer.new()
+	row.add_child(box)
+	var title := Label.new()
+	title.text = notice["title"]
+	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_color_override("font_color", color)
+	box.add_child(title)
+	var body := Label.new()
+	body.text = notice["body"]
+	body.add_theme_font_size_override("font_size", 17)
+	box.add_child(body)
+	layer.add_child(panel)
+	var width := get_viewport().get_visible_rect().size.x
+	panel.reset_size()
+	var rest := Vector2((width - panel.size.x) / 2.0, TOP_CLEARANCE + 24)
+	panel.position = rest
+	panel.pivot_offset = panel.size / 2.0
+	panel.modulate.a = 0.0
+
+	var tween := create_tween()
+	if good:
+		panel.scale = Vector2(1.6, 1.6)
+		tween.tween_property(flash, "color:a", 0.35, 0.08)
+		tween.parallel().tween_property(panel, "modulate:a", 1.0, 0.12)
+		tween.parallel().tween_property(panel, "scale", Vector2.ONE, 0.45) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.parallel().tween_property(flash, "color:a", 0.0, 0.6).set_delay(0.08)
+		tween.tween_property(panel, "scale", Vector2(1.06, 1.06), 0.15)
+		tween.tween_property(panel, "scale", Vector2.ONE, 0.15)
+		tween.tween_interval(2.6)
+	else:
+		tween.tween_property(panel, "modulate:a", 1.0, 0.15)
+		for i in 8:  # Shake.
+			var dx := (12.0 - i * 1.4) * (1 if i % 2 == 0 else -1)
+			tween.tween_property(panel, "position", rest + Vector2(dx, 0), 0.05)
+		tween.tween_property(panel, "position", rest, 0.05)
+		tween.tween_interval(3.4)
+	tween.tween_property(panel, "modulate:a", 0.0, 0.6)
+	tween.tween_callback(layer.queue_free)
+	tween.tween_callback(_next_notice)
+
+
+func _next_notice() -> void:
+	if not _notice_queue.is_empty():
+		_notice_queue.pop_front()
+	if not _notice_queue.is_empty() and not _game_over:
+		_play_notice(_notice_queue[0])
+
+
+## Our Infantry knocked out `other`'s hub: a triumphant popup. Play waits
+## until it's closed (`popup_closed`).
+func show_colony_destroyed(other: String) -> void:
+	if _game_over:
+		return
+	if _popup:
+		_waiting_popups.append(show_colony_destroyed.bind(other))
+		return
+	close_section()
+	var shade := ColorRect.new()
+	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.color = Color(0.35, 0.25, 0.0, 0.0)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(shade)
+	_popup = shade
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.add_child(center)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", UiStyle.box_style(Color(0.14, 0.1, 0.03, 0.98), HUB_STRIKE_COLOR, 4, 12))
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 12)
+	panel.add_child(box)
+	var icon := TextureRect.new()
+	icon.texture = UiStyle.svg_texture(STRIKE_SVG)
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	box.add_child(icon)
+	var title := Label.new()
+	title.text = "COLONY DESTROYED!"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 40)
+	title.add_theme_color_override("font_color", HUB_STRIKE_COLOR)
+	box.add_child(title)
+	var body := Label.new()
+	body.text = "Our Infantry have torn down the %s's hub.\nTheir colony has fallen - one less rival standing between us and Mars." % other
+	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.add_theme_font_size_override("font_size", 18)
+	box.add_child(body)
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_child(buttons)
+	buttons.add_child(UiStyle.make_button("Onward", func() -> void:
+		shade.queue_free()
+		_close_popup()))
+	panel.pivot_offset = Vector2.ZERO
+	panel.modulate.a = 0.0
+	panel.scale = Vector2(0.6, 0.6)
+	await get_tree().process_frame
+	panel.pivot_offset = panel.size / 2.0
+	var tween := create_tween()
+	tween.tween_property(shade, "color:a", 0.65, 0.25)
+	tween.parallel().tween_property(panel, "modulate:a", 1.0, 0.2)
+	tween.parallel().tween_property(panel, "scale", Vector2.ONE, 0.5) \
+		.set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+
+
 ## A popup that can be closed was closed: show the next one waiting, or
 ## let play carry on (`popup_closed`) once there are none.
 func _close_popup() -> void:
@@ -441,19 +652,50 @@ func refresh() -> void:
 		return
 	var panel: HudPanel = _panels[_section]
 	_section_title.text = panel.title
+	# Keep the scroll position when the same panel is rebuilt (it is after
+	# every change), but start a newly opened one at the top.
+	var keep_scroll := _section_scroll.scroll_vertical if _section == _scrolled_section else 0
+	_scrolled_section = _section
 	for child in _section_list.get_children():
 		_section_list.remove_child(child)
+		child.queue_free()
+	for child in _section_header_extras.get_children():
+		_section_header_extras.remove_child(child)
 		child.queue_free()
 	_section_panel.custom_minimum_size.x = panel.panel_width
 	panel.player = _player
 	panel.list = _section_list
 	panel.fill()
+	panel.fill_header(_section_header_extras)
+	_fit_section_panel.call_deferred()
+	_restore_scroll.call_deferred(keep_scroll)
+
+
+func _restore_scroll(value: int) -> void:
+	await get_tree().process_frame  # After the new contents are laid out.
+	_section_scroll.scroll_vertical = value
+
+
+## Re-sizes the open section panel after its contents changed size (e.g. a
+## box sized itself once its cards were laid out).
+func refit_section() -> void:
 	_fit_section_panel.call_deferred()
 
 
 ## Sizes the section panel to its contents (so it shrinks again too), kept
-## pinned just above the bottom bar on the left.
+## pinned just above the bottom bar on the left. If that would run up under
+## the top bar, the contents scroll instead (the title row stays visible).
 func _fit_section_panel() -> void:
+	var content := _section_list.get_combined_minimum_size().y
+	_section_scroll.custom_minimum_size.y = content
+	var room := get_viewport().get_visible_rect().size.y - BOTTOM_BAR_HEIGHT - 8 - TOP_CLEARANCE
+	var overflow := _section_panel.get_combined_minimum_size().y - room
+	var scrolling := overflow > 0
+	if scrolling:
+		_section_scroll.custom_minimum_size.y = maxf(content - overflow, 80)
+	var panel: HudPanel = _panels.get(_section)
+	var width := panel.panel_width if panel else PANEL_WIDTH
+	_section_panel.custom_minimum_size.x = width + (SCROLL_BAR_ROOM if scrolling else 0.0)
 	var s := _section_panel.get_combined_minimum_size()
 	_section_panel.offset_left = 12
 	_section_panel.offset_right = 12 + s.x
@@ -540,12 +782,20 @@ func _build() -> void:
 	_section_title.add_theme_font_size_override("font_size", 20)
 	_section_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(_section_title)
+	_section_header_extras = HBoxContainer.new()
+	_section_header_extras.add_theme_constant_override("separation", 8)
+	header.add_child(_section_header_extras)
 	header.add_child(UiStyle.make_button("X", close_section))
+	_section_scroll = ScrollContainer.new()
+	_section_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	box.add_child(_section_scroll)
 	_section_list = VBoxContainer.new()
-	box.add_child(_section_list)
+	_section_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_section_scroll.add_child(_section_list)
 
 	# Event log (top right)
 	var log_panel := PanelContainer.new()
+	_log_panel = log_panel
 	_pin(log_panel, Vector2(1, 0), Vector2(-12, 52), Control.GROW_DIRECTION_BEGIN, Control.GROW_DIRECTION_END)
 	log_panel.custom_minimum_size = Vector2(300, 0)
 	log_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -648,6 +898,7 @@ func _shortcuts_text() -> String:
 	for section in _panels:
 		var panel: HudPanel = _panels[section]
 		parts.append("%s: %s" % [OS.get_keycode_string(panel.shortcut), panel.button_text.to_lower()])
+	parts.append("%s: events" % OS.get_keycode_string(EVENTS_KEY))
 	return "   ".join(parts)
 
 
@@ -669,14 +920,33 @@ func _build_bottom_bar(root: Control) -> void:
 	bar.add_child(row)
 	for section in _panels:
 		_section_buttons[section] = _make_section_button(row, section)
+	# Icon only (the panel buttons already fill the bar); lit while shown.
+	_events_button = _make_bar_button(row)
+	_events_button.custom_minimum_size.x = BOTTOM_BAR_HEIGHT - 14
+	_events_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_events_button.tooltip_text = "Events: show or hide the event log (%s). Events still come in while it's hidden." % OS.get_keycode_string(EVENTS_KEY)
+	_events_button.icon = UiStyle.svg_texture("""<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+<rect x="5" y="4" width="22" height="24" rx="3" fill="#9fb4d6"/>
+<rect x="9" y="9" width="14" height="2.5" rx="1" fill="#2a2220"/><rect x="9" y="15" width="14" height="2.5" rx="1" fill="#2a2220"/>
+<rect x="9" y="21" width="9" height="2.5" rx="1" fill="#2a2220"/>
+</svg>""")
+	_events_button.set_pressed_no_signal(true)  # The log starts shown.
+	_events_button.toggled.connect(func(shown: bool) -> void: _log_panel.visible = shown)
 
 
 func _make_section_button(parent: Control, section: Section) -> Button:
 	var panel: HudPanel = _panels[section]
-	var b := Button.new()
+	var b := _make_bar_button(parent)
 	b.text = panel.button_text
 	b.tooltip_text = panel.tooltip
 	b.icon = UiStyle.svg_texture(panel.icon_svg)
+	b.pressed.connect(func() -> void: toggle_section(section))
+	return b
+
+
+## A toggle button in the bottom bar's style, added to `parent`.
+func _make_bar_button(parent: Control) -> Button:
+	var b := Button.new()
 	b.toggle_mode = true
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(140, BOTTOM_BAR_HEIGHT - 14)
@@ -689,7 +959,6 @@ func _make_section_button(parent: Control, section: Section) -> Button:
 	b.add_theme_stylebox_override("hover_pressed", UiStyle.box_style(Color(0.19, 0.3, 0.37, 0.95), accent))
 	b.add_theme_color_override("font_pressed_color", accent.lightened(0.4))
 	b.add_theme_color_override("font_hover_pressed_color", accent.lightened(0.4))
-	b.pressed.connect(func() -> void: toggle_section(section))
 	parent.add_child(b)
 	return b
 

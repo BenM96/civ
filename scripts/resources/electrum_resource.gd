@@ -1,10 +1,9 @@
 class_name ElectrumResource
 extends ResourceType
-## A rare metal, needed (with every other stored resource) for command
-## points - see CommandPointBuildable. Deposits only lie far out - more than 10 tiles from every hub and
-## from each other. the Miner can carry it home 1 a trip, or an extractor at
-## the end of a long belt line brings in 1 a turn. It also pays for research
-## (see TechTrees).
+## A rare metal, needed for research (see TechTrees) and specialist units
+## (Unit.SPECIALIST_COST). Deposits only lie far out - more than 10 tiles from every hub and
+## from each other. The Miner can carry it home 1 a trip, or an extractor at
+## the end of a long belt line brings in 0.2 a turn.
 
 
 func _init() -> void:
@@ -18,7 +17,7 @@ func _init() -> void:
 	min_distance_from_hubs = 10
 	min_spacing = 10
 	harvest_amount = 1
-	extractor_output = 1.0
+	extractor_output = 0.2
 
 
 ## A glowing bright-blue gem with a halo.

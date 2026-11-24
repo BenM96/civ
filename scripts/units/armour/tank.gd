@@ -8,7 +8,7 @@ func _init() -> void:
 	super()
 	unit_name = "Tank"
 	short_name = "T"
-	cost.merge(SPECIALIST_COST)
+	add_specialist_cost()
 	train_turns = 5
 	#                    infantry, civilian, armour, air
 	damage = damage_vs(6, 8, 4, 2)

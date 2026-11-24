@@ -182,6 +182,8 @@ func end_turn() -> void:
 	for player in players:
 		player.finish_turn()
 	turn += 1
+	if attention != null:
+		attention.new_turn()  # Anything still waiting blocks the new turn.
 	turn_started.emit(turn)
 	if not battles.is_empty():
 		battles_fought.emit(battles)
@@ -229,7 +231,8 @@ func set_auto_skip(enabled: bool) -> void:
 
 
 ## True when nothing needs the player (no unit needs orders, nothing new
-## to train or research that they haven't dismissed - see Attention) and
+## to train or research that they haven't dismissed - see Attention; and no
+## contact with the enemy - see _in_contact()) and
 ## letting time pass would actually change something (units out, training
 ## in progress, or a hub room at work - units healing, refitting or off duty
 ## for a set time).
@@ -240,6 +243,8 @@ func _no_units_need_orders() -> bool:
 		if attention.first_active() != Attention.Issue.NONE:
 			return false
 	elif not local_player.get_units_needing_orders().is_empty():
+		return false
+	if _in_contact():
 		return false
 	if not local_player.get_field_units().is_empty() or not local_player.training_queue.is_empty():
 		return true
@@ -262,3 +267,23 @@ func _process(delta: float) -> void:
 	_skip_wait += delta
 	if _skip_wait >= SKIP_PAUSE:
 		end_turn()
+
+
+## Whether our units and the enemy's are in each other's territory (a tile
+## with a structure the colony owns, or its hub): ours on theirs, or theirs
+## on ours. Turns aren't skipped then, so the player can react.
+func _in_contact() -> bool:
+	for colony in players:
+		for u in colony.units:
+			if not u.is_in_world():
+				continue
+			var tile := map.get_tile(u.hex)
+			var owner := tile.structure_owner if tile and tile.structure != Structure.Type.NONE else Faction.NONE
+			var hub := map.get_player_at(u.hex)
+			if hub:
+				owner = hub.id
+			if owner == Faction.NONE or owner == colony.id:
+				continue
+			if colony == local_player or owner == local_player.id:
+				return true
+	return false

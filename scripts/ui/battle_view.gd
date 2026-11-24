@@ -104,11 +104,7 @@ func play() -> void:
 	for event: Dictionary in _report["events"]:
 		if _skip:
 			break
-		if event["type"] == "flee":
-			_popup("Flees!", event["unit"], Color(1.0, 0.85, 0.4))
-			await _flee(event["unit"])
-		else:
-			await _shoot(event)
+		await _shoot(event)
 	if not _skip:
 		_footer.text = _report["message"]
 		await _wait(1.6 / _speed)  # Time to read the result (not sped up).

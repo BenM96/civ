@@ -27,6 +27,11 @@ signal buildings_changed
 signal research_changed
 ## A newly linked extractor started delivering (lets the game report rivals).
 signal extractor_connected(h: Vector2i, type: ResourceDeposit.Type)
+## The hub lost health to `attacker`'s Infantry demolishing it (see
+## damage_hub()). `health` is what's left (0: knocked out).
+signal hub_damaged(attacker: Player, health: int)
+## The hub was repaired (see repair_hub()).
+signal hub_repaired(health: int)
 
 
 ## A unit being trained. Its cost has already been paid.
@@ -58,6 +63,16 @@ var collapsed := false
 
 ## What the hub is called on the map.
 const HUB_NAME := "Central Hub"
+## The hub's health when undamaged. Each demolish by an enemy Infantry takes
+## 1 off; at 0 the colony is knocked out (see is_wiped_out()).
+const HUB_MAX_HEALTH := 10
+## What repairing 1 health costs (see repair_hub()).
+const HUB_REPAIR_COST := {ResourceDeposit.Type.TITANIUM: 10, ResourceDeposit.Type.SEDIMENT: 10}
+var hub_health := HUB_MAX_HEALTH
+## Repaired this turn already (only once a turn). Cleared in finish_turn().
+var hub_repaired_this_turn := false
+## The colony that last damaged the hub, or null.
+var last_attacker: Player = null
 
 ## Buildings inside the hub, in the order they were added.
 var buildings: Array[Building] = []
@@ -90,6 +105,13 @@ var inventory: Dictionary = {}
 var blueprints: Array[UnitBlueprint] = []
 ## Only the first order progresses; the rest wait their turn.
 var training_queue: Array[TrainingOrder] = []
+## Military units (not civilians) we've paid to train so far, cancelled
+## orders aside. Each makes the next military unit cost 1 more Gold (see
+## get_training_cost()). Part of the saved game.
+var military_trained := 0
+## The Central Hub panel's Regroup button is on: military units coming
+## home join the regroup (see start_regroup()). Part of the saved game.
+var regroup_active := false
 ## Structures this hub's Builders can construct.
 var buildables: Array[Buildable] = []
 ## Supply network: hex -> next hex towards the hub, for every tile linked
@@ -554,7 +576,8 @@ func get_room_move_refusal(unit: Unit, room_id: String) -> String:
 
 ## The player moves a unit in the hub to another room. A unit with a mission
 ## it hasn't set out on (in the Airlock, or on QRF duty) has it called off,
-## as with cancel_mission(). Returns "" if it moved, otherwise why not.
+## as with cancel_mission(). Moving it to the QRF room puts it on QRF duty
+## (gives it the QRF mission). Returns "" if it moved, otherwise why not.
 ## `wait_turns` (for a unit sent off duty to its quarters): after that many
 ## turns it goes back to Mission Briefing by itself; 0 keeps it there until
 ## it's moved.
@@ -566,6 +589,8 @@ func move_unit_to_room(unit: Unit, room_id: String, wait_turns := 0) -> String:
 		var called_off := unit.mission.get_description()
 		cancel_mission(unit)
 		unit_event.emit("%s's mission was called off (%s)" % [unit.display_name, called_off])
+	if room_id == QrfRoom.ID:
+		return "" if assign_mission(unit, QrfMission.new(QrfMission.DRAG_TURNS)) else "%s can't join the QRF right now" % unit.display_name
 	unit.set_room(room_id)
 	if wait_turns > 0 and get_room(room_id) is QuartersRoom:
 		unit.wait_turns_left = wait_turns
@@ -680,9 +705,20 @@ func _change_resources(cost: Dictionary, direction: int) -> void:
 
 # --- Training --------------------------------------------------------------
 
-## What training one more of `blueprint` costs (always the same price).
+## What training one more of `blueprint` costs: its base price, and for a
+## military unit (anything but a civilian) 1 more Gold for every military
+## unit we've trained before (military_trained).
 func get_training_cost(blueprint: UnitBlueprint) -> Dictionary:
-	return blueprint.base_cost.duplicate()
+	var cost := blueprint.base_cost.duplicate()
+	if is_military(blueprint) and military_trained > 0:
+		var gold := ResourceDeposit.Type.GOLD
+		cost[gold] = cost.get(gold, 0) + military_trained
+	return cost
+
+
+## Fighting units: everything but civilians (Miner, Builder, Guard).
+static func is_military(blueprint: UnitBlueprint) -> bool:
+	return blueprint.unit_type != Unit.UnitType.CIVILIAN
 
 
 ## Whether we have the tech (if any) that unlocks `blueprint`.
@@ -736,6 +772,8 @@ func queue_training(blueprint: UnitBlueprint) -> bool:
 		return false
 	_change_resources(cost, -1)
 	training_queue.append(TrainingOrder.new(blueprint, cost))
+	if is_military(blueprint):
+		military_trained += 1
 	unit_event.emit("Started training a %s (%s)" % [blueprint.unit_name, ResourceDeposit.format_cost(cost)])
 	training_changed.emit()
 	return true
@@ -748,6 +786,8 @@ func cancel_training(index: int) -> bool:
 	var order := training_queue[index]
 	training_queue.remove_at(index)
 	_change_resources(order.paid, 1)
+	if is_military(order.blueprint):
+		military_trained = maxi(military_trained - 1, 0)
 	unit_event.emit("Cancelled %s training (refunded %s)" % [order.blueprint.unit_name, ResourceDeposit.format_cost(order.paid)])
 	training_changed.emit()
 	return true
@@ -977,6 +1017,7 @@ func run_hub() -> void:
 	_process_training()
 	for room in rooms:
 		room.process_turn(self)
+	check_regroup()
 	repeat_orders()
 
 
@@ -991,9 +1032,11 @@ func start_builder_group(kind: String, target: Vector2i, more: int) -> void:
 	_join_builder_group()
 
 
-## Gives the group job (builder_group_order) to every idle Builder that isn't
-## repeating something of its own. Ends the group once there's nothing left
-## to build, or the job can't be given any more.
+## Gives the group job (builder_group_order) to idle Builders that aren't
+## repeating something of their own - but never more Builders than the job
+## has tiles left to work on, so the rest stay free for other orders. Ends
+## the group once there's nothing left to build, or the job can't be given
+## any more.
 func _join_builder_group() -> void:
 	if builder_group_order.is_empty():
 		return
@@ -1003,13 +1046,20 @@ func _join_builder_group() -> void:
 	if not plan is LineBuildMission or plan.get_next_jobs(self, map, hex).is_empty():
 		builder_group_order = {}  # Done (or nothing to share).
 		return
+	var room_for: int = plan.get_next_jobs(self, map, hex).size()
+	for u in units:
+		if u.mission is LineBuildMission and u.mission.get_kind() == kind and u.mission.target == target:
+			room_for -= 1
 	for u in units:
 		if not u is Builder or not u.needs_orders() or u.repeats_left != 0:
 			continue
+		if room_for <= 0:
+			return  # Enough Builders on it already.
 		var m := Orders.make_mission(self, kind, target)
 		var reason := Orders.get_invalid_reason(self, u, m)
 		if reason == "" and assign_mission(u, m):
 			u.set_repeats(target, int(builder_group_order["repeats"]))
+			room_for -= 1
 		elif reason != "":
 			unit_event.emit("Builders stopped joining %s: %s" % [m.get_description(), reason])
 			builder_group_order = {}
@@ -1040,12 +1090,128 @@ func recall_all() -> int:
 	return count
 
 
+# --- Regroup ----------------------------------------------------------------
+
+## The Central Hub panel's Regroup button: every military unit that can
+## regroup and is waiting in Mission Briefing goes on Regroup now, and every
+## one that comes home later joins it (see repeat_orders()), until the army
+## is all home and healed (check_regroup()). Units out on missions finish
+## them first. Returns "" if it started, otherwise why not.
+func start_regroup() -> String:
+	var refusal := start_regroup_refusal()
+	if refusal != "":
+		return refusal
+	regroup_active = true
+	unit_event.emit("Regroup: every military unit coming home will stand by until the whole army is home and healed")
+	_join_regroup()
+	return ""
+
+
+## Why the Regroup button can't start a regroup now, or "" if it can.
+func start_regroup_refusal() -> String:
+	if regroup_active:
+		return "a regroup is already under way"
+	if get_regroup_units().is_empty():
+		return "no military units to regroup"
+	return ""
+
+
+## Units that take part in a regroup: military units that can stand by.
+func get_regroup_units() -> Array[Unit]:
+	var result: Array[Unit] = []
+	for u in units:
+		if u.can_take("regroup"):
+			result.append(u)
+	return result
+
+
+## Whether a regroup is on: the button's, or any unit given Regroup (or
+## away healing from one).
+func is_regrouping() -> bool:
+	if regroup_active:
+		return true
+	for u in units:
+		if u.mission is RegroupMission or u.rejoin_kind == "regroup":
+			return true
+	return false
+
+
+## How many of the regrouping army are home and at full health, and how many
+## there are: [home, total]. A hurt unit the hub has nowhere to heal (no Med
+## Bay or Garage yet) counts as healed.
+func get_regroup_progress() -> Array:
+	var army := get_regroup_units()
+	var home := 0
+	for u in army:
+		if u.is_in_hub() and (not u.is_injured() or get_healing_room_for(u) == null):
+			home += 1
+	return [home, army.size()]
+
+
+## Ends the regroup once every military unit that can regroup is in the hub
+## and at full health: they all go to Mission Briefing, off whatever standby
+## duty (Regroup or QRF) they were on, ready for new orders. Units just
+## given an order (waiting to set out) keep it.
+func check_regroup() -> void:
+	if not is_regrouping():
+		return
+	var progress := get_regroup_progress()
+	if progress[0] < progress[1]:
+		return
+	regroup_active = false
+	var ready := 0
+	for u in get_regroup_units():
+		u.rejoin_kind = ""
+		if u.state == Unit.State.DEPLOYING or u.refit_turns_left > 0:
+			continue
+		if u.mission:
+			if not u.can_cancel_mission():
+				continue
+			cancel_mission(u)
+		u.repeats_left = 0
+		u.set_room(MissionBriefingRoom.ID)
+		ready += 1
+	unit_event.emit("Regroup complete: %d unit(s) home, healed and ready in Mission Briefing" % ready)
+
+
+## While the Regroup button is on, puts every military unit waiting in
+## Mission Briefing on Regroup (instead of any repeat order).
+func _join_regroup() -> void:
+	if not regroup_active:
+		return
+	for u in units:
+		if u.needs_orders() and u.can_take("regroup"):
+			var m := RegroupMission.new()
+			if u.can_accept_mission(m) and assign_mission(u, m):
+				u.repeats_left = 0
+
+
 ## Gives a repeating unit (see Unit.repeats_left) its last mission again
 ## once it's back in Mission Briefing; it sets out next turn. If the hub
 ## can't pay for it yet, it waits and tries again next turn. If the order
 ## can't be given any more (e.g. the deposit has run out), the unit stops
 ## repeating and waits for new orders.
+## Units back in Mission Briefing after healing take up the standby duty they
+## left to heal (Unit.rejoin_kind) - QRF with the turns it had left, or
+## Regroup if the regroup is still on.
+func _rejoin_duties() -> void:
+	for u in units:
+		if u.rejoin_kind == "" or not u.needs_orders():
+			continue
+		var kind := u.rejoin_kind
+		u.rejoin_kind = ""
+		var m: QrfMission = RegroupMission.new() if kind == "regroup" else QrfMission.new(u.rejoin_turns)
+		if kind == "regroup" and not is_regrouping():
+			continue  # It ended while we were away.
+		if u.can_accept_mission(m) and assign_mission(u, m):
+			unit_event.emit("%s is healed and back on %s" % [u.display_name, m.get_display_name()])
+
+
+## Before that: units back from healing take up the standby duty they left
+## (Unit.rejoin_kind), and during a Regroup (button) military units join it.
 func repeat_orders() -> void:
+	_rejoin_duties()
+	_join_regroup()
 	for u in units:
 		if u.repeats_left == 0 or not u.needs_orders():
 			continue
@@ -1106,14 +1272,53 @@ static func _most_injured(candidates: Array[Unit], rng: RandomNumberGenerator) -
 	return tied[rng.randi_range(0, tied.size() - 1)]
 
 
-## Out of the game: no units left and none in training (see TurnManager).
+## Out of the game (see TurnManager): the hub knocked out (no health left),
+## or no units left and none in training.
 func is_wiped_out() -> bool:
-	return units.is_empty() and training_queue.is_empty()
+	return hub_health <= 0 or (units.is_empty() and training_queue.is_empty())
+
+
+# --- Hub health --------------------------------------------------------------
+
+## `attacker`'s Infantry finished demolishing part of the hub: 1 health off.
+func damage_hub(attacker: Player) -> void:
+	if hub_health <= 0:
+		return
+	hub_health -= 1
+	last_attacker = attacker
+	queue_redraw()
+	hub_damaged.emit(attacker, hub_health)
+
+
+## Why the hub can't be repaired right now, or "" if it can.
+func get_hub_repair_refusal() -> String:
+	if hub_health >= HUB_MAX_HEALTH:
+		return "the hub isn't damaged"
+	if hub_repaired_this_turn:
+		return "already repaired this turn"
+	if not can_afford(HUB_REPAIR_COST):
+		return "need %s" % ResourceDeposit.format_cost(HUB_REPAIR_COST)
+	return ""
+
+
+## Pays HUB_REPAIR_COST to restore 1 health, straight away (once a turn).
+## Returns "" on success, otherwise why not.
+func repair_hub() -> String:
+	var reason := get_hub_repair_refusal()
+	if reason != "":
+		return reason
+	pay(HUB_REPAIR_COST)
+	hub_health += 1
+	hub_repaired_this_turn = true
+	queue_redraw()
+	hub_repaired.emit(hub_health)
+	return ""
 
 
 ## End of turn: deposits may have run dry or structures changed, so refresh
 ## the supply network and redraw.
 func finish_turn() -> void:
+	hub_repaired_this_turn = false
 	update_network()
 	queue_redraw()
 
@@ -1147,6 +1352,10 @@ func to_dict() -> Dictionary:
 		"healing_order": healing,
 		"hex": SaveGame.hex_to_data(hex),
 		"collapsed": collapsed,
+		"hub_health": hub_health,
+		"military_trained": military_trained,
+		"regroup_active": regroup_active,
+		"hub_repaired_this_turn": hub_repaired_this_turn,
 		"inventory": SaveGame.resources_to_data(inventory),
 		"units_named": _units_ever_had.duplicate(),
 		"training": training,
@@ -1196,6 +1405,10 @@ func load_dict(data: Dictionary) -> void:
 		room.healing_order.clear()
 		for unit_id in data["healing_order"].get(room.id, []):
 			room.healing_order.append(int(unit_id))
+	hub_health = int(data["hub_health"])
+	military_trained = int(data["military_trained"])
+	regroup_active = bool(data["regroup_active"])
+	hub_repaired_this_turn = bool(data["hub_repaired_this_turn"])
 	buildings_changed.emit()
 	if data["collapsed"]:
 		collapse()
@@ -1217,6 +1430,9 @@ func get_info_text() -> String:
 		return "%s (%s) - collapsed, abandoned" % [HUB_NAME, get_display_name()]
 	var text := "%s (%s) - %d/%d units home" % [
 		HUB_NAME, get_display_name(), get_garrison().size(), units.size()]
+	text += "\nHub health: %d/%d" % [hub_health, HUB_MAX_HEALTH]
+	if hub_health < HUB_MAX_HEALTH and id == Faction.local_faction:
+		text += " - repair it in Central Hub (%s per health, once a turn)" % ResourceDeposit.format_cost(HUB_REPAIR_COST)
 	if id != Faction.local_faction:
 		# Scouting report on a rival's stockpile.
 		text += "\nStockpile: %s" % (ResourceDeposit.format_cost(inventory) if not inventory.is_empty() else "empty")
@@ -1305,3 +1521,13 @@ func _draw() -> void:
 	var baseline := (font.get_ascent(font_size) - font.get_descent(font_size)) / 2.0
 	draw_string(font, badge + Vector2(-tw / 2.0, baseline), text,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
+	# Health bar along the bottom of the pad, once it's been damaged.
+	if hub_health < HUB_MAX_HEALTH and not collapsed:
+		var bar := Rect2(-size * 0.55, size * 0.5, size * 1.1, size * 0.13)
+		draw_rect(bar.grow(1.5), Color(0.05, 0.05, 0.05))
+		var share := float(hub_health) / HUB_MAX_HEALTH
+		var fill := Color(0.35, 0.85, 0.35) if share > 0.6 else (Color(1.0, 0.75, 0.2) if share > 0.3 else Color(1.0, 0.3, 0.25))
+		draw_rect(Rect2(bar.position, Vector2(bar.size.x * share, bar.size.y)), fill)
+		for i in range(1, HUB_MAX_HEALTH):
+			var x := bar.position.x + bar.size.x * i / HUB_MAX_HEALTH
+			draw_line(Vector2(x, bar.position.y), Vector2(x, bar.end.y), Color(0, 0, 0, 0.6), 1.0)

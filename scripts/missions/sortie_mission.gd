@@ -4,9 +4,10 @@ extends Mission
 ## between, and fight whoever is there.
 ##
 ## The unit leaves the hub at the end of the turn like anyone else, but
-## doesn't walk. In the movement phase it waits until every other unit -
-## QRF included - has moved, then jumps straight to the target (see
-## Movement), where it starts or joins battles like anyone else. At the
+## doesn't walk. At the start of the movement phase, before anyone else
+## moves, it jumps straight to the target (see Movement) - so it catches
+## whoever is there when the turn starts - and starts or joins battles
+## like anyone else (enemies who walk onto it that turn join in too). At the
 ## start of the next turn it flies straight home (Unit.fly_to()), and then
 ## refits in the Hangar (see AirUnit, QuartersRoom).
 ##
@@ -34,7 +35,7 @@ func get_description() -> String:
 func get_progress_text() -> String:
 	if is_working():
 		return "Over (%d, %d) - flies home next turn" % [target.x, target.y]
-	return "Flying to (%d, %d) once everyone else has moved" % [target.x, target.y]
+	return "Flying to (%d, %d) before anyone else moves" % [target.x, target.y]
 
 
 func get_completion_text() -> String:
@@ -70,7 +71,7 @@ func prepare() -> void:
 		complete()
 
 
-## Called by Movement once every other unit has moved.
+## Called by Movement before anyone else moves.
 func fly() -> void:
 	if phase != Phase.TRAVELLING or unit.engaged:
 		return

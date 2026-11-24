@@ -52,7 +52,7 @@ const SPECIALIST_COST := {ResourceDeposit.Type.ELECTRUM: 1}
 ## Movement points per turn (open ground costs 3, foundations and bridges 1).
 @export var max_movement := 3
 ## Hit points (HP) a fresh unit has. Losing them all in battle kills it;
-## dropping below half makes it break and flee (see Combat).
+## a hit that leaves it at or below half makes it break and flee (see Combat).
 @export var max_health := 10
 ## What kind of unit this is. Decides how much damage each attacker does to
 ## it (see `damage`), and which hub room it waits in when off duty (Break
@@ -111,6 +111,12 @@ var repeat_target := Vector2i.ZERO
 ## Briefing by itself (the Wait button's number - see Player.move_unit_to_room()).
 ## 0 means it stays until moved.
 var wait_turns_left := 0
+## A standby duty (QRF or Regroup) this unit left to heal, to take up again
+## once it's back in Mission Briefing (see Player.repeat_orders()): the
+## mission kind ("" for none), and for QRF the turns of duty it had left
+## (REPEAT_FOREVER for no limit).
+var rejoin_kind := ""
+var rejoin_turns := 0
 ## Resources being carried home: ResourceDeposit.Type -> int.
 ## The hub unloads this when the unit returns.
 var cargo: Dictionary = {}
@@ -213,9 +219,10 @@ func is_injured() -> bool:
 	return health < max_health
 
 
-## Below half its max HP (but alive): it breaks after a battle round.
+## At or below half its max HP (but alive). A hit that leaves a unit like
+## this breaks it (see Combat) - so a 10 HP Worker hit for 5 runs.
 func is_broken() -> bool:
-	return health > 0 and health < max_health / 2.0
+	return health > 0 and health <= max_health / 2.0
 
 
 ## Called by the hub when the unit joins it.
@@ -232,8 +239,11 @@ func get_short_label() -> String:
 
 
 ## Whether this unit may take a mission of `kind`. "build:foundation" counts as
-## "build", so a unit that can build can build any structure.
+## "build", so a unit that can build can build any structure. Regroup is for
+## military units that can do QRF duty.
 func can_take(kind: String) -> bool:
+	if kind == "regroup":
+		return unit_type != UnitType.CIVILIAN and can_take("qrf")
 	return kind.get_slice(":", 0) in allowed_missions
 
 
@@ -266,6 +276,13 @@ func set_room(new_room_id: String) -> void:
 	room_id = new_room_id
 	wait_turns_left = 0  # A new room ends any timed wait.
 	state_changed.emit(self)
+
+
+## Adds SPECIALIST_COST to this unit's price (on top of what it already
+## costs of the same resource - e.g. aircraft already pay Electrum).
+func add_specialist_cost() -> void:
+	for type: ResourceDeposit.Type in SPECIALIST_COST:
+		cost[type] = cost.get(type, 0) + SPECIALIST_COST[type]
 
 
 ## A `damage` table: HP taken off each type of enemy per shot.
@@ -303,6 +320,8 @@ func to_dict() -> Dictionary:
 		"repeats_left": repeats_left,
 		"repeat_target": SaveGame.hex_to_data(repeat_target),
 		"wait_turns_left": wait_turns_left,
+		"rejoin_kind": rejoin_kind,
+		"rejoin_turns": rejoin_turns,
 		"health": health,
 		"cargo": SaveGame.resources_to_data(cargo),
 		"materials": SaveGame.resources_to_data(materials),
@@ -321,6 +340,8 @@ func load_dict(data: Dictionary) -> void:
 	repeats_left = int(data["repeats_left"])
 	repeat_target = SaveGame.hex_from_data(data["repeat_target"])
 	wait_turns_left = int(data["wait_turns_left"])
+	rejoin_kind = str(data["rejoin_kind"])
+	rejoin_turns = int(data["rejoin_turns"])
 	health = int(data["health"])
 	cargo = SaveGame.resources_from_data(data["cargo"])
 	materials = SaveGame.resources_from_data(data.get("materials", {}))  # Older saves lack it.
@@ -431,6 +452,7 @@ func recall() -> void:
 		return
 	mission = null
 	repeats_left = 0
+	rejoin_kind = ""
 	_path.clear()
 	if hex == player.hex:
 		_arrive_home()
@@ -446,6 +468,7 @@ func cancel_mission() -> bool:
 		return false
 	mission = null
 	repeats_left = 0  # Calling it off stops any repeats too.
+	rejoin_kind = ""
 	_path.clear()
 	_set_state(State.IN_HUB)
 	return true
@@ -625,6 +648,7 @@ func break_off() -> void:
 	if state == State.ON_MISSION:
 		var abandoned := mission
 		abandoned.fail_reason = "broke in battle and fled"
+		abandoned.on_broken()  # e.g. QRF: back on duty once healed.
 		mission_failed.emit(self, abandoned, abandoned.fail_reason)
 		mission = null
 	if hex == player.hex:

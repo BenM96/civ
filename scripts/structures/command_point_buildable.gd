@@ -10,7 +10,7 @@ extends Buildable
 ## requires "conveyor"). Other colonies' Infantry can capture or demolish it.
 
 const ID := "command_point"
-## Every stored resource it costs (Biomass isn't stored).
+## What it costs of each of Titanium, Sediment and Gold (no Electrum).
 const COST_EACH := 20
 
 
@@ -21,7 +21,6 @@ func _init() -> void:
 		ResourceDeposit.Type.TITANIUM: COST_EACH,
 		ResourceDeposit.Type.SEDIMENT: COST_EACH,
 		ResourceDeposit.Type.GOLD: COST_EACH,
-		ResourceDeposit.Type.ELECTRUM: COST_EACH,
 	}
 	build_turns = 1
 	structure_type = Structure.Type.COMMAND_POINT

@@ -125,8 +125,8 @@ func get_healing_queue(player: Player) -> Array[Unit]:
 		return []
 	var waiting: Array[Unit] = []
 	for unit in player.get_units_in_room(id):
-		if unit.state == Unit.State.IN_HUB and heals_unit(unit) and unit.is_injured():
-			waiting.append(unit)
+		if unit.state == Unit.State.IN_HUB and heals_unit(unit) and unit.is_injured() and unit.refit_turns_left <= 0:
+			waiting.append(unit)  # (Refitting units are repaired afterwards.)
 	var order: Array[int] = []
 	for unit_id in healing_order:
 		if waiting.any(func(u: Unit) -> bool: return u.id == unit_id):

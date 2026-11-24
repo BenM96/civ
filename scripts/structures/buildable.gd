@@ -65,6 +65,12 @@ func apply(_map: HexMap, _h: Vector2i, _owner_faction: int) -> void:
 	pass
 
 
+## What building it at `h` costs `player` (most cost the same anywhere;
+## foundations cost more the further they are from the hub).
+func get_cost_at(_player: Player, _h: Vector2i) -> Dictionary:
+	return cost
+
+
 func get_cost_text() -> String:
 	return ResourceDeposit.format_cost(cost)
 

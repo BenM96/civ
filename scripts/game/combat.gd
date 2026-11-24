@@ -11,14 +11,13 @@ extends RefCounted
 ## a battle. Units at a hub (garrisoned, or waiting there) are safe unless
 ## the hub tile itself is in the core.
 ##
-## One round is fought per turn:
-##   1. Units already below half their max HP (broken in an earlier battle)
-##      flee straight away without firing.
-##   2. Each colony's other units go into a list, in random order. The lists
+## One round is fought per turn. Everyone takes part, hurt or not - a unit
+## only flees when a hit leaves it at or below half its HP (step 3):
+##   1. Each colony's units go into a list, in random order. The lists
 ##      are taken highest initiative first (Player.get_initiative() - from
 ##      command points and Initiative techs); colonies with the same
 ##      initiative go in a random order.
-##   3. Working through the lists side by side - the first unit of each list
+##   2. Working through the lists side by side - the first unit of each list
 ##      in turn, then the second of each, and so on (a list that runs out is
 ##      skipped) - every unit fires once, at an enemy unit still in the
 ##      fight, taking that much HP off it: the attacker's damage against
@@ -30,10 +29,11 @@ extends RefCounted
 ##      next most damaged type, and so on. Civilians always come last, so
 ##      fighters shoot civilians only when nothing else is left
 ##      (Unit.get_target_preference()).
-##   4. A unit hit down to 0 HP or below dies on the spot. One hit below half
-##      its max HP breaks and flees on the spot. Either way it's out of the
+##   3. A unit hit down to 0 HP or below dies on the spot. One hit leaving it at
+##      or below half its max HP (even one already there) breaks it and it
+##      flees on the spot. Either way it's out of the
 ##      fight: it doesn't fire if its turn hadn't come yet, and can't be shot.
-##   5. Afterwards the dead are removed, and everyone who fled drops their
+##   4. Afterwards the dead are removed, and everyone who fled drops their
 ##      mission and retreats one tile towards their hub (Unit.break_off());
 ##      aircraft fly home at the start of the next turn instead.
 ## Units still sharing a tile next turn fight again (see Movement).
@@ -45,10 +45,9 @@ extends RefCounted
 ##    "units": {unit id: {"name", "type", "short", "unit_type", "faction",
 ##                        "color", "hex", "home",
 ##                        "hp", "max_hp"}},   # As they were before the battle.
-##    "events": [{"type": "flee", "unit": id}
-##               or {"type": "shot", "from": id, "to": id, "damage": int,
-##                   "hp": int (target's HP after), "result": "hit",
-##                   "broken" or "dead"}]}
+##    "events": [{"type": "shot", "from": id, "to": id, "damage": int,
+##                 "hp": int (target's HP after), "result": "hit",
+##                 "broken" or "dead"}]}
 ##
 ## The dice are seeded from the map seed, the turn and the battle, so the
 ## same game always plays out the same way.
@@ -174,12 +173,6 @@ static func _describe_units(sides: Dictionary) -> Dictionary:
 ## `events`. Shuffles each side's list in place. Returns the units that fled.
 static func _fight(sides: Dictionary, rng: RandomNumberGenerator, events: Array) -> Array[Unit]:
 	var fled: Array[Unit] = []
-	# Already broken: off before a shot is fired.
-	for side in sides:
-		for u: Unit in sides[side]:
-			if u.is_broken():
-				fled.append(u)
-				events.append({"type": "flee", "unit": u.id})
 	var order := _side_order(sides, rng)
 	var longest := 0
 	for side in order:

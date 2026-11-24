@@ -23,9 +23,21 @@ icon then "5 (+1)" (hover over one for its name), then your command points
 - **Win:** be the first colony with a command point on every control point
   at the end of a turn, each one linked to your hub by conveyor belts (see
   Control points). You can keep playing afterwards.
-- **Lose:** your colony has no units left and none in training.
-- A rival with no units left (and none in training) collapses. Outlast every
-  rival and you also win.
+- **Lose:** your colony has no units left and none in training, or your
+  hub is knocked out (see Hub health).
+- A rival that loses all its units (with none in training) or its hub
+  collapses. Outlast every rival and you also win.
+
+### Hub health
+
+Every hub has **10 health**. Enemy Infantry can **demolish** a hub: they
+stand on a tile next to it (as for a bridge) and each finished demolish (3
+turns) knocks 1 health off. At 0 the colony is knocked out and collapses.
+A damaged hub shows a health bar on the map; you can repair it in the
+Central Hub panel for 10 Titanium and 10 Sediment per health, once a turn.
+A banner warns you whenever your hub is hit (and cheers when your Infantry
+hit someone else's), and knocking out a rival gets its own popup. QRF units
+also go after enemies standing next to your hub.
 
 ### Control points
 
@@ -38,7 +50,7 @@ rival's.
   builds one with **Build Command Point** in Mission Briefing: pick
   a control point and, like an extractor, it lays foundations and conveyor
   belts from the hub out to it, then builds the command point on the end.
-  It costs 20 Titanium, 20 Sediment, 20 Gold and 20 Electrum.
+  It costs 20 Titanium, 20 Sediment and 20 Gold.
 - A command point only counts while it's linked to your hub by belts. Its
   light shows green when it is and red when it isn't. Cutting or capturing
   a belt on the way stops it counting until the link is restored.
@@ -51,13 +63,14 @@ rival's.
 - The top bar shows how many you hold by the flag icon (e.g. "2/5") and
   your initiative by the lightning bolt.
 
-The computer colonies don't go for control points yet.
+The computer colonies go for control points once they reach their last phase
+(see Units).
 
 ### Biomass and starvation
 
 Biomass is food, and it isn't stored: it's a rate. Your **biomass
 production** is what your Greenhouses (3 a turn each) and Biomass extractors
-(1 a turn each) make, less what your units eat (1 each a turn). The top bar
+(2 a turn each) make, less what your units eat (1 each a turn). The top bar
 shows it by the Biomass icon, e.g. "+2/turn".
 
 - You can't train a unit you couldn't feed: Training is blocked while the
@@ -74,15 +87,15 @@ shows it by the Biomass icon, e.g. "+2/turn".
 | Resource | Used for |
 |---|---|
 | Biomass | Feeding your units (production per turn, not stored - see above) |
-| Gold | Training units, command points |
+| Gold | Training units (rising with each military unit), command points |
 | Titanium | Training units, conveyor belts, extractors, bridges, hub buildings, command points |
 | Sediment | Foundations, extractors, bridges, hub buildings, command points |
-| Electrum | Research, command points |
+| Electrum | Research, specialist units, aircraft |
 
 Every hub has at least one deposit of each resource within 4 tiles (but none
 right next to it), except Electrum: its deposits are only found more than
 10 tiles from every hub and from each other. The Miner can carry it home 1
-a trip, or an extractor at the end of a belt line brings in 1 a turn.
+a trip, or an extractor at the end of a belt line brings in 0.2 a turn.
 Every deposit holds 999, so in practice none ever runs out.
 
 ### Research
@@ -138,7 +151,7 @@ now.
 | Regen Lab | Regeneration | Med Bay | 2 | Units in the Med Bay heal 1 HP a turn faster. |
 | Repair Bay | Vehicle Repair | Garage | 2 | One more vehicle is repaired in the Garage at a time. |
 | Machine Shop | Machine Tools | Garage | 2 | Vehicles in the Garage are repaired 1 HP a turn faster. |
-| Flight Crew Quarters | Flight Crews | Hangar | 3 | Aircraft refit 1 turn faster after a sortie. |
+| Flight Crew Quarters | Flight Crews | Hangar | 3 | Aircraft refit 1 turn faster after a sortie, and the Hangar repairs one more aircraft at a time. |
 
 ### The central hub's rooms
 
@@ -154,6 +167,15 @@ to set out, the QRF and Builders waiting at the hub for resources are stood
 down at once (getting back what they were given for the job); units out on
 the map turn for home with whatever they carry. Units off duty stay put.
 
+Next to it, **Regroup** gathers the army: every military unit (infantry
+and armour) waiting in Mission Briefing, and every one that comes home
+afterwards, goes on Regroup - standing by in the QRF room, defending like
+the QRF and going off to heal when hurt - until all of them are home and at
+full health (hurt units the hub has nowhere to heal count as healed). Units
+out on missions finish them first. Then the regroup ends and the whole army
+comes to Mission Briefing together. While it runs the button shows how
+many are home.
+
 Mission Briefing, the Airlock, the QRF room and the Break Room are open from
 the start. The others show a padlock until you build their building.
 
@@ -162,18 +184,21 @@ the start. The others show a padlock until you build their building.
 | Mission Briefing | Idle units wait here for orders. Only units in Mission Briefing can be given a mission. Units come here when they get home. |
 | Airlock | Units given a mission wait here to leave at the end of the turn. Drag one out to call its mission off. |
 | Med Bay | Heals injured infantry and civilians (see Healing). Only injured infantry and civilians are allowed in. |
-| Quick Reaction Force | Units on the QRF mission stand by here (see Missions). Drag one out to take it off QRF duty. |
+| Quick Reaction Force | Units on QRF duty (or Regroup) stand by here (see Missions). Drag a unit in to put it on QRF duty for 20 turns; drag one out to take it off. |
 | Break Room | Off-duty civilian units (Miner, Builders, Guards). Civilians in training are shown here. |
 | Barracks | The same, for infantry. |
-| Hangar | The same, for air units. Aircraft back from a sortie refit here for 10 turns (less with Flight Crew Quarters) and can't leave until they're done. |
+| Hangar | The same, for air units. Aircraft back from a sortie refit here for 5 turns (less with Flight Crew Quarters) and can't leave until they're done; damaged ones are then repaired here (see Healing). |
 | Garage | The same, for armour units. Also repairs damaged armour (see Healing). |
 
-Units only get to the Airlock and the QRF room by being given a mission.
+Units only get to the Airlock by being given a mission, and to the QRF
+room by being given QRF or Regroup (or dragged in).
 Units in the Break Room, Barracks, Hangar or Garage don't need orders, so
-idle turns can be skipped. The **Wait** button in Mission Briefing sends a
-unit there for the number of turns picked in its dropdown (1-5), after
-which it comes back to Mission Briefing by itself; INF keeps it there until
-you drag it out.
+idle turns can be skipped. The **Wait** order in Mission Briefing (in a
+unit's mission dropdown) sends a unit there for the number of turns picked
+in the next dropdown (1, 5, 10 or 20), after which it comes back to Mission
+Briefing by itself; INF keeps it there until you drag it out. An injured
+unit also gets a **Heal** order, which sends it to the Med Bay (or, for
+armour, the Garage) - greyed out, saying why, if that isn't built yet.
 
 ### Healing
 
@@ -186,7 +211,9 @@ Only one unit heals at a time, 1 HP a turn; the rest wait their turn. The
 ones waiting are listed at the top of the room in healing order. Drag a unit
 onto another one in the queue to put it in that place. Surgical Wards
 and Repair Bays heal more units at once; Regen Labs and Machine Shops heal
-faster. Aircraft are repaired by refitting in the Hangar.
+faster. Damaged aircraft are repaired in the **Hangar** the same way, once
+they've finished refitting (refitting itself repairs nothing); each Flight
+Crew Quarters repairs one more at once.
 
 ### Units
 
@@ -204,8 +231,12 @@ Give the Miner a repeating harvest order (see Missions) and it gathers on
 its own while your Builders build.
 
 Other units: Guards cost 1 Gold + 1 Titanium, Infantry 1 Gold + 2 Titanium,
-armour 1 Gold + 3 Titanium + 2 Sediment and air units 3 Gold + 2 Titanium. Specialist units (every infantry, armour or
-air unit except Infantry, APC and Chopper) cost 1 Electrum on top.
+armour 1 Gold + 3 Titanium + 2 Sediment and air units 1 Gold + 2 Titanium +
+2 Electrum. Specialist units (every infantry, armour or air unit except
+Infantry, APC and Chopper) cost 1 Electrum on top. Every military unit
+(anything but Miners, Builders and Guards) also costs 1 more Gold for each
+military unit you've trained before: the 1st Infantry costs 1 Gold, the
+2nd 2 Gold, and so on.
 
 Infantry need a Barracks, armour a Garage and air units a Hangar before you
 can train them (see Buildings). Infantry, APC and Chopper need only their
@@ -220,7 +251,7 @@ takes, how it moves and fights, and which room it waits in:
 | Civilian | Circle | - |
 | Infantry | Pentagon | - |
 | Armour | Square | Fires **twice** each time its turn comes in a battle. Can't capture or demolish. |
-| Air | Triangle | Only flies **sorties** (see Missions), then refits in the Hangar for 10 turns. |
+| Air | Triangle | Only flies **sorties** (see Missions), then refits in the Hangar for 5 turns. |
 
 Each icon shows the unit's short name, e.g. W, I, AA.
 
@@ -237,17 +268,36 @@ Each icon shows the unit's short name, e.g. W, I, AA.
 | Tank Destroyer | Armour | TD | 1 Gold, 3 Titanium, 2 Sediment, 1 Electrum | 5 | As APC |
 | Tank | Armour | T | 1 Gold, 3 Titanium, 2 Sediment, 1 Electrum | 5 | As APC |
 | Anti-Aircraft Gun | Armour | AA | 1 Gold, 3 Titanium, 2 Sediment, 1 Electrum | 5 | As APC |
-| Chopper | Air | CH | 3 Gold, 2 Titanium | 4 | Sortie |
-| Fighter | Air | F | 3 Gold, 2 Titanium, 1 Electrum | 5 | Sortie |
-| Bomber | Air | B | 3 Gold, 2 Titanium, 1 Electrum | 5 | Sortie |
+| Chopper | Air | CH | 1 Gold, 2 Titanium, 2 Electrum | 4 | Sortie |
+| Fighter | Air | F | 1 Gold, 2 Titanium, 3 Electrum | 5 | Sortie |
+| Bomber | Air | B | 1 Gold, 2 Titanium, 3 Electrum | 5 | Sortie |
 
-The computer colonies follow the plan in `scripts/ai/aiStratergy.txt`: train
-a Miner if they've lost theirs and Builders up to their limit, build Titanium, Sediment and Gold extractors and
-then any extractor nearest first, train an army to use up their biomass,
-build what hub buildings they can, keep the Miner fetching Electrum and
-research what they can afford. A third of their army stays home on QRF; the
-rest attack the nearest rival together, Infantry demolishing its structures
-with armour as escorts, while aircraft fly sorties at enemy units.
+The computer colonies (`scripts/ai/ai_controller.gd`) build up in phases,
+each ending at a milestone, and drop back a phase if they lose what got them
+there: first a Miner (if they've lost theirs) and Builders up to their
+limit, then a Titanium and a Sediment extractor, then a Gold one, then one
+on every deposit within 5 tiles (local production first, as foundations
+further out are dear), then an Electrum one - started only once they can
+pay for the whole line, the Miner fetching Electrum by hand until then -
+then any deposit nearest first. If a rival holds a deposit nearer than the
+one they'd build on next, they send Infantry to capture it and then connect
+it. In that last phase they research Command Doctrine first and
+build a command point on every control point they can reach (and relink
+ones they've captured) before going back to extractors. All their
+Builders work on one job at a time and the Miner fetches what it's short
+of - and once that's covered, Electrum (from the 5-tile phase on).
+They only build Biomass extractors while biomass production is below +3,
+and Gold extractors only while they hold less than twice what their next
+military unit costs in Gold. Alongside, they
+train an army to use up their biomass, build what hub buildings they can and research what they can
+afford. A third of their army stays home on QRF; the
+rest attack together, with armour as escorts: Infantry raid the nearest
+rival, demolishing its structures - and sometimes its hub (always once
+nothing else is left). They repair their own hub whenever it's damaged.
+In the last phase each wave picks at
+random between a raid and going for command points - capturing rivals'
+command points, or guarding their own when there are none to take.
+Aircraft fly sorties at enemy units.
 
 ### Combat
 
@@ -256,9 +306,9 @@ target's type (hover over a unit in Training to see its numbers):
 
 | Attacker | vs Infantry | vs Civilian | vs Armour | vs Air |
 |---|---|---|---|---|
-| Miner, Builder | 1 | 3 | 0 | 0 |
+| Miner, Builder | 1 | 2 | 0 | 0 |
 | Guard | 3 | 4 | 0 | 0 |
-| Infantry | 4 | 5 | 2 | 2 |
+| Infantry | 4 | 6 | 2 | 2 |
 | Assault Infantry | 6 | 10 | 5 | 5 |
 | AT Infantry | 5 | 7 | 10 | 3 |
 | Stinger Infantry | 4 | 5 | 6 | 4 |
@@ -285,16 +335,16 @@ area joins in (units at their own hub stay safe), and battles whose areas
 overlap become one. Everyone in it stops for the turn, and one round is
 fought:
 
-1. Units already below half their HP (under 5) flee straight away.
-2. Each colony's other units are put in a list in random order. The lists
-   take turns highest **initiative** first (colonies with the same
+1. Each colony's units are put in a list in random order - hurt ones too.
+   The lists take turns highest **initiative** first (colonies with the same
    initiative go in a random order): the first unit of each list fires,
    then the second of each, and so on.
-3. Every unit fires once (armour twice in a row), at an enemy still in the
-   fight, picked at random from its preferred targets (see above). A unit hit to 0 HP dies at once; one hit below half its
-   HP breaks and flees at once. Either way it's out of the fight and
-   doesn't get to fire.
-4. Units that fled abandon their mission, retreat a tile towards their
+2. Every unit fires once (armour twice in a row), at an enemy still in the
+   fight, picked at random from its preferred targets (see above). A unit hit to 0 HP dies at once; one hit leaving it at or below
+   half its HP (5 or less) breaks and flees at once - even one that was
+   already there, so a hurt unit fights on until it's hit again. Either way it's out of
+   the fight and doesn't get to fire.
+3. Units that fled abandon their mission, retreat a tile towards their
    hub, then walk home. Aircraft fly home at the start of the next turn.
 
 Units still sharing a tile next turn fight another round. Damaged units
@@ -307,11 +357,12 @@ the rest for that turn.
 ### Missions
 
 Open **Mission Briefing** on the bottom bar, pick a mission from a unit's
-dropdown, press **Select Target** and click a tile. (Escort and QRF need no
-tile: the button says **Give Order**.)
+dropdown, press **Select Target** and click a tile. (Escort, QRF, Regroup,
+Wait and Heal need no tile: the button says **Give Order**.)
 
-The second dropdown says how many times to do it: 1 (the default) to 5, or
-INF for forever. Each time the unit is back in Mission Briefing (hurt units
+The second dropdown says how many times to do it: 1 (the default), 5, 10,
+20 or INF for forever (Guard can't be INF; for QRF and Wait it's the
+number of turns). Each time the unit is back in Mission Briefing (hurt units
 once healed, aircraft once refitted) it's given the same order again at the
 end of the turn, and sets out the turn after. If the hub can't pay for it
 yet, the unit waits until it can. If the order can't be given any more (e.g.
@@ -333,24 +384,32 @@ them. A bridge order goes to just the Builder you picked.
 | Guard | Guard, infantry, armour | Hold a tile for 20 turns |
 | Escort | Infantry, armour | Follow a unit from the hub wherever it goes, fighting beside it, and come home with it (not aircraft) |
 | Capture | Infantry | Take over an enemy extractor or conveyor belt |
-| Demolish | Infantry | Tear down foundations, bridges, belts or extractors |
-| QRF | Guard, infantry, armour | Stand by in the Quick Reaction Force room and defend your extractors and belts (see below) |
+| Demolish | Infantry | Tear down foundations, bridges, belts, extractors or command points (3 turns on the spot), or knock 1 health off an enemy hub from next to it (see Hub health) |
+| QRF | Guard, infantry, armour | Stand by in the Quick Reaction Force room and defend your extractors, belts and hub (see below) |
+| Regroup | Infantry, armour | Stand by like the QRF until every military unit is home and healed, then the whole army goes to Mission Briefing (see The central hub's rooms) |
 | Sortie | Air | Fly straight to any tile but a hub and fight there (see below) |
 
-**Sortie.** Aircraft don't walk. Once every other unit has moved (the QRF
-included), each aircraft on a sortie jumps straight to its target, over
-anything in between, and starts or joins battles there like anyone else.
+**Sortie.** Aircraft don't walk. Before anyone else moves, each aircraft on
+a sortie jumps straight to its target, over anything in between - so it
+catches whoever is on that tile at the start of the turn, and they stay to
+fight. It starts or joins battles there like anyone else, and enemies that
+walk onto it that turn join in.
 At the start of the next turn it flies straight home, and refits in the
-Hangar for 10 turns, which also repairs it. It then goes to Mission
-Briefing, ready for another sortie.
+Hangar for 5 turns. If it's damaged it's then repaired there (see Healing).
+It then goes to Mission Briefing, ready for another sortie.
 
 **QRF (quick reaction force).** QRF units don't move with everyone else.
 Once every other unit has finished moving, each QRF unit heads for the
 nearest enemy standing on one of your structures (extractors and conveyor
-belts; foundations and bridges can't be owned), hoping to start a battle.
-It picks again every turn, and walks back to the QRF room once no enemies
-are left on your structures. It stays on duty until you drag it out of the
-QRF room. If it breaks in battle, it drops QRF duty and comes home.
+belts; foundations and bridges can't be owned) or right next to your hub,
+hoping to start a battle. It picks again every turn, and walks back to the
+QRF room once no enemies are left there. It stays on duty for the number
+of turns picked in the second dropdown (20 when dragged into the QRF room;
+INF until you drag it out), then goes to Mission Briefing - at once if it's
+standing by, or once it's back if it's out chasing. A hurt QRF unit
+standing by goes to the Med Bay or Garage and comes back on duty once
+healed, with the turns it had left; one that breaks in battle does the
+same once it's home.
 
 ### Building an economy
 
@@ -358,11 +417,14 @@ Harvesting by hand brings back 1 resource per trip (not Biomass - only
 extractors get that). For a steady income:
 
 1. Lay **foundations** from your hub out to a deposit, and on the deposit.
+   Each costs Sediment by its distance from your hub: 1 within 5 tiles, 5
+   within 10, 20 within 20 and 50 beyond - so far-off lines (like the ones
+   to Electrum) are a big investment.
 2. Build **conveyor belts** on the foundations, including on the deposit.
 3. Build an **extractor** on top of the belt on the deposit. A Biomass
-   extractor adds 1 to your biomass production while its deposit lasts; an
-   Electrum extractor delivers 1 per turn; Titanium, Sediment and Gold
-   extractors deliver 0.2 per turn (1 every 5 turns).
+   extractor adds 2 to your biomass production while its deposit lasts;
+   Titanium, Sediment, Gold and Electrum extractors deliver 0.2 per turn
+   (1 every 5 turns).
 
 Each resource's numbers (deposit sizes, where it appears, what the Miner
 harvests per trip, what an extractor delivers) and its map icon live in its
@@ -386,18 +448,35 @@ chasms.
 | Left click | Select a target; click your hub to open it |
 | Right click / Esc | Cancel targeting |
 | H / M / F / T / B / R | Central Hub, Mission Briefing, In the Field, Training, Buildings, Research panels |
+| E | Show or hide the event log (also the log button at the right end of the bottom bar) |
 | Drag a unit card | Move a unit between the hub's rooms (Central Hub panel) |
-| Enter | End turn (or Next) |
+| Space | End turn (or Next) |
+| Enter | End turn (skips Next) |
 | F5 / F9 | Save / load |
 
 **Skip idle turns** (top bar) moves straight on to the next turn while
-nothing needs you. Something needs you when units are waiting for orders,
-when you can train a unit (you can afford it and feed it), or when you can
-afford a research. Then the End Turn button says **Next**: clicking it (or
-pressing Enter) opens Mission Briefing, Training or Research, in that
-order. Closing that panel counts it as dealt with, even if you could still
-do something there; it only stops the game again once it newly becomes
-true (another unit comes home, or you can afford something you couldn't).
+nothing needs you, and nobody is in enemy territory (your units on a
+rival's structures or hub, or theirs on yours). Something needs you when
+units are waiting for orders,
+when you can train a unit (you can afford it and feed it), when research
+has unlocked a new hub building, or when you can afford a research. Then
+the End Turn button says **Next**: clicking it (or pressing Space) opens
+Mission Briefing, Training, Buildings or Research, in that order. Closing
+that panel counts it as dealt with for the rest of the turn (unless
+something new turns up), but next turn anything still waiting stops you
+again - even if you ended the turn with Enter. A new building only needs
+seeing once.
+
+Units waiting in Mission Briefing are a **hard stop**: the turn can't end
+(not even with Enter) until each has an order - or Wait, to park it off
+duty. Units about to repeat an order don't count.
+
+Some events also stop Skip idle turns and show a banner at the top of the
+screen (the full list is in `scripts/game/notices.gd`): your hub being
+damaged (or you damaging a rival's), an enemy unit stepping onto one of
+your structures (your territory), and an enemy demolishing or capturing
+one of your structures. Each banner, and each popup, moves the camera to
+where it happened.
 
 ## Running the game
 

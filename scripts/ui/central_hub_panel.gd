@@ -11,10 +11,16 @@ extends HudPanel
 ## first, in healing order; drag one onto another of them to change the order
 ## (a "heal_order" order, via hud.heal_order_requested). Units in training
 ## show as greyed-out cards in the room that holds them, and can't be moved.
+## In rooms that heal, a green box at the top holds the units being healed
+## now, one place per unit the room can heal at a time.
 ## The big red RTB button at the top recalls every unit (Orders.recall_all()).
 
 const COLUMNS := 4
 const ROOM_WIDTH := 215.0
+## Space between unit cards in a room.
+const CARD_GAP := 4
+## A unit card's height (measured from a real one; see _make_healing_box()).
+static var _card_height := 48.0
 const GAP := 8
 
 const CARD_COLOR := Color(0.2, 0.15, 0.14, 0.95)
@@ -64,16 +70,8 @@ func get_button_text() -> String:
 
 
 func fill() -> void:
-	var top := HBoxContainer.new()
-	top.add_theme_constant_override("separation", 12)
-	var note := Label.new()
-	note.text = "Drag units between rooms. Hover over a room to see what it's for."
-	note.modulate = Color(1, 1, 1, 0.65)
-	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	top.add_child(note)
-	top.add_child(_make_rtu_button())
-	add(top)
+	add(_make_health_row())
+	add_note("Drag units between rooms. Hover over a room to see what it's for.")
 	_room_boxes.clear()
 	var grid := GridContainer.new()
 	grid.columns = COLUMNS
@@ -86,12 +84,80 @@ func fill() -> void:
 	add(grid)
 
 
+## The hub's health (enemy Infantry demolishing it take 1 off; at 0 the
+## colony is lost) and the Repair button.
+func _make_health_row() -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var label := Label.new()
+	label.text = "Hub health %d/%d" % [player.hub_health, Player.HUB_MAX_HEALTH]
+	var share := float(player.hub_health) / Player.HUB_MAX_HEALTH
+	var fill_color := Color(0.35, 0.85, 0.35)
+	if share <= 0.3:
+		fill_color = Color(1.0, 0.35, 0.3)
+		label.add_theme_color_override("font_color", fill_color)
+	elif share <= 0.6:
+		fill_color = Color(1.0, 0.75, 0.25)
+		label.add_theme_color_override("font_color", fill_color)
+	row.add_child(label)
+	var bar := ProgressBar.new()
+	bar.add_theme_stylebox_override("background", UiStyle.box_style(Color(0.08, 0.08, 0.08), Color(0.4, 0.4, 0.4), 1, 3))
+	bar.add_theme_stylebox_override("fill", UiStyle.box_style(fill_color, fill_color, 0, 3))
+	bar.max_value = Player.HUB_MAX_HEALTH
+	bar.value = player.hub_health
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(120, 14)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(bar)
+	var button := UiStyle.make_button("Repair (%s)" % ResourceDeposit.format_cost(Player.HUB_REPAIR_COST),
+		func() -> void: hud.repair_hub_requested.emit())
+	var refusal := player.get_hub_repair_refusal()
+	button.disabled = refusal != ""
+	button.tooltip_text = "Restore 1 health for %s, once a turn.\nEnemy Infantry next to the hub demolish 1 health every %d turns; at 0 your colony is lost." % [
+		ResourceDeposit.format_cost(Player.HUB_REPAIR_COST), DemolitionBuildable.new().build_turns]
+	if refusal != "":
+		button.tooltip_text += "\nCan't right now: %s." % refusal
+	row.add_child(button)
+	return row
+
+
+## Regroup and RTB sit in the title row, so they're there however far the
+## rooms scroll.
+func fill_header(header: HBoxContainer) -> void:
+	header.add_child(_make_regroup_button())
+	header.add_child(_make_rtb_button())
+
+
+## Regroup (Player.start_regroup()): military units coming home stand by
+## until the whole army is home and healed, then all go to Mission Briefing.
+## While one is under way it shows how many are home.
+func _make_regroup_button() -> Button:
+	var button := UiStyle.make_button("Regroup", func() -> void: hud.regroup_requested.emit())
+	button.custom_minimum_size = Vector2(100, 36)
+	button.add_theme_font_size_override("font_size", 18)
+	button.tooltip_text = "Regroup the army: every military unit that comes home (or is waiting in Mission Briefing) stands by in the QRF room - defending like the QRF, healing when hurt - until all of them are home and at full health. Then they all come to Mission Briefing together.
+Units out on missions finish them first."
+	if player.regroup_active:
+		var progress := player.get_regroup_progress()
+		button.text = "Regrouping %d/%d" % progress
+		button.disabled = true
+		button.tooltip_text = "Regroup under way: %d of %d military units are home and healed." % progress
+	else:
+		var refusal := player.start_regroup_refusal()
+		if refusal != "":
+			button.disabled = true
+			button.tooltip_text += "
+Can't right now: %s." % refusal
+	return button
+
+
 ## The big red RTB (return to base) button: every unit drops its mission
 ## and comes home (Player.recall_all()).
-func _make_rtu_button() -> Button:
+func _make_rtb_button() -> Button:
 	var button := UiStyle.make_button("RTB", func() -> void: hud.recall_all_requested.emit())
-	button.custom_minimum_size = Vector2(120, 44)
-	button.add_theme_font_size_override("font_size", 22)
+	button.custom_minimum_size = Vector2(100, 36)
+	button.add_theme_font_size_override("font_size", 20)
 	button.add_theme_color_override("font_color", Color.WHITE)
 	button.add_theme_color_override("font_hover_color", Color.WHITE)
 	for state in ["normal", "hover", "pressed"]:
@@ -128,15 +194,49 @@ func _make_room(room: Room) -> PanelContainer:
 			training.append(i)
 	var heading := UiStyle.heading(room.display_name + ("  (%d)" % units.size() if not units.is_empty() else ""))
 	column.add_child(heading)
+	var healing_now: Array[Unit] = []
 	if not room.heals.is_empty():
 		var slots := room.get_heal_slots(player)
 		column.add_child(_small_text("Heals %d at a time, +%d HP a turn" % [slots, room.get_heal_rate(player)]))
+		var queue := room.get_healing_queue(player)
+		for i in mini(slots, queue.size()):
+			healing_now.append(queue[i])
+		column.add_child(_make_healing_box(slots, healing_now, room))
 	for unit in units:
-		column.add_child(_make_unit_card(unit, room))
+		if not unit in healing_now:
+			column.add_child(_make_unit_card(unit, room))
 	for i in training:
 		column.add_child(_make_training_card(i, room))
 	if units.is_empty() and training.is_empty():
 		column.add_child(UiStyle.note("Empty"))
+	return box
+
+
+## The green box at the top of a healing room: one place per unit it can
+## heal at a time (Room.get_heal_slots()), holding the units being healed
+## now - empty places show as empty space. Everyone below it is waiting.
+func _make_healing_box(slots: int, healing: Array[Unit], room: Room) -> PanelContainer:
+	var box := PanelContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE  # Drops land on the room.
+	var style := UiStyle.box_style(Color(0.2, 0.75, 0.3, 0.12), Color(0.35, 1.0, 0.45, 0.9), 2, 6)
+	style.set_content_margin_all(4)
+	box.add_theme_stylebox_override("panel", style)
+	var inner := VBoxContainer.new()
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner.add_theme_constant_override("separation", CARD_GAP)
+	box.add_child(inner)
+	for unit in healing:
+		inner.add_child(_make_unit_card(unit, room))
+	# Room for `slots` cards, full or not (sized to a real card once one is laid out).
+	inner.custom_minimum_size.y = slots * _card_height + (slots - 1) * CARD_GAP
+	if not healing.is_empty():
+		var first: Control = inner.get_child(0)
+		first.resized.connect(func() -> void:
+			var h := first.get_combined_minimum_size().y  # Not size: that can be stretched.
+			if h > 0:
+				_card_height = h
+				inner.custom_minimum_size.y = slots * _card_height + (slots - 1) * CARD_GAP
+				hud.refit_section())
 	return box
 
 
@@ -321,6 +421,9 @@ func _can_drop(_at: Vector2, data: Variant, room: Room, onto: Unit) -> bool:
 		_set_drag_hint("Can't go to the %s: %s" % [room.display_name, reason], false)
 		return false
 	var note := " (calls off its mission)" if unit.mission else ""
+	if room is QrfRoom:
+		_set_drag_hint("Put on QRF duty for %d turns%s" % [QrfMission.DRAG_TURNS, note], true)
+		return true
 	_set_drag_hint("Move to the %s%s" % [room.display_name, note], true)
 	return true
 

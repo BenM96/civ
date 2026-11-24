@@ -9,6 +9,6 @@ const ID := "flight_crew_quarters"
 func _init() -> void:
 	id = ID
 	display_name = "Flight Crew Quarters"
-	description = "Hangar upgrade: aircraft refit 1 turn faster after each sortie."
+	description = "Hangar upgrade: aircraft refit 1 turn faster after each sortie, and the Hangar repairs one more aircraft at a time."
 	requires = HangarBuilding.ID
 	max_count = 3

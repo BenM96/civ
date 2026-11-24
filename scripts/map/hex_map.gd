@@ -6,6 +6,10 @@ extends Node2D
 signal map_generated
 ## A tile's terrain changed after generation (e.g. a foundation was laid).
 signal tile_changed(h: Vector2i)
+## A colony lost a structure to another: `by_faction` demolished it (it's
+## gone) or captured it (it's theirs now). Not sent when a colony removes or
+## replaces its own.
+signal structure_lost(h: Vector2i, type: Structure.Type, owner_faction: int, by_faction: int)
 
 @export var width := 40
 @export var height := 26
@@ -342,17 +346,24 @@ func set_terrain(h: Vector2i, terrain: Terrain.Type) -> void:
 
 ## Places (or clears, with Structure.Type.NONE) a structure on a tile,
 ## owned by the faction whose hub built it. Structures don't affect movement.
-func set_structure(h: Vector2i, type: Structure.Type, owner_faction := Faction.NONE) -> void:
+## `by_faction`: who did it, when clearing (demolishing) - defaults to the
+## new owner (building or capturing). See structure_lost.
+func set_structure(h: Vector2i, type: Structure.Type, owner_faction := Faction.NONE, by_faction := Faction.NONE) -> void:
 	var tile := get_tile(h)
 	if tile == null:
 		return
 	var new_owner := Faction.NONE if type == Structure.Type.NONE else owner_faction
 	if tile.structure == type and tile.structure_owner == new_owner:
 		return
+	var old_type := tile.structure
+	var old_owner := tile.structure_owner
+	var by := by_faction if by_faction != Faction.NONE else new_owner
 	tile.structure = type
 	tile.structure_owner = new_owner
 	mark_dirty(h)
 	tile_changed.emit(h)
+	if old_owner != Faction.NONE and new_owner != old_owner and by != old_owner:
+		structure_lost.emit(h, old_type, old_owner, by)
 
 
 ## Lets the map draw each faction's hub links and supply network.

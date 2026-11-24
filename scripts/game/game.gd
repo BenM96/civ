@@ -64,6 +64,17 @@ var _game_over := false
 ## A starvation report (see Player.starve()) waiting for this turn's battle
 ## replays to finish before its popup shows; {} if none.
 var _pending_starvation: Dictionary = {}
+## Hub hits this turn involving us, for the banners at the start of the
+## next: "attacker id:defender id" -> health left (the latest).
+var _hub_hits: Dictionary = {}
+## Our structures an enemy took this turn, for the next turn's banner:
+## [[Structure.Type, by faction, captured?, hex]].
+var _lost_structures: Array = []
+## Enemy units standing on our structures (our territory) last we looked:
+## unit id -> true. Only newcomers get a banner (see _check_intruders()).
+var _intruders: Dictionary = {}
+## Banners waiting for the battle replays to finish (see Notices).
+var _pending_notices: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -93,6 +104,9 @@ func _ready() -> void:
 	turns.win_goal_reached_already = bool(save.get("gold_goal_reached", false))
 	UnitStackLayout.arrange(map)
 
+	for player in players:
+		player.hub_damaged.connect(_on_hub_damaged.bind(player))
+	map.structure_lost.connect(_on_structure_lost)
 	local_player.unit_event.connect(hud.log_event)
 	local_player.units_changed.connect(_refresh_markers)
 	hud.end_turn_requested.connect(_on_end_turn_pressed)
@@ -110,6 +124,14 @@ func _ready() -> void:
 	hud.recall_all_requested.connect(func() -> void:
 		_cancel_targeting()
 		_submit(Orders.recall_all()))
+	hud.notice_shown.connect(func(notice: Dictionary) -> void:
+		if notice.get("at") != null:
+			camera.focus_on(map.hex_to_world(notice["at"])))
+	hud.regroup_requested.connect(func() -> void:
+		var reason := _submit(Orders.start_regroup())
+		if reason != "":
+			hud.log_event("Can't regroup: %s" % reason)
+		hud.refresh())
 	hud.auto_end_toggled.connect(turns.set_auto_skip)
 	hud.train_requested.connect(func(bp: UnitBlueprint) -> void:
 		_submit(Orders.train(bp.unit_name)))
@@ -127,6 +149,13 @@ func _ready() -> void:
 			hud.log_event("Can't research that: %s" % reason))
 	hud.cancel_research_requested.connect(func(tech_id: String) -> void:
 		_submit(Orders.cancel_research(tech_id)))
+	hud.repair_hub_requested.connect(func() -> void:
+		var reason := _submit(Orders.repair_hub())
+		if reason == "":
+			hud.log_event("Repaired the hub (%d/%d health)." % [local_player.hub_health, Player.HUB_MAX_HEALTH])
+		else:
+			hud.log_event("Can't repair the hub: %s" % reason)
+		hud.refresh())
 	hud.heal_order_requested.connect(func(unit: Unit, index: int) -> void:
 		var reason := _submit(Orders.heal_order(unit, index))
 		if reason != "":
@@ -359,6 +388,8 @@ func _setup_turns(start_turn: int) -> void:
 	turns.event_logged.connect(hud.log_event)
 	turns.turn_started.connect(func(turn: int) -> void:
 		hud.set_turn(turn)
+		_check_intruders()
+		_show_notices.call_deferred()  # After any battles start (see there).
 		_update_inventory()
 		_refresh_markers())
 	turns.battles_fought.connect(_show_battles)
@@ -368,12 +399,16 @@ func _setup_turns(start_turn: int) -> void:
 	hud.popup_closed.connect(func() -> void: turns.paused = false)
 
 
-## Replays this turn's battles one after another, moving the camera to
-## each. Turns can't be ended until they've finished (or been skipped).
+## Replays this turn's battles that our units were in, one after another,
+## moving the camera to each (the rest are only in the event log). Turns
+## can't be ended until they've finished (or been skipped).
 func _show_battles(reports: Array[Dictionary]) -> void:
+	var ours := reports.filter(_involves_us)
+	if ours.is_empty():
+		return
 	turns.showing_battles = true
 	_cancel_targeting()
-	for report in reports:
+	for report: Dictionary in ours:
 		if _game_over:
 			break
 		var center := Vector2.ZERO
@@ -384,6 +419,15 @@ func _show_battles(reports: Array[Dictionary]) -> void:
 			break
 	turns.showing_battles = false
 	_show_pending_starvation()
+	_show_notices()
+
+
+## Whether any of our units fought in a battle (see Combat's report).
+func _involves_us(report: Dictionary) -> bool:
+	for info: Dictionary in report["units"].values():
+		if int(info["faction"]) == local_player.id:
+			return true
+	return false
 
 
 ## Someone holds every control point (see TurnManager._winners()): say who
@@ -405,6 +449,7 @@ func _on_win_goal_reached(winners: Array[Player]) -> void:
 	var color := winner.get_color()
 	message += "\n\nYou can keep playing, or start a new game."
 	hud.log_event("%s (turn %d)" % [title, turns.turn])
+	camera.focus_on(winner.global_position)
 	hud.show_winner(title, message, color)
 
 
@@ -427,27 +472,155 @@ func _show_pending_starvation() -> void:
 	_pending_starvation = {}
 	_cancel_targeting()
 	turns.paused = true  # Until the popup is closed.
+	camera.focus_on(local_player.global_position)
 	hud.show_starvation(report)
 
 
-## Losing every unit (with none in training) knocks a colony out: for the
-## local player that's a loss (even if others went on the same turn). Any
-## other colony collapses; once only the local player's is left, they win.
+## Losing every unit (with none in training), or the hub's health, knocks a
+## colony out: for the local player that's a loss (even if others went on
+## the same turn). Any other colony collapses (with a triumphant popup if
+## our Infantry knocked its hub out); once only the local player's is left,
+## they win.
 func _on_colonies_eliminated(eliminated: Array[Player]) -> void:
 	if local_player in eliminated:
-		_end_game("Colony Lost",
-			"Your colony has no units left (turn %d)." % turns.turn,
-			Color(1.0, 0.4, 0.35))
-		hud.log_event("Your last unit is gone - your colony is lost.")
+		if local_player.hub_health <= 0:
+			var by := Faction.get_display_name(local_player.last_attacker.id).to_lower() if local_player.last_attacker else "enemy"
+			camera.focus_on(local_player.global_position)
+			_end_game("Hub Destroyed",
+				"The %s's Infantry have torn down your hub (turn %d). Your colony is lost." % [by, turns.turn],
+				Color(1.0, 0.25, 0.2))
+			hud.log_event("Your hub has been destroyed - your colony is lost.")
+		else:
+			_end_game("Colony Lost",
+				"Your colony has no units left (turn %d)." % turns.turn,
+				Color(1.0, 0.4, 0.35))
+			hud.log_event("Your last unit is gone - your colony is lost.")
 		return
 	for colony in eliminated:
 		turns.remove_colony(colony)
 		colony.collapse()
-		hud.log_event("The %s has lost every unit and collapsed." % Faction.get_display_name(colony.id).to_lower())
+		var colony_name := Faction.get_display_name(colony.id).to_lower()
+		if colony.hub_health <= 0:
+			var by := colony.last_attacker
+			if by == local_player:
+				hud.log_event("We destroyed the %s's hub - it has collapsed!" % colony_name)
+				_hub_hits.erase("%d:%d" % [local_player.id, colony.id])  # The popup says it all.
+				turns.paused = true  # Until the popup is closed.
+				camera.focus_on(colony.global_position)
+				hud.show_colony_destroyed(colony_name)
+			else:
+				hud.log_event("The %s's hub was destroyed%s - it has collapsed." % [colony_name,
+					" by the %s" % Faction.get_display_name(by.id).to_lower() if by else ""])
+		else:
+			hud.log_event("The %s has lost every unit and collapsed." % colony_name)
 	if turns.players.size() == 1 and local_player in turns.players:
 		_end_game("Victory",
 			"Every rival colony has collapsed. Mars is yours (turn %d)." % turns.turn,
 			Color(0.45, 0.95, 0.4))
+
+
+## A hub lost health: log it if we're involved, and remember it for this
+## turn's banner (see _show_notices()).
+func _on_hub_damaged(attacker: Player, health: int, defender: Player) -> void:
+	if attacker != local_player and defender != local_player:
+		return
+	_hub_hits["%d:%d" % [attacker.id if attacker else -1, defender.id]] = health
+	if defender == local_player:
+		hud.log_event("Enemy Infantry damaged our hub: %d/%d health left!" % [health, Player.HUB_MAX_HEALTH])
+
+
+## Another colony demolished or captured one of our structures: log it and
+## remember it for this turn's banner.
+func _on_structure_lost(h: Vector2i, type: Structure.Type, owner_faction: int, by_faction: int) -> void:
+	if owner_faction != local_player.id:
+		return
+	var captured := map.get_tile(h).structure_owner == by_faction
+	_lost_structures.append([type, by_faction, captured, h])
+	hud.log_event("The %s %s our %s at (%d, %d)" % [_colony(by_faction), "captured" if captured else "demolished",
+		Structure.get_display_name(type).to_lower(), h.x, h.y])
+
+
+## Looks for enemy units that have just stepped onto one of our structures
+## (our territory) or our hub, and queues a banner for the newcomers.
+func _check_intruders() -> void:
+	var now := {}
+	var newcomers: Array[Unit] = []
+	for colony in players:
+		if colony == local_player or colony.collapsed:
+			continue
+		for u in colony.units:
+			if not u.is_in_world():
+				continue
+			var tile := map.get_tile(u.hex)
+			if u.hex != local_player.hex and (tile == null or tile.structure_owner != local_player.id):
+				continue
+			now[u.id] = true
+			if not _intruders.has(u.id):
+				newcomers.append(u)
+	_intruders = now
+	if newcomers.is_empty():
+		return
+	var first := newcomers[0]
+	var where := "your hub" if first.hex == local_player.hex \
+		else "your " + Structure.get_display_name(map.get_tile(first.hex).structure).to_lower()
+	var who := "The %s's %s" % [_colony(first.player.id), first.display_name]
+	if newcomers.size() > 1:
+		who = "%d enemy units" % newcomers.size()
+		where = "your structures"
+	_notify(Notices.Kind.ENEMY_IN_TERRITORY, {"who": who, "where": where}, first.hex)
+	hud.log_event("%s moved onto %s" % [who, where])
+
+
+## Queues an event banner (see Notices) for after any battle replays. `at`:
+## where it happened (the camera moves there), or null.
+func _notify(kind: Notices.Kind, values: Dictionary, at: Variant = null) -> void:
+	_pending_notices.append(Notices.make(kind, values, at))
+
+
+## Shows this turn's event banners (after the battle replays, if there are
+## any) and stops Skip idle turns so the player sees what happened.
+func _show_notices() -> void:
+	if turns.showing_battles or _game_over:
+		return  # Shown once the battles have been replayed.
+	for key: String in _hub_hits:
+		var attacker := int(key.get_slice(":", 0))
+		var defender := int(key.get_slice(":", 1))
+		var health: int = _hub_hits[key]
+		if health <= 0:
+			continue  # Knocked out: the elimination handles it.
+		var left := "%d/%d health left" % [health, Player.HUB_MAX_HEALTH]
+		if defender == local_player.id:
+			_notify(Notices.Kind.HUB_ATTACKED, {"other": _colony(attacker) if attacker >= 0 else "enemy", "left": left}, local_player.hex)
+		else:
+			var hub: Variant = map.players[defender].hex if map.players.has(defender) else null
+			_notify(Notices.Kind.HUB_BREACHED, {"other": _colony(defender), "left": left,
+				"cheer": "One more strike and they're finished!" if health == 1 else "Keep up the pressure!"}, hub)
+	_hub_hits = {}
+	if not _lost_structures.is_empty():
+		var what: String
+		if _lost_structures.size() == 1:
+			var lost: Array = _lost_structures[0]
+			what = "Your %s was %s by the %s" % [Structure.get_display_name(lost[0]).to_lower(),
+				"captured" if lost[2] else "demolished", _colony(lost[1])]
+		else:
+			var by := {}
+			for lost: Array in _lost_structures:
+				by[_colony(lost[1])] = true
+			what = "%d of your structures were demolished or captured by the %s" % [
+				_lost_structures.size(), " and the ".join(by.keys())]
+		_notify(Notices.Kind.STRUCTURE_LOST, {"what": what}, _lost_structures[0][3])
+		_lost_structures = []
+	if _pending_notices.is_empty():
+		return
+	for notice in _pending_notices:
+		hud.show_notice(notice)
+	_pending_notices = []
+	turns.player_acted()  # Don't skip past it.
+
+
+## A colony's name for messages, e.g. "pink colony".
+func _colony(faction: int) -> String:
+	return Faction.get_display_name(faction).to_lower()
 
 
 func _end_game(title: String, message: String, color: Color) -> void:
@@ -484,6 +657,17 @@ func _on_end_turn_pressed() -> void:
 	hud.open_section(Attention.SECTIONS[issue])
 
 
+## Enter: ends the turn without stopping at Next - except that units
+## waiting for orders always stop it (a hard stop): Mission Briefing opens.
+func _end_turn_skipping_next() -> void:
+	if attention and attention.blocks_end_turn():
+		_cancel_targeting()
+		hud.open_section(Hud.Section.BRIEFING)
+		hud.log_event(attention.describe(Attention.Issue.ORDERS))
+		return
+	turns.end_turn()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if _game_over or hud.is_popup_open():
 		return
@@ -496,7 +680,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and not event.echo:
 		var key := event as InputEventKey
 		if key.keycode == KEY_ENTER or key.keycode == KEY_KP_ENTER:
-			turns.end_turn()
+			_end_turn_skipping_next()
+		elif key.keycode == KEY_SPACE:
+			_on_end_turn_pressed()
 		elif key.keycode == KEY_F5:
 			save_game()
 		elif key.keycode == KEY_F9:
@@ -540,7 +726,7 @@ func _begin_targeting(unit: Unit, kind: String, repeats := 1) -> void:
 	_targeting_repeats = repeats
 	var what := "a destination"
 	if kind == "demolish":
-		what = "something man-made to demolish"
+		what = "something man-made, or an enemy hub, to demolish"
 	elif kind == "harvest":
 		what = "a deposit to harvest"
 	elif kind == "guard":
@@ -615,11 +801,8 @@ func _update_hover_info() -> void:
 				for job in line.get_job_counts(local_player, map, local_player.hex):
 					var b: Buildable = job[0]
 					var n: int = job[1]
-					var each := {}
-					for type in b.cost:
-						each[type] = b.cost[type] * n
 					info += "\n  %d %s%s - %s" % [n, b.display_name, "" if n == 1 else "s",
-						ResourceDeposit.format_cost(each)]
+						ResourceDeposit.format_cost(job[2])]
 				info += "\nTotal %s, paid job by job" % label
 			else:
 				var trip_turns := unit.estimate_turns(path)

@@ -5,6 +5,10 @@ extends Buildable
 ## the tile (foundations, extractors, conveyors) and leaves Rubble - except a
 ## bridge, which collapses back into the Chasm. Bridges are demolished from
 ## the bank so the unit isn't standing on it when it falls.
+##
+## An enemy hub can be demolished too, from a tile next to it: each
+## demolition knocks 1 off its health (see Player.damage_hub()), and at 0 the
+## colony is knocked out.
 ## Used by DemolishMission; Infantry do this, not Builders.
 
 
@@ -12,7 +16,7 @@ func _init() -> void:
 	id = "demolish"
 	display_name = "Demolition"
 	cost = {}
-	build_turns = 1
+	build_turns = 3
 
 
 ## Whether anything on `tile` was made by people.
@@ -32,6 +36,9 @@ static func describe(tile: HexTile) -> String:
 
 
 func get_invalid_reason(map: HexMap, h: Vector2i) -> String:
+	var hub := map.get_player_at(h)
+	if hub:
+		return "that colony is already gone" if hub.collapsed or hub.hub_health <= 0 else ""
 	var tile := map.get_tile(h)
 	if tile == null or not is_man_made(tile):
 		return "nothing man-made to demolish"
@@ -40,11 +47,15 @@ func get_invalid_reason(map: HexMap, h: Vector2i) -> String:
 
 func works_from_adjacent(map: HexMap, h: Vector2i) -> bool:
 	var tile := map.get_tile(h)
-	return tile != null and tile.terrain == Terrain.Type.BRIDGE
+	return map.get_player_at(h) != null or (tile != null and tile.terrain == Terrain.Type.BRIDGE)
 
 
-func apply(map: HexMap, h: Vector2i, _owner_faction: int) -> void:
+func apply(map: HexMap, h: Vector2i, owner_faction: int) -> void:
+	var hub := map.get_player_at(h)
+	if hub:
+		hub.damage_hub(map.players.get(owner_faction))
+		return
 	var was_bridge := map.get_tile(h).terrain == Terrain.Type.BRIDGE
 	# Structure first so the supply network sees the final state last.
-	map.set_structure(h, Structure.Type.NONE)
+	map.set_structure(h, Structure.Type.NONE, Faction.NONE, owner_faction)
 	map.set_terrain(h, Terrain.Type.CHASM if was_bridge else Terrain.Type.RUBBLE)

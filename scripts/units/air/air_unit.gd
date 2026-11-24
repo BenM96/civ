@@ -4,19 +4,20 @@ extends Unit
 ## one mission is a sortie (see SortieMission) - after everyone else has
 ## moved they jump straight to any tile, fight there, and fly home at the
 ## start of the next turn. Then they spend REFIT_TURNS refitting in the
-## Hangar (which also repairs them) before they can be sent out again.
+## Hangar before they can be sent out again; a damaged one is then repaired
+## there like armour in the Garage (see HangarRoom).
 ## Triangle icon. Each air unit sets its name, numbers and damage in its own
 ## file.
 
 ## Turns spent refitting in the Hangar after every sortie.
-const REFIT_TURNS := 10
+const REFIT_TURNS := 5
 
 
 func _init() -> void:
 	unit_type = UnitType.AIR
 	flies = true
 	refit_turns = REFIT_TURNS
-	cost = {ResourceDeposit.Type.GOLD: 3, ResourceDeposit.Type.TITANIUM: 2}
+	cost = {ResourceDeposit.Type.GOLD: 1, ResourceDeposit.Type.TITANIUM: 2, ResourceDeposit.Type.ELECTRUM: 2}
 	upkeep = 1
 	max_movement = 3
 	allowed_missions = ["sortie"]

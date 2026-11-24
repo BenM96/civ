@@ -11,12 +11,14 @@ extends RefCounted
 ## Every order says what it is under "order". Build them with the helpers
 ## below rather than by hand:
 ##   {"order": "mission", "unit": id, "kind": kind, "target": [x, y], "repeats": n}
-##       repeats: how many times to do it (default 1; REPEAT_FOREVER = forever).
+##       repeats: how many times to do it (default 1; REPEAT_FOREVER = forever;
+##       Guard can't be forever). For QRF it's the turns of duty instead.
+##   {"order": "start_regroup"}   Regroup button (see Player.start_regroup())
 ##       It's given again each time the unit is back in Mission Briefing
 ##       (see Player.repeat_orders()).
 ##       group: true (from the HUD) - a Builder's line job becomes the job all
 ##       Builders join (see Player.start_builder_group()).
-##       kind: "move", "harvest", "guard", "capture", "demolish", "qrf", "sortie",
+##       kind: "move", "harvest", "guard", "capture", "demolish", "qrf", "regroup", "sortie",
 ##       "escort:<unit id>" or "build:<buildable id>" (see make_mission())
 ##   {"order": "cancel_mission", "unit": id}
 ##   {"order": "move_room", "unit": id, "room": room id, "turns": n}   (see Room)
@@ -30,6 +32,7 @@ extends RefCounted
 ##   {"order": "cancel_building", "index": i}
 ##   {"order": "research", "tech": tech id}   (see Tech, TechTrees)
 ##   {"order": "cancel_research", "tech": tech id}
+##   {"order": "repair_hub"}   1 health back for Player.HUB_REPAIR_COST, once a turn
 ##   {"order": "debug_resources"}   TESTING ONLY - remove before release
 ##
 ## To add a new kind of action: add an order here (a helper and a case in
@@ -73,10 +76,15 @@ static func recall_all() -> Dictionary:
 	return {"order": "recall_all"}
 
 
+## The Central Hub panel's Regroup button (see Player.start_regroup()).
+static func start_regroup() -> Dictionary:
+	return {"order": "start_regroup"}
+
+
 ## Whether a mission kind needs a tile picked on the map. Escorts and QRF
 ## don't: the order is given straight away (with the hub as its target).
 static func needs_target(kind: String) -> bool:
-	return not (kind.begins_with("escort:") or kind == "qrf")
+	return not (kind.begins_with("escort:") or kind == "qrf" or kind == "regroup")
 
 
 static func train(unit_type: String) -> Dictionary:
@@ -112,6 +120,11 @@ static func cancel_research(tech_id: String) -> Dictionary:
 	return {"order": "cancel_research", "tech": tech_id}
 
 
+## Repairs 1 of the hub's health (see Player.repair_hub()).
+static func repair_hub() -> Dictionary:
+	return {"order": "repair_hub"}
+
+
 ## TESTING ONLY - remove before release (with its case in submit() and the
 ## HUD's "+50 all" button). Gives the colony DEBUG_RESOURCE_AMOUNT of every
 ## resource.
@@ -141,8 +154,18 @@ func submit(faction: int, order: Dictionary) -> String:
 			var reason := get_invalid_reason(player, unit, m)
 			if reason != "":
 				return reason
+			if m is GuardMission and int(order.get("repeats", 1)) == REPEAT_FOREVER:
+				return "Guard can't repeat forever - pick a number of times"
+			# QRF and Regroup are standing duties, never repeated: for QRF the
+			# repeat number is how many turns of duty instead.
+			if m is QrfMission and not m is RegroupMission:
+				var turns := int(order.get("repeats", REPEAT_FOREVER))
+				(m as QrfMission).turns_left = turns if turns > 0 else REPEAT_FOREVER
 			if not player.assign_mission(unit, m):
 				return "can't do that"
+			if m is QrfMission:
+				unit.set_repeats(_to_hex(order.get("target")), 0)
+				return ""
 			var repeats := int(order.get("repeats", 1))
 			unit.set_repeats(_to_hex(order.get("target")), repeats - 1 if repeats > 0 else Unit.REPEAT_FOREVER)
 			if order.get("group", false) and unit is Builder and m is LineBuildMission:
@@ -161,6 +184,8 @@ func submit(faction: int, order: Dictionary) -> String:
 		"recall_all":
 			player.recall_all()
 			return ""
+		"start_regroup":
+			return player.start_regroup()
 		"heal_order":
 			var unit := _own_unit(player, order)
 			if unit == null:
@@ -174,6 +199,8 @@ func submit(faction: int, order: Dictionary) -> String:
 			return player.research_tech(str(order.get("tech", "")))
 		"cancel_research":
 			return "" if player.cancel_research(str(order.get("tech", ""))) else "not being researched"
+		"repair_hub":
+			return player.repair_hub()
 		"train":
 			var bp := player.get_blueprint(str(order.get("unit_type", "")))
 			if bp == null:
@@ -253,6 +280,8 @@ static func make_mission(player: Player, kind: String, target: Vector2i) -> Miss
 			return DemolishMission.new(target)
 		"qrf":
 			return QrfMission.new()
+		"regroup":
+			return RegroupMission.new()
 		"sortie":
 			return SortieMission.new(target)
 	return null

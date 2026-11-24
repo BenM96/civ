@@ -41,6 +41,12 @@ func fill() -> void:
 	pass
 
 
+## Adds buttons to the panel's title row, next to the close button - they
+## stay visible while the contents scroll. Override.
+func fill_header(_header: HBoxContainer) -> void:
+	pass
+
+
 ## The bottom-bar button's text, e.g. "Units  (2 ready)". Override to add a
 ## count; `player` may be null before the game has started.
 func get_button_text() -> String:

@@ -193,6 +193,11 @@ func is_working() -> bool:
 	return phase == Phase.WORKING
 
 
+## The unit broke in battle and is dropping this mission to flee home.
+func on_broken() -> void:
+	pass
+
+
 func complete() -> void:
 	result = Result.COMPLETE
 

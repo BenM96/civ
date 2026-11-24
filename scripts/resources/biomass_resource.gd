@@ -17,7 +17,7 @@ func _init() -> void:
 	terrains = [Terrain.Type.REGOLITH, Terrain.Type.DUST_PLAINS, Terrain.Type.DUNES, Terrain.Type.HIGHLANDS]
 	stored = false
 	can_harvest = false
-	extractor_output = 1.0
+	extractor_output = 2.0
 
 
 ## A cluster of glowing green growths.
