@@ -773,6 +773,9 @@ func _draw_belt_links(h: Vector2i, owner_faction: int) -> void:
 			]), faction_color.lightened(0.6), 2.0)
 
 
+const FOB_SCALE := 1.4
+
+
 ## An FOB: a small stone fort - a walled tower with battlements and a flag
 ## in its owner's colour. The flag is dull while it's cut off from the hub.
 func _draw_fob(h: Vector2i) -> void:
@@ -782,6 +785,8 @@ func _draw_fob(h: Vector2i) -> void:
 	var owner_color := Faction.get_color(tile.structure_owner)
 	var stone := Color(0.62, 0.6, 0.55)
 	var dark := Color(0.2, 0.2, 0.22)
+	# Drawn 1.4x size about the tile centre (the shapes below are in hex sizes).
+	_canvas.draw_set_transform(c * (1.0 - FOB_SCALE), 0.0, Vector2(FOB_SCALE, FOB_SCALE))
 	# Outer wall, with battlements along the top.
 	var wall := Rect2(c + Vector2(-0.38, -0.02) * s, Vector2(0.76, 0.34) * s)
 	_canvas.draw_rect(wall.grow(1.5), dark)
@@ -807,6 +812,7 @@ func _draw_fob(h: Vector2i) -> void:
 	_canvas.draw_line(pole, pole + Vector2(0, -0.28) * s, dark, 2.0)
 	_canvas.draw_colored_polygon(PackedVector2Array([
 		pole + Vector2(0, -0.28) * s, pole + Vector2(0.22, -0.21) * s, pole + Vector2(0, -0.14) * s]), flag)
+	_canvas.draw_set_transform(Vector2.ZERO)
 
 
 ## A small drilling derrick over the deposit, with a status light:

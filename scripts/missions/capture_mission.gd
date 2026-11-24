@@ -79,6 +79,8 @@ func _get_target_invalid_reason(map: HexMap, faction: int) -> String:
 	var tile := map.get_tile(target)
 	if tile == null or tile.structure == Structure.Type.NONE:
 		return "nothing to capture there"
+	if tile.structure == Structure.Type.FOB:
+		return "FOBs can't be captured (demolish it instead)"
 	if tile.structure_owner == faction:
 		return "it's already ours"
 	if map.are_allied(tile.structure_owner, faction):

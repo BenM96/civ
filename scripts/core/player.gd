@@ -896,6 +896,19 @@ func is_supply_connected(h: Vector2i) -> bool:
 	return _network.has(h)
 
 
+## Our FOBs linked to the hub by belts - the places QRF units can be based
+## besides the hub (see QrfMission), nearest the hub first.
+func get_fob_bases() -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	for h: Vector2i in _network:
+		var tile := map.get_tile(h)
+		if tile.structure == Structure.Type.FOB and tile.structure_owner == id:
+			result.append(h)
+	result.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return Hex.distance(a, hex) < Hex.distance(b, hex) or (Hex.distance(a, hex) == Hex.distance(b, hex) and (a.x < b.x or (a.x == b.x and a.y < b.y))))
+	return result
+
+
 ## How many of the map's control points have one of our command points on
 ## them, linked to the hub by belts (only those count towards victory).
 func count_linked_command_points() -> int:
@@ -1157,6 +1170,10 @@ func start_regroup() -> String:
 	regroup_active = true
 	var recalled := 0
 	for u in get_regroup_units():
+		if u.mission is QrfMission and (u.mission as QrfMission).base != null:
+			(u.mission as QrfMission).base = null  # Comes home from its FOB.
+			u.set_destination(hex)
+			continue
 		if u.mission == null or u.mission is QrfMission:
 			continue
 		u.repeats_left = 0
@@ -1271,7 +1288,10 @@ func _rejoin_duties() -> void:
 			"intercept":
 				m = InterceptMission.new(u.rejoin_turns)
 			_:
-				m = QrfMission.new(u.rejoin_turns)
+				m = QrfMission.new(u.rejoin_turns, u.rejoin_base)
+				if u.rejoin_base != null and not QrfMission.is_valid_base(self, u.rejoin_base):
+					m.base = null  # Its FOB has gone meanwhile.
+		u.rejoin_base = null
 		if kind == "regroup" and not is_regrouping():
 			continue  # It ended while we were away.
 		if u.can_accept_mission(m) and assign_mission(u, m):

@@ -87,10 +87,14 @@ static func start_regroup() -> Dictionary:
 	return {"order": "start_regroup"}
 
 
-## Whether a mission kind needs a tile picked on the map. Escorts, QRF and Intercept
-## don't: the order is given straight away (with the hub as its target).
-static func needs_target(kind: String) -> bool:
-	return not (kind.begins_with("escort:") or kind == "qrf" or kind == "regroup" or kind == "intercept")
+## Whether a mission kind needs a tile picked on the map. Escorts, Regroup
+## and Intercept don't: the order is given straight away (with the hub as its
+## target). Nor does QRF - unless `player` has an FOB linked to its hub, when
+## the hub or an FOB is picked as the unit's base (see QrfMission).
+static func needs_target(kind: String, player: Player = null) -> bool:
+	if kind == "qrf":
+		return player != null and not player.get_fob_bases().is_empty()
+	return not (kind.begins_with("escort:") or kind == "regroup" or kind == "intercept")
 
 
 static func train(unit_type: String) -> Dictionary:
@@ -293,7 +297,7 @@ static func make_mission(player: Player, kind: String, target: Vector2i) -> Miss
 		"demolish":
 			return DemolishMission.new(target)
 		"qrf":
-			return QrfMission.new()
+			return QrfMission.new(Unit.REPEAT_FOREVER, target if target != player.hex else null)
 		"regroup":
 			return RegroupMission.new()
 		"sortie":

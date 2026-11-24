@@ -789,7 +789,7 @@ func _on_left_click() -> void:
 # --- Targeting -------------------------------------------------------------
 
 func _begin_targeting(unit: Unit, kind: String, repeats := 1) -> void:
-	if not Orders.needs_target(kind):
+	if not Orders.needs_target(kind, local_player):
 		# Nothing to pick on the map: order it straight away.
 		_cancel_targeting()
 		var reason := _submit(Orders.mission(unit, kind, local_player.hex, repeats, true))
@@ -809,6 +809,8 @@ func _begin_targeting(unit: Unit, kind: String, repeats := 1) -> void:
 		what = "a deposit to harvest"
 	elif kind == "guard":
 		what = "a tile to guard"
+	elif kind == "qrf":
+		what = "a base for the QRF: your hub, or one of your FOBs"
 	elif kind == "capture":
 		what = "another colony's structure to capture"
 	elif kind.begins_with("build:"):

@@ -122,6 +122,8 @@ var wait_turns_left := 0
 ## (REPEAT_FOREVER for no limit).
 var rejoin_kind := ""
 var rejoin_turns := 0
+## For QRF: the FOB it was based at (see QrfMission.base), or null for the hub.
+var rejoin_base: Variant = null
 ## Resources being carried home: ResourceDeposit.Type -> int.
 ## The hub unloads this when the unit returns.
 var cargo: Dictionary = {}
@@ -348,6 +350,7 @@ func to_dict() -> Dictionary:
 		"wait_turns_left": wait_turns_left,
 		"rejoin_kind": rejoin_kind,
 		"rejoin_turns": rejoin_turns,
+		"rejoin_base": SaveGame.hex_to_data(rejoin_base) if rejoin_base != null else null,
 		"health": health,
 		"cargo": SaveGame.resources_to_data(cargo),
 		"materials": SaveGame.resources_to_data(materials),
@@ -368,6 +371,7 @@ func load_dict(data: Dictionary) -> void:
 	wait_turns_left = int(data["wait_turns_left"])
 	rejoin_kind = str(data["rejoin_kind"])
 	rejoin_turns = int(data["rejoin_turns"])
+	rejoin_base = SaveGame.hex_from_data(data["rejoin_base"]) if data.get("rejoin_base") != null else null
 	health = int(data["health"])
 	cargo = SaveGame.resources_from_data(data["cargo"])
 	materials = SaveGame.resources_from_data(data.get("materials", {}))  # Older saves lack it.

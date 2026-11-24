@@ -22,7 +22,13 @@ extends Mission
 ## or Garage) and comes back on duty once healed, with the turns it had left
 ## (Unit.rejoin_kind; the count pauses meanwhile). One that breaks in battle
 ## does the same once it's home.
-## Needs no target tile.
+## Needs no target tile - unless the colony has an FOB linked to its hub by
+## belts (see FobBuildable): then the player picks the hub or one of those
+## FOBs as its base. Based at an FOB, the unit walks there and stands by on
+## it instead of in the QRF room, sets off from there, and comes back there
+## (enemies next to the FOB count as intruders too). If the FOB is lost or
+## cut off from the hub, the unit is based at the hub again and heads home.
+## Hurt or broken, it goes home to heal and comes back to the same FOB.
 
 ## Turns of duty when a unit is dragged into the QRF room.
 const DRAG_TURNS := 20
@@ -33,10 +39,30 @@ var turns_left := Unit.REPEAT_FOREVER
 var _chasing: Variant = null
 ## Finished because it went off to heal (comes back afterwards).
 var _off_to_heal := false
+## The FOB it's based at, or null for the hub (see base_hex()).
+var base: Variant = null
 
 
-func _init(p_turns := Unit.REPEAT_FOREVER) -> void:
+func _init(p_turns := Unit.REPEAT_FOREVER, p_base: Variant = null) -> void:
 	turns_left = p_turns
+	base = p_base
+
+
+## Where it stands by: its FOB, or the hub.
+func base_hex() -> Vector2i:
+	return base if base != null else unit.player.hex
+
+
+## Whether `h` can be a QRF base for `player`: the hub, or one of its FOBs
+## linked to the hub by belts.
+static func is_valid_base(player: Player, h: Vector2i) -> bool:
+	return h == player.hex or h in player.get_fob_bases()
+
+
+func get_invalid_reason(u: Unit) -> String:
+	if base != null and not is_valid_base(u.player, base):
+		return "pick your hub or one of your FOBs linked to it by belts"
+	return ""
 
 
 func get_display_name() -> String:
@@ -48,7 +74,8 @@ func get_kind() -> String:
 
 
 func get_description() -> String:
-	return "QRF (quick reaction force)%s" % _turns_text()
+	var at := " at the FOB at (%d, %d)" % [base.x, base.y] if base != null else ""
+	return "QRF (quick reaction force)%s%s" % [at, _turns_text()]
 
 
 ## E.g. " for 12 more turns", or "" with no limit.
@@ -75,36 +102,46 @@ func get_completion_text() -> String:
 func prepare() -> void:
 	if turns_left > 0:
 		turns_left -= 1
-	if unit.hex != unit.player.hex or unit.engaged:
-		return  # Out chasing (or fighting): decides once home.
+	if base != null and not is_valid_base(unit.player, base):
+		unit.player.unit_event.emit("%s: the FOB at (%d, %d) is gone or cut off - back to QRF duty at the hub" % [
+			unit.display_name, base.x, base.y])
+		base = null
+	if unit.hex != base_hex() or unit.engaged:
+		return  # Out chasing (or fighting, or on the way to its base): decides once there.
 	if turns_left == 0:
 		complete()
 	elif unit.is_injured() and unit.player.get_healing_room_for(unit) != null:
 		_off_to_heal = true
-		unit.rejoin_kind = get_kind()
-		unit.rejoin_turns = turns_left
+		_leave_to_heal()
 		complete()
 
 
 ## Broke in battle: back on duty once home and healed.
 func on_broken() -> void:
 	if turns_left != 0:
-		unit.rejoin_kind = get_kind()
-		unit.rejoin_turns = turns_left
+		_leave_to_heal()
+
+
+## Remembers the duty, so the unit takes it up again once healed.
+func _leave_to_heal() -> void:
+	unit.rejoin_kind = get_kind()
+	unit.rejoin_turns = turns_left
+	unit.rejoin_base = base
 
 
 func get_progress_text() -> String:
 	if _chasing != null:
 		return "QRF: heading for the enemy at (%d, %d)" % [_chasing.x, _chasing.y]
-	if unit.hex == unit.player.hex:
-		return "QRF: standing by"
-	return "QRF: no enemies on our structures - returning to the hub (%d turn(s) left)" % unit.estimate_turns(unit.get_remaining_path())
+	if unit.hex == base_hex():
+		return "QRF: standing by" + (" at the FOB" if base != null else "")
+	return "QRF: no enemies on our structures - returning to %s (%d turn(s) left)" % [
+		"the FOB" if base != null else "the hub", unit.estimate_turns(unit.get_remaining_path())]
 
 
 func get_target_hex() -> Variant:
 	if _chasing != null:
 		return _chasing
-	return unit.player.hex if unit else null
+	return base_hex() if unit else null
 
 
 func get_move_phase() -> MovePhase:
@@ -115,7 +152,8 @@ func get_departure_room_id() -> String:
 	return QrfRoom.ID
 
 
-## On standby in the hub it can be taken off duty.
+## On standby in the hub it can be taken off duty (based at an FOB, it
+## can be recalled from the Field panel instead).
 func can_cancel_at_hub() -> bool:
 	return true
 
@@ -132,7 +170,8 @@ func on_arrived() -> void:
 
 
 ## Called by Movement once every other unit has finished moving: heads for
-## the nearest enemy on one of our structures, or home if there are none.
+## the nearest enemy on one of our structures, or back to its base (the hub
+## or its FOB) if there are none.
 func react() -> void:
 	if unit.engaged:
 		return  # Already fighting: stays put this turn.
@@ -140,11 +179,11 @@ func react() -> void:
 	if _chasing != null:
 		unit.set_destination(_chasing)
 	else:
-		unit.set_destination(unit.player.hex)
+		unit.set_destination(base_hex())
 
 
 ## The tile of the nearest enemy unit (by walking cost) standing on one of
-## our structures or next to our hub, or null.
+## our structures or next to our hub or this unit's FOB, or null.
 func _nearest_intruder() -> Variant:
 	var map := unit.map
 	var best: Variant = null
@@ -154,7 +193,8 @@ func _nearest_intruder() -> Variant:
 			continue
 		var tile := map.get_tile(enemy.hex)
 		var on_ours := tile != null and tile.structure != Structure.Type.NONE and tile.structure_owner == unit.player.id
-		if not on_ours and Hex.distance(enemy.hex, unit.player.hex) != 1:
+		var near_base := Hex.distance(enemy.hex, unit.player.hex) == 1 or (base != null and Hex.distance(enemy.hex, base) <= 1)
+		if not on_ours and not near_base:
 			continue
 		var cost := 0
 		if enemy.hex != unit.hex:
@@ -177,6 +217,7 @@ func to_dict() -> Dictionary:
 	var data := super()
 	data["chasing"] = SaveGame.hex_to_data(_chasing) if _chasing != null else null
 	data["turns_left"] = turns_left
+	data["base"] = SaveGame.hex_to_data(base) if base != null else null
 	return data
 
 
@@ -184,3 +225,4 @@ func load_dict(data: Dictionary) -> void:
 	super(data)
 	_chasing = SaveGame.hex_from_data(data["chasing"]) if data["chasing"] != null else null
 	turns_left = int(data["turns_left"])
+	base = SaveGame.hex_from_data(data["base"]) if data.get("base") != null else null

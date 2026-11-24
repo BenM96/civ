@@ -69,6 +69,24 @@ rival's.
 - Nobody can walk through another colony's command point (allies'
   included): units route round it, though they can still stop on it to
   capture or demolish it.
+
+### Forward Operating Bases (FOBs)
+
+Once you've researched **Forward Bases** (tier 2), a Builder can build an
+**FOB** - a small fort - on one of your conveyor belts (not on a deposit,
+control point or hub; ordering one lays the belt line out to it, like an
+extractor). The first costs 10 Sediment + 20 Titanium, and each one after
+that costs double the last (2nd 20 + 40, 3rd 40 + 80...).
+
+While at least one FOB is linked to your hub by belts, giving a unit
+**QRF** asks you to pick its base on the map: your hub, or one of those
+FOBs. Based at an FOB, the unit walks out to it and stands by there,
+reacting from there to enemies on your structures, next to your hub or
+next to the FOB, and going back to the FOB afterwards. Hurt, it goes home
+to heal and then back to the same FOB. If the FOB is demolished or cut off
+from the hub, its QRF units go back to QRF duty at the hub. Enemies can
+demolish or bomb an FOB, but not capture it. **Recall** (Field) brings an
+FOB's QRF unit home.
 - Each linked command point also gives you **+1 initiative**. Initiative
   isn't stored - like biomass, it's worked out each turn from your linked
   command points plus your Initiative techs. In a battle, the colony with
@@ -400,12 +418,12 @@ them. A bridge order goes to just the Builder you picked.
 |---|---|---|
 | Move | Infantry, armour | Walk to a tile, then come home |
 | Harvest | Miner | Bring back 1 resource from a deposit |
-| Build | Builder | Foundation, bridge, conveyor belt or extractor |
+| Build | Builder | Foundation, bridge, conveyor belt, extractor, command point or FOB |
 | Guard | Infantry, armour | Hold a tile for 20 turns |
 | Escort | Infantry, armour | Follow a unit from the hub wherever it goes, fighting beside it, and come home with it (not aircraft) |
 | Capture | Infantry | Take over an enemy extractor, conveyor belt or command point (3 turns on the spot) |
 | Demolish | Infantry | Tear down foundations, bridges, belts, extractors or command points (3 turns on the spot), or knock 1 health off an enemy hub from next to it (see Hub health) |
-| QRF | Infantry, armour | Stand by in the Quick Reaction Force room and defend your extractors, belts and hub (see below) |
+| QRF | Infantry, armour | Stand by in the Quick Reaction Force room (or at an FOB) and defend your extractors, belts and hub (see below) |
 | Regroup | Infantry, armour | Call the whole ground army home (QRF units keep their job) and stand by like the QRF until every unit is home and healed, then the whole army goes to Mission Briefing (see The central hub's rooms) |
 | Sortie | Chopper, Fighter, Fighter Bomber | Fly straight to any tile but a hub and fight there (see below) |
 | Intercept | Chopper, Fighter, Fighter Bomber | Stand by in the Hangar and fly at enemy aircraft that come into your territory (see below) |

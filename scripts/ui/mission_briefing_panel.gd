@@ -78,7 +78,7 @@ func _make_ready_row(unit: Unit) -> HBoxContainer:
 	# straight away.
 	var label_for := func(i: int) -> void:
 		var kind := str(picker.get_item_metadata(i)) if i >= 0 else ""
-		var no_tile := i >= 0 and (kind == WAIT or kind == HEAL or not Orders.needs_target(kind))
+		var no_tile := i >= 0 and (kind == WAIT or kind == HEAL or not Orders.needs_target(kind, player))
 		repeat.visible = _shows_repeats(u, kind)
 		target.text = "Give Order" if no_tile else "Select Target"
 		target.tooltip_text = "Sends the order now (no tile to pick)." if no_tile \
@@ -186,7 +186,7 @@ func _mission_choices(unit: Unit) -> Array:
 			"Pick a tile with something man-made on it, or an enemy hub. Before anyone on the ground moves, flies straight there; if it comes through the battle, it flattens everything man-made on the tile (leaving rubble) or knocks 1 off the hub's health, then flies home that turn and refits for %d turns." % refit, true])
 	if unit.can_take("qrf"):
 		choices.append(["qrf", "QRF (quick reaction force)",
-			"Stand by in the QRF room for the number of turns picked in the next dropdown (INF: until you drag it out). After everyone else has moved each turn, head for the nearest enemy on one of our extractors or belts; come back when they've gone. Hurt, it goes to be healed and then back on duty. When the time is up it comes to Mission Briefing (once it's home, if it's out chasing).", true])
+			"Stand by in the QRF room - or, if you have an FOB linked to the hub, pick the hub or an FOB on the map to be based at - for the number of turns picked in the next dropdown (INF: until you drag it out or recall it). After everyone else has moved each turn, head for the nearest enemy on one of our extractors or belts; come back when they've gone. Hurt, it goes to be healed and then back on duty. When the time is up it comes to Mission Briefing (once it's home, if it's out chasing).", true])
 	if unit.can_take("regroup"):
 		choices.append(["regroup", "Regroup",
 			"Regroup the whole ground army: every military unit comes home (dropping its mission - QRF units carry on with theirs) and stands by in the QRF room (defending like the QRF, healing when hurt) until all of them are home and at full health. Then they all come to Mission Briefing together. Aircraft aren't part of it.", true])
