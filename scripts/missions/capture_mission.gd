@@ -7,7 +7,7 @@ extends Mission
 ## be captured.
 
 ## Turns spent on the structure, once there, to take it over.
-const CAPTURE_TURNS := 1
+const CAPTURE_TURNS := 3
 
 var target: Vector2i
 var _turns_worked := 0

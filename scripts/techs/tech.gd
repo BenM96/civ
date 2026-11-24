@@ -30,6 +30,9 @@ var building_limit_bonus: Dictionary = {}
 var builder_limit_bonus := 0
 ## A unit (unit_name) whose damage against every type this raises by 1.
 var damage_bonus_unit := ""
+## [attacker UnitType, target UnitType]: every unit of the first type does
+## +1 damage to units of the second (e.g. civilians against civilians), or [].
+var type_damage_bonus: Array = []
 ## Extra movement points for every land unit.
 var movement_bonus := 0
 ## Extra initiative (see Player.get_initiative()).
@@ -62,6 +65,9 @@ func get_effect_text() -> String:
 		parts.append("+%d Builder limit." % builder_limit_bonus)
 	if damage_bonus_unit != "":
 		parts.append("%s does +1 damage to everything." % damage_bonus_unit)
+	if type_damage_bonus.size() == 2:
+		parts.append("%s units do +1 damage to %s units." % [
+			Unit.get_type_name(type_damage_bonus[0]), Unit.get_type_name(type_damage_bonus[1]).to_lower()])
 	if movement_bonus > 0:
 		parts.append("+%d movement for every land unit." % movement_bonus)
 	if initiative_bonus > 0:

@@ -105,7 +105,7 @@ shows it by the Biomass icon, e.g. "+2/turn".
 Every hub has at least one deposit of each resource within 4 tiles (but none
 right next to it), except Electrum: its deposits are only found more than
 10 tiles from every hub and from each other. The Miner can carry it home 1
-a trip, or an extractor at the end of a belt line brings in 0.2 a turn.
+a trip, or an extractor at the end of a belt line brings in 0.1 a turn.
 Every deposit holds 999, so in practice none ever runs out.
 
 ### Research
@@ -137,8 +137,10 @@ Godot_v4.7.2-stable_win64_console.exe --headless --path . -s tools/generate_tech
 
 Each **Workforce** tech raises your Builder limit by 1 (you start limited to
 1 Builder, counting any in training). Each **Weapons** tech gives one unit
-+1 damage against every type. Each **Initiative** tech (tiers 2, 4 and 6)
-adds 1 initiative (see Combat). The computer colonies follow the same rules
++1 damage against every type; **Civil Defence** gives every civilian +1
+damage against civilians. Each **Initiative** tech (tiers 1, 4 and 6)
+adds 1 initiative (see Combat). Techs taken out of the game are kept in
+`disabled/` (which Godot ignores) so they can be put back. The computer colonies follow the same rules
 and research techs too (see Units).
 
 ### Buildings
@@ -195,7 +197,7 @@ the start. The others show a padlock until you build their building.
 | Airlock | Units given a mission wait here to leave at the end of the turn. Drag one out to call its mission off. |
 | Med Bay | Heals injured infantry and civilians (see Healing). Only injured infantry and civilians are allowed in. |
 | Quick Reaction Force | Units on QRF duty (or Regroup) stand by here (see Missions). Drag a unit in to put it on QRF duty for 20 turns; drag one out to take it off. |
-| Break Room | Off-duty civilian units (Miner, Builders, Guards). Civilians in training are shown here. |
+| Break Room | Off-duty civilian units (Miner, Builders). Civilians in training are shown here. |
 | Barracks | The same, for infantry. |
 | Hangar | The same, for air units. Aircraft back from any flight refit here for 10 turns (1 less per Flight Crew Quarters) and can't leave until they're done; refitting repairs them fully. Interceptors stand by here too (drag one out to take it off duty). |
 | Garage | The same, for armour units. Also repairs damaged armour (see Healing). |
@@ -239,11 +241,11 @@ same. Your work is split between two civilians:
 Give the Miner a repeating harvest order (see Missions) and it gathers on
 its own while your Builders build.
 
-Other units: Guards cost 1 Gold + 1 Titanium, Infantry 1 Gold + 2 Titanium,
+Other units: Infantry cost 1 Gold + 2 Titanium,
 armour 1 Gold + 3 Titanium + 2 Sediment and air units 1 Gold + 2 Titanium +
 2 Electrum. Specialist units (every infantry, armour or air unit except
 Infantry, APC and Chopper) cost 1 Electrum on top. Every military unit
-(anything but Miners, Builders and Guards) also costs 1 more Gold for each
+(anything but Miners and Builders) also costs 1 more Gold for each
 military unit you've trained before: the 1st Infantry costs 1 Gold, the
 2nd 2 Gold, and so on.
 
@@ -268,7 +270,6 @@ Each ground unit's icon shows its short name, e.g. W, I, AA. Aircraft show no la
 |---|---|---|---|---|---|
 | Miner | Civilian | MI | Free (only 1) | 2 | Harvest |
 | Builder | Civilian | BU | 1 Gold, 1 Titanium | 2 | Build |
-| Guard | Civilian | G | 1 Gold, 1 Titanium | 2 | Move, guard, QRF |
 | Infantry | Infantry | I | 1 Gold, 2 Titanium | 3 | Move, guard, escort, capture, demolish, QRF |
 | Assault Infantry | Infantry | AS | 1 Gold, 2 Titanium, 1 Electrum | 3 | As Infantry |
 | AT Infantry | Infantry | AT | 1 Gold, 2 Titanium, 1 Electrum | 3 | As Infantry |
@@ -316,8 +317,7 @@ target's type (hover over a unit in Training to see its numbers):
 
 | Attacker | vs Infantry | vs Civilian | vs Armour | vs Air |
 |---|---|---|---|---|
-| Miner, Builder | 1 | 2 | 0 | 0 |
-| Guard | 3 | 4 | 0 | 0 |
+| Miner, Builder | 1 | 2 (3 with Civil Defence) | 0 | 0 |
 | Infantry | 4 | 6 | 2 | 2 |
 | Assault Infantry | 6 | 10 | 5 | 2 |
 | AT Infantry | 5 | 7 | 10 | 2 |
@@ -389,14 +389,14 @@ them. A bridge order goes to just the Builder you picked.
 
 | Mission | Who | What it does |
 |---|---|---|
-| Move | Guard, infantry, armour | Walk to a tile, then come home |
+| Move | Infantry, armour | Walk to a tile, then come home |
 | Harvest | Miner | Bring back 1 resource from a deposit |
 | Build | Builder | Foundation, bridge, conveyor belt or extractor |
-| Guard | Guard, infantry, armour | Hold a tile for 20 turns |
+| Guard | Infantry, armour | Hold a tile for 20 turns |
 | Escort | Infantry, armour | Follow a unit from the hub wherever it goes, fighting beside it, and come home with it (not aircraft) |
-| Capture | Infantry | Take over an enemy extractor or conveyor belt |
+| Capture | Infantry | Take over an enemy extractor, conveyor belt or command point (3 turns on the spot) |
 | Demolish | Infantry | Tear down foundations, bridges, belts, extractors or command points (3 turns on the spot), or knock 1 health off an enemy hub from next to it (see Hub health) |
-| QRF | Guard, infantry, armour | Stand by in the Quick Reaction Force room and defend your extractors, belts and hub (see below) |
+| QRF | Infantry, armour | Stand by in the Quick Reaction Force room and defend your extractors, belts and hub (see below) |
 | Regroup | Infantry, armour | Stand by like the QRF until every military unit is home and healed, then the whole army goes to Mission Briefing (see The central hub's rooms) |
 | Sortie | Chopper, Fighter, Fighter Bomber | Fly straight to any tile but a hub and fight there (see below) |
 | Intercept | Chopper, Fighter, Fighter Bomber | Stand by in the Hangar and fly at enemy aircraft that come into your territory (see below) |
@@ -460,8 +460,8 @@ extractors get that). For a steady income:
 2. Build **conveyor belts** on the foundations, including on the deposit.
 3. Build an **extractor** on top of the belt on the deposit. A Biomass
    extractor adds 2 to your biomass production while its deposit lasts;
-   Titanium, Sediment, Gold and Electrum extractors deliver 0.2 per turn
-   (1 every 5 turns).
+   Titanium, Sediment and Gold extractors deliver 0.2 per turn (1 every 5
+   turns) and Electrum ones 0.1 (1 every 10).
 
 Each resource's numbers (deposit sizes, where it appears, what the Miner
 harvests per trip, what an extractor delivers) and its map icon live in its

@@ -10,11 +10,13 @@ extends RefCounted
 ## Other rules:
 ##   - A tech's `requires` must be in a LOWER tier (so the trees can never
 ##     deadlock - see TechTrees).
-##   - Tiers 1-6 each have one Workforce tech (+1 Builder limit); tier 7 has
-##     Flight Crews in its place.
-##   - Initiative I, II and III (+1 initiative each) are in tiers 2, 4 and 6.
+##   - Workforce techs (+1 Builder limit) are in tiers 1, 4, 5 and 6.
+##   - Initiative I, II and III (+1 initiative each) are in tiers 1, 4 and 6.
 ##   - Default units (Infantry, APC, Chopper) only need their building; every
 ##     other unit has its own unlock tech.
+##
+## Removed techs aren't deleted: they're kept in disabled/techs/ (which
+## Godot ignores), ready to be put back.
 ##
 ## To change what a tech does, change its effect fields here (see Tech for
 ## what they mean); the rest of the game reads them through Player.
@@ -78,25 +80,29 @@ static func _create_all() -> Array[Tech]:
 	var techs: Array[Tech] = []
 
 	# --- Tier 1 ----------------------------------------------------------
-	techs.append(_workforce(1))
+	techs.append(_workforce(1, "I"))
 	techs.append(_building("barracks", "Barracks", 1, BarracksBuilding.ID))
-	techs.append(_building("garage", "Garage", 1, GarageBuilding.ID))
 	techs.append(_building("field_medicine", "Field Medicine", 1, MedBayBuilding.ID))
 	techs.append(_greenhouses("hydroponics_1", "Hydroponics I", 1))
-	var doctrine := Tech.new("command_doctrine", "Command Doctrine", 1)
-	doctrine.unlocks_buildable = CommandPointBuildable.ID
-	techs.append(doctrine)
+	var defence := Tech.new("civil_defence", "Civil Defence", 1)
+	defence.type_damage_bonus = [Unit.UnitType.CIVILIAN, Unit.UnitType.CIVILIAN]
+	techs.append(defence)
+	techs.append(_initiative("initiative_1", "Initiative I", 1))
 
 	# --- Tier 2 ----------------------------------------------------------
-	techs.append(_workforce(2))
-	techs.append(_building("hangar", "Hangar", 2, HangarBuilding.ID))
+	techs.append(_building("garage", "Garage", 2, GarageBuilding.ID))
+	var doctrine := Tech.new("command_doctrine", "Command Doctrine", 2)
+	doctrine.unlocks_buildable = CommandPointBuildable.ID
+	techs.append(doctrine)
+	var fob := Tech.new("forward_bases", "Forward Bases", 2)
+	fob.unlocks_buildable = FobBuildable.ID
+	techs.append(fob)
 	techs.append(_building("surgery", "Surgery", 2, SurgicalWard.ID, "field_medicine"))
-	techs.append(_initiative("initiative_1", "Initiative I", 2))
 	techs.append(_unit("assault_infantry", "Assault Infantry", 2, "barracks"))
 	techs.append(_unit("at_infantry", "AT Infantry", 2, "barracks"))
 
 	# --- Tier 3 ----------------------------------------------------------
-	techs.append(_workforce(3))
+	techs.append(_building("hangar", "Hangar", 3, HangarBuilding.ID))
 	techs.append(_building("vehicle_repair", "Vehicle Repair", 3, RepairBay.ID, "garage"))
 	techs.append(_building("regeneration", "Regeneration", 3, RegenLab.ID, "field_medicine"))
 	techs.append(_building("machine_tools", "Machine Tools", 3, MachineShop.ID, "garage"))
@@ -104,7 +110,7 @@ static func _create_all() -> Array[Tech]:
 	techs.append(_unit("tank_destroyer", "Tank Destroyer", 3, "garage"))
 
 	# --- Tier 4 ----------------------------------------------------------
-	techs.append(_workforce(4))
+	techs.append(_workforce(4, "II"))
 	techs.append(_unit("tank", "Tank", 4, "garage"))
 	techs.append(_unit("aa_gun", "Anti-Aircraft Gun", 4, "garage"))
 	techs.append(_unit("fighter", "Fighter", 4, "hangar"))
@@ -112,7 +118,7 @@ static func _create_all() -> Array[Tech]:
 	techs.append(_initiative("initiative_2", "Initiative II", 4, "initiative_1"))
 
 	# --- Tier 5 ----------------------------------------------------------
-	techs.append(_workforce(5))
+	techs.append(_workforce(5, "III"))
 	techs.append(_unit("bomber", "Bomber", 5, "hangar"))
 	var drilling := Tech.new("advanced_drilling", "Advanced Drilling", 5)
 	for type in [ResourceDeposit.Type.TITANIUM, ResourceDeposit.Type.SEDIMENT, ResourceDeposit.Type.GOLD]:
@@ -123,7 +129,7 @@ static func _create_all() -> Array[Tech]:
 	techs.append(_weapons("chopper_weapons", "Chopper Weapons", 5, "Chopper", "hangar"))
 
 	# --- Tier 6 ----------------------------------------------------------
-	techs.append(_workforce(6))
+	techs.append(_workforce(6, "IV"))
 	techs.append(_initiative("initiative_3", "Initiative III", 6, "initiative_2"))
 	techs.append(_weapons("assault_weapons", "Assault Weapons", 6, "Assault Infantry", "assault_infantry"))
 	techs.append(_weapons("at_weapons", "AT Weapons", 6, "AT Infantry", "at_infantry"))
@@ -142,10 +148,10 @@ static func _create_all() -> Array[Tech]:
 
 # --- Helpers for the common kinds ----------------------------------------------
 
-## "Workforce III": +1 Builder limit. One in every tier.
-static func _workforce(tier: int) -> Tech:
-	var numerals := ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
-	var t := Tech.new("workforce_%d" % tier, "Workforce %s" % numerals[tier - 1], tier)
+## "Workforce III": +1 Builder limit. Its id keeps the tier it was first in
+## (saved games use it); `numeral` is its number in the series now.
+static func _workforce(tier: int, numeral: String) -> Tech:
+	var t := Tech.new("workforce_%d" % tier, "Workforce %s" % numeral, tier)
 	t.builder_limit_bonus = 1
 	return t
 

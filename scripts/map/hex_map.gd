@@ -664,6 +664,8 @@ func _draw_features(hexes: Array[Vector2i]) -> void:
 	for h in hexes:
 		if tiles[h].structure == Structure.Type.EXTRACTOR:
 			_draw_extractor(h)
+		elif tiles[h].structure == Structure.Type.FOB:
+			_draw_fob(h)
 	for h in hexes:
 		if not tiles[h].control_point:
 			continue
@@ -740,6 +742,42 @@ func _draw_belt_links(h: Vector2i, owner_faction: int) -> void:
 			_canvas.draw_polyline(PackedVector2Array([
 				tip - dir * 0.08 * s + perp * 0.07 * s, tip, tip - dir * 0.08 * s - perp * 0.07 * s,
 			]), faction_color.lightened(0.6), 2.0)
+
+
+## An FOB: a small stone fort - a walled tower with battlements and a flag
+## in its owner's colour. The flag is dull while it's cut off from the hub.
+func _draw_fob(h: Vector2i) -> void:
+	var s := hex_size
+	var c := Hex.to_pixel(h, s)
+	var tile := get_tile(h)
+	var owner_color := Faction.get_color(tile.structure_owner)
+	var stone := Color(0.62, 0.6, 0.55)
+	var dark := Color(0.2, 0.2, 0.22)
+	# Outer wall, with battlements along the top.
+	var wall := Rect2(c + Vector2(-0.38, -0.02) * s, Vector2(0.76, 0.34) * s)
+	_canvas.draw_rect(wall.grow(1.5), dark)
+	_canvas.draw_rect(wall, stone)
+	for i in 5:
+		var x := -0.38 + i * 0.17
+		_canvas.draw_rect(Rect2(c + Vector2(x, -0.1) * s, Vector2(0.08, 0.09) * s), stone)
+		_canvas.draw_rect(Rect2(c + Vector2(x, -0.1) * s, Vector2(0.08, 0.09) * s), dark, false, 1.0)
+	# Central tower.
+	var tower := Rect2(c + Vector2(-0.13, -0.42) * s, Vector2(0.26, 0.5) * s)
+	_canvas.draw_rect(tower.grow(1.5), dark)
+	_canvas.draw_rect(tower, stone.lightened(0.12))
+	for i in 3:
+		_canvas.draw_rect(Rect2(c + Vector2(-0.13 + i * 0.1, -0.5) * s, Vector2(0.06, 0.08) * s), stone.lightened(0.12))
+	# Gate and arrow slit.
+	_canvas.draw_rect(Rect2(c + Vector2(-0.06, 0.14) * s, Vector2(0.12, 0.18) * s), dark)
+	_canvas.draw_rect(Rect2(c + Vector2(-0.02, -0.3) * s, Vector2(0.04, 0.12) * s), dark)
+	# Owner trim and flag.
+	_canvas.draw_rect(wall, owner_color, false, 2.5)
+	var lit := _is_supply_connected(h, tile.structure_owner)
+	var flag := owner_color if lit else owner_color.darkened(0.5)
+	var pole := c + Vector2(0, -0.5) * s
+	_canvas.draw_line(pole, pole + Vector2(0, -0.28) * s, dark, 2.0)
+	_canvas.draw_colored_polygon(PackedVector2Array([
+		pole + Vector2(0, -0.28) * s, pole + Vector2(0.22, -0.21) * s, pole + Vector2(0, -0.14) * s]), flag)
 
 
 ## A small drilling derrick over the deposit, with a status light:

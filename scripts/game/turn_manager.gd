@@ -31,7 +31,7 @@ extends Node
 ##                    are given it again.
 ##   9. Starvation  - a colony whose biomass production is below zero (it
 ##                    makes less than its units eat) loses one unit: the
-##                    most injured first, Workers last (see Player.starve()).
+##                    most injured first, Builders and the Miner last (see Player.starve()).
 ##  10. Victory     - the first colony with a command point on every
 ##                    control point on the map, each linked to its hub by
 ##                    belts, wins (once per game; play can carry on

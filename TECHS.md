@@ -12,19 +12,19 @@ Techs are researched with Electrum from **Research (R)**. Each game deals every 
 |---|---|---|
 | **Workforce I** | +1 Builder limit. | - |
 | **Barracks** | Lets you build a Barracks. | - |
-| **Garage** | Lets you build a Garage. | - |
 | **Field Medicine** | Lets you build a Med Bay. | - |
 | **Hydroponics I** | +1 Greenhouse limit. | - |
-| **Command Doctrine** | Lets Builders build Command Points. | - |
+| **Civil Defence** | Civilian units do +1 damage to civilian units. | - |
+| **Initiative I** | +1 initiative (whoever has the most fires first in battle). | - |
 
 ## Tier 2 (3-4 Electrum)
 
 | Tech | What it does | Also needs |
 |---|---|---|
-| **Workforce II** | +1 Builder limit. | - |
-| **Hangar** | Lets you build a Hangar. | - |
+| **Garage** | Lets you build a Garage. | - |
+| **Command Doctrine** | Lets Builders build Command Points. | - |
+| **Forward Bases** | Lets Builders build FOBs. | - |
 | **Surgery** | Lets you build a Surgical Ward. | Field Medicine (tier 1) |
-| **Initiative I** | +1 initiative (whoever has the most fires first in battle). | - |
 | **Assault Infantry** | Lets you train Assault Infantry. | Barracks (tier 1) |
 | **AT Infantry** | Lets you train AT Infantry. | Barracks (tier 1) |
 
@@ -32,40 +32,40 @@ Techs are researched with Electrum from **Research (R)**. Each game deals every 
 
 | Tech | What it does | Also needs |
 |---|---|---|
-| **Workforce III** | +1 Builder limit. | - |
-| **Vehicle Repair** | Lets you build a Repair Bay. | Garage (tier 1) |
+| **Hangar** | Lets you build a Hangar. | - |
+| **Vehicle Repair** | Lets you build a Repair Bay. | Garage (tier 2) |
 | **Regeneration** | Lets you build a Regen Lab. | Field Medicine (tier 1) |
-| **Machine Tools** | Lets you build a Machine Shop. | Garage (tier 1) |
+| **Machine Tools** | Lets you build a Machine Shop. | Garage (tier 2) |
 | **Stinger Infantry** | Lets you train Stinger Infantry. | Barracks (tier 1) |
-| **Tank Destroyer** | Lets you train Tank Destroyer. | Garage (tier 1) |
+| **Tank Destroyer** | Lets you train Tank Destroyer. | Garage (tier 2) |
 
 ## Tier 4 (7-8 Electrum)
 
 | Tech | What it does | Also needs |
 |---|---|---|
-| **Workforce IV** | +1 Builder limit. | - |
-| **Tank** | Lets you train Tank. | Garage (tier 1) |
-| **Anti-Aircraft Gun** | Lets you train Anti-Aircraft Gun. | Garage (tier 1) |
-| **Fighter** | Lets you train Fighter. | Hangar (tier 2) |
-| **Fighter Bomber** | Lets you train Fighter Bomber. | Hangar (tier 2) |
-| **Initiative II** | +1 initiative (whoever has the most fires first in battle). | Initiative I (tier 2) |
+| **Workforce II** | +1 Builder limit. | - |
+| **Tank** | Lets you train Tank. | Garage (tier 2) |
+| **Anti-Aircraft Gun** | Lets you train Anti-Aircraft Gun. | Garage (tier 2) |
+| **Fighter** | Lets you train Fighter. | Hangar (tier 3) |
+| **Fighter Bomber** | Lets you train Fighter Bomber. | Hangar (tier 3) |
+| **Initiative II** | +1 initiative (whoever has the most fires first in battle). | Initiative I (tier 1) |
 
 ## Tier 5 (9-10 Electrum)
 
 | Tech | What it does | Also needs |
 |---|---|---|
-| **Workforce V** | +1 Builder limit. | - |
-| **Bomber** | Lets you train Bomber. | Hangar (tier 2) |
+| **Workforce III** | +1 Builder limit. | - |
+| **Bomber** | Lets you train Bomber. | Hangar (tier 3) |
 | **Advanced Drilling** | Titanium extractors deliver 0.1 more a turn. Sediment extractors deliver 0.1 more a turn. Gold extractors deliver 0.1 more a turn. | - |
 | **Infantry Weapons** | Infantry does +1 damage to everything. | Barracks (tier 1) |
-| **APC Weapons** | APC does +1 damage to everything. | Garage (tier 1) |
-| **Chopper Weapons** | Chopper does +1 damage to everything. | Hangar (tier 2) |
+| **APC Weapons** | APC does +1 damage to everything. | Garage (tier 2) |
+| **Chopper Weapons** | Chopper does +1 damage to everything. | Hangar (tier 3) |
 
 ## Tier 6 (11-12 Electrum)
 
 | Tech | What it does | Also needs |
 |---|---|---|
-| **Workforce VI** | +1 Builder limit. | - |
+| **Workforce IV** | +1 Builder limit. | - |
 | **Initiative III** | +1 initiative (whoever has the most fires first in battle). | Initiative II (tier 4) |
 | **Assault Weapons** | Assault Infantry does +1 damage to everything. | Assault Infantry (tier 2) |
 | **AT Weapons** | AT Infantry does +1 damage to everything. | AT Infantry (tier 2) |
@@ -76,7 +76,7 @@ Techs are researched with Electrum from **Research (R)**. Each game deals every 
 
 | Tech | What it does | Also needs |
 |---|---|---|
-| **Flight Crews** | Lets you build a Flight Crew Quarters. | Hangar (tier 2) |
+| **Flight Crews** | Lets you build a Flight Crew Quarters. | Hangar (tier 3) |
 | **Tank Guns** | Tank does +1 damage to everything. | Tank (tier 4) |
 | **Flak Guns** | Anti-Aircraft Gun does +1 damage to everything. | Anti-Aircraft Gun (tier 4) |
 | **Fighter Weapons** | Fighter does +1 damage to everything. | Fighter (tier 4) |

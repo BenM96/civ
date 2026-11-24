@@ -171,7 +171,9 @@ func get_damage_against(target: Unit) -> int:
 	var base: int = damage.get(target.unit_type, 0)
 	if base <= 0:
 		return 0
-	var bonus := player.get_damage_bonus(unit_name) if player else 0
+	var bonus := 0
+	if player:
+		bonus = player.get_damage_bonus(unit_name) + player.get_type_damage_bonus(unit_type, target.unit_type)
 	return base + bonus
 
 
@@ -244,7 +246,7 @@ func is_injured() -> bool:
 
 
 ## At or below half its max HP (but alive). A hit that leaves a unit like
-## this breaks it (see Combat) - so a 10 HP Worker hit for 5 runs.
+## this breaks it (see Combat) - so a 10 HP Builder hit for 5 runs.
 func is_broken() -> bool:
 	return health > 0 and health <= max_health / 2.0
 

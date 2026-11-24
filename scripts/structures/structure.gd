@@ -12,11 +12,12 @@ enum Type {
 	EXTRACTOR,  ## See extractor_buildable.gd
 	CONVEYOR,   ## See conveyor_buildable.gd
 	COMMAND_POINT,  ## See command_point_buildable.gd
+	FOB,  ## See fob_buildable.gd
 }
 
 ## Every structure kind that can stand on a tile. Add new ones here.
 static func _create_all() -> Array[Buildable]:
-	return [ExtractorBuildable.new(), ConveyorBuildable.new(), CommandPointBuildable.new()]
+	return [ExtractorBuildable.new(), ConveyorBuildable.new(), CommandPointBuildable.new(), FobBuildable.new()]
 
 
 ## Type -> Buildable, filled on first use.

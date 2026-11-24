@@ -120,6 +120,9 @@ var military_trained := 0
 ## The Central Hub panel's Regroup button is on: military units coming
 ## home join the regroup (see start_regroup()). Part of the saved game.
 var regroup_active := false
+## How many FOBs this colony has ever built (each costs double the last -
+## see FobBuildable). Part of the saved game.
+var fobs_built := 0
 ## Structures this hub's Builders can construct.
 var buildables: Array[Buildable] = []
 ## Supply network: hex -> next hex towards the hub, for every tile linked
@@ -139,7 +142,7 @@ func _init() -> void:
 	# Units this hub can train. Their costs, training times and upkeep are
 	# set in each unit's own script (scripts/units/<type>/).
 	for unit_script in [
-			Miner, Builder, GuardUnit,
+			Miner, Builder,
 			Infantry, AssaultInfantry, AtInfantry, StingerInfantry,
 			Apc, TankDestroyer, Tank, AntiAircraftGun,
 			Chopper, Fighter, FighterBomber, Bomber]:
@@ -149,6 +152,7 @@ func _init() -> void:
 	buildables.append(ExtractorBuildable.new())
 	buildables.append(ConveyorBuildable.new())
 	buildables.append(CommandPointBuildable.new())
+	buildables.append(FobBuildable.new())
 
 
 ## "Your colony" for the player at this computer, otherwise e.g. "Pink colony".
@@ -274,7 +278,9 @@ func _has_unlock(tech: Tech) -> bool:
 func _researched_techs() -> Array[Tech]:
 	var result: Array[Tech] = []
 	for tech_id in researched:
-		result.append(TechList.get_tech(tech_id))
+		var tech := TechList.get_tech(tech_id)
+		if tech:  # Skips techs since taken out of the game (disabled/techs/).
+			result.append(tech)
 	return result
 
 
@@ -322,6 +328,16 @@ func get_damage_bonus(unit_name: String) -> int:
 	var bonus := 0
 	for tech in _researched_techs():
 		if tech.damage_bonus_unit == unit_name:
+			bonus += 1
+	return bonus
+
+
+## Extra damage every unit of type `attacker` does to units of type `target`
+## (techs like Civil Defence).
+func get_type_damage_bonus(attacker: Unit.UnitType, target: Unit.UnitType) -> int:
+	var bonus := 0
+	for tech in _researched_techs():
+		if tech.type_damage_bonus.size() == 2 and tech.type_damage_bonus[0] == attacker and tech.type_damage_bonus[1] == target:
 			bonus += 1
 	return bonus
 
@@ -724,7 +740,7 @@ func get_training_cost(blueprint: UnitBlueprint) -> Dictionary:
 	return cost
 
 
-## Fighting units: everything but civilians (Miner, Builder, Guard).
+## Fighting units: everything but civilians (Miner, Builder).
 static func is_military(blueprint: UnitBlueprint) -> bool:
 	return blueprint.unit_type != Unit.UnitType.CIVILIAN
 
@@ -1257,7 +1273,7 @@ func repeat_orders() -> void:
 
 
 ## "Starvation" step: if biomass production is below zero, one unit starves
-## to death - the most injured non-Worker (Miner or Builder) first (ties at random, so healthy
+## to death - the most injured military unit first (ties at random, so healthy
 ## ones go at random), and the Miner and Builders only once nobody else is left. Returns
 ## what happened (for the event log and the starvation popup):
 ## {"unit": its name, "production": before it died, "after": production now,
@@ -1268,13 +1284,13 @@ func starve(rng: RandomNumberGenerator) -> Dictionary:
 	if production >= 0 or units.is_empty():
 		return {}
 	var others: Array[Unit] = []
-	var workers: Array[Unit] = []
+	var civilians: Array[Unit] = []
 	for u in units:
-		if u is Worker:
-			workers.append(u)
+		if u is Builder or u is Miner:
+			civilians.append(u)
 		else:
 			others.append(u)
-	var victim := _most_injured(others if not others.is_empty() else workers, rng)
+	var victim := _most_injured(others if not others.is_empty() else civilians, rng)
 	var report := {"unit": victim.display_name, "production": production,
 		"eaten": get_upkeep(), "units": units.size()}
 	remove_unit(victim)
@@ -1382,6 +1398,7 @@ func to_dict() -> Dictionary:
 		"hub_health": hub_health,
 		"military_trained": military_trained,
 		"regroup_active": regroup_active,
+		"fobs_built": fobs_built,
 		"hub_repaired_this_turn": hub_repaired_this_turn,
 		"inventory": SaveGame.resources_to_data(inventory),
 		"units_named": _units_ever_had.duplicate(),
@@ -1436,6 +1453,7 @@ func load_dict(data: Dictionary) -> void:
 	hub_health = int(data["hub_health"])
 	military_trained = int(data["military_trained"])
 	regroup_active = bool(data["regroup_active"])
+	fobs_built = int(data.get("fobs_built", 0))
 	hub_repaired_this_turn = bool(data["hub_repaired_this_turn"])
 	buildings_changed.emit()
 	if data["collapsed"]:
