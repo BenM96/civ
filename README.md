@@ -179,14 +179,17 @@ everyone home: every unit drops its mission and repeats. Units still waiting
 to set out, the QRF and Builders waiting at the hub for resources are stood
 down at once (getting back what they were given for the job); units out on
 the map turn for home with whatever they carry. Units off duty stay put.
+To call just one unit home, press **Recall** next to it in **Field**.
 
-Next to it, **Regroup** gathers the army: every military unit (infantry
-and armour) waiting in Mission Briefing, and every one that comes home
-afterwards, goes on Regroup - standing by in the QRF room, defending like
-the QRF and going off to heal when hurt - until all of them are home and at
-full health (hurt units the hub has nowhere to heal count as healed). Units
-out on missions finish them first. Then the regroup ends and the whole army
-comes to Mission Briefing together. While it runs the button shows how
+Next to it, **Regroup** gathers the ground army (infantry and armour -
+never aircraft). Units waiting to set out are stood down and units out on
+the map drop their missions and come home - except QRF units, which carry
+on with their QRF job. Every one of them goes on Regroup - standing by in
+the QRF room, defending like the QRF and going off to heal when hurt -
+until all of them are home and at full health (hurt units the hub has
+nowhere to heal count as healed). Then the regroup ends and the whole army
+comes to Mission Briefing together. Giving any one unit Regroup in Mission
+Briefing does the same. While it runs the button shows how
 many are home.
 
 Mission Briefing, the Airlock, the QRF room and the Break Room are open from
@@ -373,8 +376,9 @@ dropdown, press **Select Target** and click a tile. (Escort, QRF, Intercept, Reg
 Wait and Heal need no tile: the button says **Give Order**.)
 
 The second dropdown says how many times to do it: 1 (the default), 5, 10,
-20 or INF for forever (Guard can't be INF; for QRF, Intercept and Wait it's the
-number of turns). Each time the unit is back in Mission Briefing (hurt units
+20 or INF for forever (for QRF, Intercept and Wait it's the number of turns).
+Only civilians repeat orders: military units do each order once, so for
+them the dropdown only shows for Wait, QRF and Intercept. Each time the unit is back in Mission Briefing (hurt units
 once healed, aircraft once refitted) it's given the same order again at the
 end of the turn, and sets out the turn after. If the hub can't pay for it
 yet, the unit waits until it can. If the order can't be given any more (e.g.
@@ -398,7 +402,7 @@ them. A bridge order goes to just the Builder you picked.
 | Capture | Infantry | Take over an enemy extractor, conveyor belt or command point (3 turns on the spot) |
 | Demolish | Infantry | Tear down foundations, bridges, belts, extractors or command points (3 turns on the spot), or knock 1 health off an enemy hub from next to it (see Hub health) |
 | QRF | Infantry, armour | Stand by in the Quick Reaction Force room and defend your extractors, belts and hub (see below) |
-| Regroup | Infantry, armour | Stand by like the QRF until every military unit is home and healed, then the whole army goes to Mission Briefing (see The central hub's rooms) |
+| Regroup | Infantry, armour | Call the whole ground army home (QRF units keep their job) and stand by like the QRF until every unit is home and healed, then the whole army goes to Mission Briefing (see The central hub's rooms) |
 | Sortie | Chopper, Fighter, Fighter Bomber | Fly straight to any tile but a hub and fight there (see below) |
 | Intercept | Chopper, Fighter, Fighter Bomber | Stand by in the Hangar and fly at enemy aircraft that come into your territory (see below) |
 | Carpet Bomb | Bomber | Fly to a tile and flatten everything man-made on it, or knock 1 health off an enemy hub, in one turn (see below) |

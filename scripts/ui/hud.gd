@@ -29,6 +29,8 @@ signal focus_requested(unit: Unit)
 signal room_move_requested(unit: Unit, room_id: String, turns: int)
 ## RTB: every unit is to drop its mission and come home.
 signal recall_all_requested
+## Recall: one unit out on the map is to drop its mission and come home.
+signal recall_requested(unit: Unit)
 ## The Central Hub panel's Regroup button (see Player.start_regroup()).
 signal regroup_requested
 ## An event banner (see Notices) has just come on screen.

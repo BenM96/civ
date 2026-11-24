@@ -12,7 +12,8 @@ extends RefCounted
 ## below rather than by hand:
 ##   {"order": "mission", "unit": id, "kind": kind, "target": [x, y], "repeats": n}
 ##       repeats: how many times to do it (default 1; REPEAT_FOREVER = forever;
-##       Guard can't be forever). For QRF it's the turns of duty instead.
+##       only civilians repeat - military units must use 1). For QRF and
+##       Intercept it's the turns of duty instead.
 ##   {"order": "start_regroup"}   Regroup button (see Player.start_regroup())
 ##       It's given again each time the unit is back in Mission Briefing
 ##       (see Player.repeat_orders()).
@@ -25,6 +26,7 @@ extends RefCounted
 ##       turns: off duty in its quarters for that many turns, then back to
 ##       Mission Briefing (0 = until moved).
 ##   {"order": "recall_all"}   RTB: every unit drops its mission and comes home
+##   {"order": "recall", "unit": id}   Recall (Field): that unit drops its mission and comes home
 ##   {"order": "heal_order", "unit": id, "index": i}   (healing queue, see Room)
 ##   {"order": "train", "unit_type": "Builder"}
 ##   {"order": "cancel_training", "index": i}
@@ -74,6 +76,10 @@ static func move_room(unit: Unit, room_id: String, turns := 0) -> Dictionary:
 
 static func recall_all() -> Dictionary:
 	return {"order": "recall_all"}
+
+
+static func recall(unit: Unit) -> Dictionary:
+	return {"order": "recall", "unit": unit.id}
 
 
 ## The Central Hub panel's Regroup button (see Player.start_regroup()).
@@ -154,8 +160,8 @@ func submit(faction: int, order: Dictionary) -> String:
 			var reason := get_invalid_reason(player, unit, m)
 			if reason != "":
 				return reason
-			if m is GuardMission and int(order.get("repeats", 1)) == REPEAT_FOREVER:
-				return "Guard can't repeat forever - pick a number of times"
+			if unit.unit_type != Unit.UnitType.CIVILIAN and not m is QrfMission and int(order.get("repeats", 1)) != 1:
+				return "military units can't repeat orders"
 			# QRF and Regroup are standing duties, never repeated: for QRF the
 			# repeat number is how many turns of duty instead.
 			if m is QrfMission and not m is RegroupMission:
@@ -163,6 +169,9 @@ func submit(faction: int, order: Dictionary) -> String:
 				(m as QrfMission).turns_left = turns if turns > 0 else REPEAT_FOREVER
 			if not player.assign_mission(unit, m):
 				return "can't do that"
+			# Regroup given to one unit regroups the whole army.
+			if m is RegroupMission and not player.regroup_active:
+				player.start_regroup()
 			if m is QrfMission:
 				unit.set_repeats(_to_hex(order.get("target")), 0)
 				return ""
@@ -184,6 +193,11 @@ func submit(faction: int, order: Dictionary) -> String:
 		"recall_all":
 			player.recall_all()
 			return ""
+		"recall":
+			var unit := _own_unit(player, order)
+			if unit == null:
+				return "no such unit"
+			return player.recall_unit(unit)
 		"start_regroup":
 			return player.start_regroup()
 		"heal_order":

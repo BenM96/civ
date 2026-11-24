@@ -49,7 +49,8 @@ func fill() -> void:
 		add_note("%d more unit(s) in other rooms of the hub.\nOpen Central Hub (H) and drag them here to give them orders." % elsewhere)
 
 
-## Name, mission dropdown, repeat dropdown and Select Target (or Give Order).
+## Name, mission dropdown, repeat dropdown (civilians, or turns for Wait,
+## QRF and Intercept) and Select Target (or Give Order).
 func _make_ready_row(unit: Unit) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	var name_label := Label.new()
@@ -65,7 +66,7 @@ func _make_ready_row(unit: Unit) -> HBoxContainer:
 		if picker.selected < 0:
 			return
 		var kind: String = picker.get_item_metadata(picker.selected)
-		var times: int = repeat.get_item_metadata(repeat.selected)
+		var times: int = repeat.get_item_metadata(repeat.selected) if repeat.visible else 1
 		if kind == WAIT:
 			hud.room_move_requested.emit(u, player.get_quarters_for(u).id, maxi(times, 0))  # INF: until moved.
 		elif kind == HEAL:
@@ -78,7 +79,7 @@ func _make_ready_row(unit: Unit) -> HBoxContainer:
 	var label_for := func(i: int) -> void:
 		var kind := str(picker.get_item_metadata(i)) if i >= 0 else ""
 		var no_tile := i >= 0 and (kind == WAIT or kind == HEAL or not Orders.needs_target(kind))
-		_limit_repeats(repeat, kind)
+		repeat.visible = _shows_repeats(u, kind)
 		target.text = "Give Order" if no_tile else "Select Target"
 		target.tooltip_text = "Sends the order now (no tile to pick)." if no_tile \
 			else "Then click a tile on the map to send this unit there."
@@ -97,15 +98,13 @@ func _healing_room(unit: Unit) -> Room:
 	return null
 
 
-## Guard can't repeat forever: greys out INF for it (moving off INF).
-func _limit_repeats(repeat: OptionButton, kind: String) -> void:
-	var no_forever := kind == "guard"
-	for i in repeat.item_count:
-		if repeat.get_item_metadata(i) == Orders.REPEAT_FOREVER:
-			repeat.set_item_disabled(i, no_forever)
-			repeat.set_item_tooltip(i, "Guard can't repeat forever" if no_forever else "")
-			if no_forever and repeat.selected == i:
-				repeat.select(i - 1)
+## Whether the repeat dropdown is shown for `kind`: always for civilians;
+## military units never repeat orders, so for them it only shows for orders
+## that last a number of turns (Wait, QRF, Intercept).
+func _shows_repeats(unit: Unit, kind: String) -> bool:
+	if unit.unit_type == Unit.UnitType.CIVILIAN:
+		return true
+	return kind in [WAIT, "qrf", "intercept"]
 
 
 ## How many times to do the order: 1, 5, 10, 20 or forever (INF). Always
@@ -119,7 +118,7 @@ func _make_repeat_picker() -> OptionButton:
 		picker.add_item(choice[1])
 		picker.set_item_metadata(i, choice[0])
 	picker.selected = 0
-	picker.tooltip_text = "How many times to do this order (for Wait, QRF and Intercept, how many turns; Heal and Regroup ignore it; Guard can't be INF)."
+	picker.tooltip_text = "How many times to do this order (for Wait, QRF and Intercept, how many turns; Heal and Regroup ignore it). Military units never repeat orders, so for them it only shows for Wait, QRF and Intercept."
 	picker.tooltip_text += " Each time the unit gets back to Mission Briefing it's given the order again (if it's hurt, once it's healed). INF keeps going until you press Cancel in Field while it's waiting to set out, or press RTB in Central Hub."
 	return picker
 
@@ -190,10 +189,10 @@ func _mission_choices(unit: Unit) -> Array:
 			"Stand by in the QRF room for the number of turns picked in the next dropdown (INF: until you drag it out). After everyone else has moved each turn, head for the nearest enemy on one of our extractors or belts; come back when they've gone. Hurt, it goes to be healed and then back on duty. When the time is up it comes to Mission Briefing (once it's home, if it's out chasing).", true])
 	if unit.can_take("regroup"):
 		choices.append(["regroup", "Regroup",
-			"Stand by in the QRF room (defending like the QRF, healing when hurt) until every military unit is home and at full health. Then the whole army comes to Mission Briefing together.", true])
+			"Regroup the whole ground army: every military unit comes home (dropping its mission - QRF units carry on with theirs) and stands by in the QRF room (defending like the QRF, healing when hurt) until all of them are home and at full health. Then they all come to Mission Briefing together. Aircraft aren't part of it.", true])
 	if unit.can_take("capture"):
 		choices.append(["capture", "Capture",
-			"Take over another colony's extractor, conveyor belt or command point. Takes 1 turn on the spot.", true])
+			"Take over another colony's extractor, conveyor belt or command point. Takes %d turns on the spot." % CaptureMission.CAPTURE_TURNS, true])
 	if unit.can_take("harvest"):
 		choices.append(["harvest", "Harvest", "Bring back 1 resource from a deposit.", true])
 	if unit.can_take("build"):

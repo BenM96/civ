@@ -2,7 +2,8 @@ class_name FieldPanel
 extends HudPanel
 ## Every unit out on the map (not at the hub - so not units waiting in the
 ## Airlock or the QRF standing by), grouped by what it's doing, with Cancel
-## (if it can still be called off) or Show.
+## (if it can still be called off) or Show, and Recall for units out on a
+## mission (see Player.recall_unit()).
 
 
 func _init(p_hud: Hud) -> void:
@@ -71,6 +72,11 @@ func _make_row(unit: Unit) -> HBoxContainer:
 		show.tooltip_text = "Centre the camera on this unit"
 		show.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(show)
+		if unit.state == Unit.State.ON_MISSION and not unit.flies:
+			var recall := UiStyle.make_button("Recall", func() -> void: hud.recall_requested.emit(u))
+			recall.tooltip_text = "Call this unit home: it drops its mission (and any repeats) and heads back to the hub, bringing back anything it carries."
+			recall.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			row.add_child(recall)
 	return row
 
 

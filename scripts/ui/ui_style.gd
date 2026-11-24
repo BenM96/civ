@@ -29,12 +29,26 @@ static func svg_texture(svg: String) -> Texture2D:
 
 
 static func make_button(text: String, on_pressed: Callable) -> Button:
-	var b := Button.new()
+	var b := WrappingButton.new()  # Long tooltips wrap.
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE  # Keep Enter/arrows for the game.
 	b.pressed.connect(on_pressed)
 	style_button(b)
 	return b
+
+
+## A tooltip label for `text` that wraps at WrappingButton.MAX_WIDTH, or
+## stays on one line if it fits.
+static func wrapped_tooltip(text: String, font: Font, font_size: int) -> Label:
+	var label := Label.new()
+	label.text = text
+	var widest := 0.0
+	for line in text.split("\n"):
+		widest = maxf(widest, font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x)
+	if widest > WrappingButton.MAX_WIDTH:
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.custom_minimum_size.x = WrappingButton.MAX_WIDTH
+	return label
 
 
 ## The HUD's rust-brown button look, for any kind of button.

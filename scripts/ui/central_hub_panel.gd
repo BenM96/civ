@@ -129,15 +129,15 @@ func fill_header(header: HBoxContainer) -> void:
 	header.add_child(_make_rtb_button())
 
 
-## Regroup (Player.start_regroup()): military units coming home stand by
-## until the whole army is home and healed, then all go to Mission Briefing.
+## Regroup (Player.start_regroup()): the ground army comes home and stands
+## by until it's all home and healed, then all go to Mission Briefing.
 ## While one is under way it shows how many are home.
 func _make_regroup_button() -> Button:
 	var button := UiStyle.make_button("Regroup", func() -> void: hud.regroup_requested.emit())
 	button.custom_minimum_size = Vector2(100, 36)
 	button.add_theme_font_size_override("font_size", 18)
-	button.tooltip_text = "Regroup the army: every military unit that comes home (or is waiting in Mission Briefing) stands by in the QRF room - defending like the QRF, healing when hurt - until all of them are home and at full health. Then they all come to Mission Briefing together.
-Units out on missions finish them first."
+	button.tooltip_text = "Regroup the army: every ground military unit comes home (dropping its mission - QRF units carry on with theirs) and stands by in the QRF room - defending like the QRF, healing when hurt - until all of them are home and at full health. Then they all come to Mission Briefing together. Aircraft aren't part of it.
+Giving any unit Regroup in Mission Briefing does the same."
 	if player.regroup_active:
 		var progress := player.get_regroup_progress()
 		button.text = "Regrouping %d/%d" % progress

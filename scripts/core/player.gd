@@ -1102,6 +1102,19 @@ func _join_builder_group() -> void:
 			return
 
 
+## Recall (the Field panel): one unit out on the map drops its mission and
+## any repeats and heads home, bringing back anything it carries. Returns
+## "" or why it can't.
+func recall_unit(u: Unit) -> String:
+	if u.state != Unit.State.ON_MISSION or u.is_in_hub():
+		return "it isn't out on a mission"
+	if u.flies:
+		return "aircraft come home by themselves"
+	u.recall()
+	unit_event.emit("%s was recalled to the hub" % u.display_name)
+	return ""
+
+
 ## RTB (return to base): every unit drops what it's doing and comes home.
 ## Units still waiting to set out (or waiting at the hub, like the QRF or a
 ## Builder short of resources) are stood down on the spot, getting back
@@ -1128,17 +1141,32 @@ func recall_all() -> int:
 
 # --- Regroup ----------------------------------------------------------------
 
-## The Central Hub panel's Regroup button: every military unit that can
-## regroup and is waiting in Mission Briefing goes on Regroup now, and every
-## one that comes home later joins it (see repeat_orders()), until the army
-## is all home and healed (check_regroup()). Units out on missions finish
-## them first. Returns "" if it started, otherwise why not.
+## Starts a regroup - the Central Hub panel's Regroup button, or any unit
+## given Regroup in Mission Briefing (see Orders). Every ground military unit
+## (get_regroup_units(); never aircraft) joins in: ones waiting in Mission
+## Briefing go on Regroup now; ones waiting to set out are stood down (any
+## cost refunded) and join; ones out on the map drop their missions and
+## come home (Unit.recall()), joining when they get there (see
+## repeat_orders()) - except QRF units, which carry on with their QRF job.
+## It lasts until the army is all home and healed (check_regroup()). Returns
+## "" if it started, otherwise why not.
 func start_regroup() -> String:
 	var refusal := start_regroup_refusal()
 	if refusal != "":
 		return refusal
 	regroup_active = true
-	unit_event.emit("Regroup: every military unit coming home will stand by until the whole army is home and healed")
+	var recalled := 0
+	for u in get_regroup_units():
+		if u.mission == null or u.mission is QrfMission:
+			continue
+		u.repeats_left = 0
+		if u.can_cancel_mission():
+			cancel_mission(u)
+		elif u.state == Unit.State.ON_MISSION:
+			u.recall()
+			recalled += 1
+	unit_event.emit("Regroup: the whole army is coming home to stand by until every unit is home and healed%s" % (
+		" (%d recalled)" % recalled if recalled > 0 else ""))
 	_join_regroup()
 	return ""
 

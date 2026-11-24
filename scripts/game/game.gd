@@ -126,6 +126,10 @@ func _ready() -> void:
 	hud.recall_all_requested.connect(func() -> void:
 		_cancel_targeting()
 		_submit(Orders.recall_all()))
+	hud.recall_requested.connect(func(unit: Unit) -> void:
+		var reason := _submit(Orders.recall(unit))
+		if reason != "":
+			hud.log_event("Can't recall %s: %s" % [unit.display_name, reason]))
 	hud.notice_shown.connect(func(notice: Dictionary) -> void:
 		if notice.get("at") != null:
 			camera.focus_on(map.hex_to_world(notice["at"])))

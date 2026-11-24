@@ -1,6 +1,8 @@
 class_name RegroupMission
 extends QrfMission
-## Regroup: the colony gathers its army back at the hub. A military unit on
+## Regroup: the colony gathers its ground army back at the hub (giving any
+## unit Regroup starts a regroup for all of them - see Player.start_regroup()).
+## A military unit on
 ## Regroup stands by in the QRF room and defends like the QRF (see
 ## QrfMission) - hurt ones go off to heal and come back - until every
 ## military unit that can regroup (Unit.can_take("regroup")) is home and at
