@@ -181,7 +181,7 @@ func _mission_choices(unit: Unit) -> Array:
 			"Pick any tile but a hub. Before anyone on the ground moves, flies straight there and fights whoever is on it (and anyone who walks onto it); flies home at the end of the same turn, then refits in the Hangar for %d turns (fully repairing it)." % refit, true])
 	if unit.can_take("intercept"):
 		choices.append(["intercept", "Intercept",
-			"Stand by in the Hangar for the number of turns picked in the next dropdown (INF: until you drag it out). When enemy aircraft come onto our structures or next to our hub, flies straight at them that same turn (nearest the hub first, 2 of ours for each of theirs), fights, and flies home at the end of the turn. Then it refits for %d turns and goes back on standby." % refit, true])
+			"Stand by in the Hangar for the number of turns picked in the next dropdown (INF: until you drag it out). When enemy aircraft come onto our structures or onto or next to our hub, flies straight at them that same turn (nearest the hub first, 2 of ours for each of theirs), fights, and flies home at the end of the turn. Then it refits for %d turns and goes back on standby." % refit, true])
 	if unit.can_take("carpet_bomb"):
 		choices.append(["carpet_bomb", "Carpet Bomb",
 			"Pick a tile with something man-made on it, or an enemy hub. Before anyone on the ground moves, flies straight there; if it comes through the battle, it flattens everything man-made on the tile (leaving rubble) or knocks 1 off the hub's health, then flies home that turn and refits for %d turns." % refit, true])

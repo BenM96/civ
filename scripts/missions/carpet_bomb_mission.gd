@@ -99,6 +99,10 @@ func air_return() -> void:
 	if reason != "":
 		fail(reason)
 		return
+	# On the map the tile changes once the Bomber turns for home, after its
+	# flight there and the battle have been shown.
+	unit.map.show_as_before(target)
+	unit.reveal_when_leaving(target)
 	DemolitionBuildable.new().apply(unit.map, target, unit.player.id)
 	complete()
 

@@ -43,6 +43,11 @@ var _terrain_chunks: Dictionary = {}
 var _feature_chunks: Dictionary = {}
 ## What draw calls go to while a chunk is drawing (see draw_chunk()).
 var _canvas: CanvasItem
+## Tiles still drawn as they looked before a change the player hasn't seen
+## happen yet (a Bomber's bombs land once its flight there has played - see
+## show_as_before()): hex -> a copy of the old HexTile. Drawing only; the
+## game itself always uses the real tile.
+var _shown_before: Dictionary = {}
 
 ## How far from its colony's hub each control point is placed.
 const CONTROL_POINT_MIN_DISTANCE := 5
@@ -571,14 +576,46 @@ func mark_dirty(h: Vector2i, terrain := false) -> void:
 			_terrain_chunks[key].queue_redraw()
 
 
-## Draws one chunk's tiles onto it (HexMapChunk._draw() calls this).
+## Keeps drawing `h` as it looks now, whatever changes on it, until
+## show_now(h) - so a change can appear when the player sees it happen.
+func show_as_before(h: Vector2i) -> void:
+	var tile := get_tile(h)
+	if tile == null or _shown_before.has(h):
+		return
+	var copy := HexTile.new(h, tile.terrain)
+	copy.deposit = tile.deposit
+	copy.structure = tile.structure
+	copy.structure_owner = tile.structure_owner
+	copy.control_point = tile.control_point
+	_shown_before[h] = copy
+
+
+## Draws `h` as it really is again (see show_as_before()).
+func show_now(h: Vector2i) -> void:
+	if _shown_before.erase(h):
+		mark_dirty(h, true)
+
+
+## Draws one chunk's tiles onto it (HexMapChunk._draw() calls this). Tiles
+## held by show_as_before() are swapped in just while drawing.
 func draw_chunk(chunk: HexMapChunk) -> void:
 	_canvas = chunk
+	_swap_shown_tiles()
 	if chunk.layer == HexMapChunk.Layer.TERRAIN:
 		_draw_terrain(chunk.hexes)
 	else:
 		_draw_features(chunk.hexes)
+	_swap_shown_tiles()
 	_canvas = null
+
+
+## Swaps the real tiles and their held looks (see show_as_before()); called
+## twice, it puts everything back.
+func _swap_shown_tiles() -> void:
+	for h: Vector2i in _shown_before:
+		var real: HexTile = tiles[h]
+		tiles[h] = _shown_before[h]
+		_shown_before[h] = real
 
 
 func _draw_terrain(hexes: Array[Vector2i]) -> void:

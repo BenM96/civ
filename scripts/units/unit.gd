@@ -152,6 +152,9 @@ const HOVER_TIME := 0.6
 static var hold_air_return := false
 ## Waiting over its target for hold_air_return to end.
 var _return_waiting := false
+## A tile the map keeps showing as it was until this aircraft heads home
+## (see reveal_when_leaving()), or null.
+var _reveal_on_leave: Variant = null
 ## Seconds an aircraft's flight (out or home) takes to show, however far.
 const FLIGHT_TIME := 0.7
 
@@ -713,6 +716,7 @@ func _animate_retreat(to: Vector2) -> void:
 ## Killed in combat. The hub has already removed it from the colony; this
 ## lets its last move finish playing, then fades it out.
 func die() -> void:
+	_reveal_target()  # Won't be heading home to show it.
 	if is_animating():
 		await _move_tween.finished
 	var fade := create_tween()
@@ -843,6 +847,7 @@ func _on_move_played() -> void:
 		if flies and hold_air_return:
 			_return_waiting = true  # Stays shown over its target.
 			return
+		_reveal_target()
 		_play_steps(HOVER_TIME if flies else 0.0)
 	else:
 		_refresh_visibility()
@@ -852,7 +857,23 @@ func _on_move_played() -> void:
 func release_return() -> void:
 	if _return_waiting:
 		_return_waiting = false
+		_reveal_target()
 		_play_steps(0.2)
+
+
+## The map keeps showing `h` as it was (HexMap.show_as_before()) until this
+## aircraft heads home - e.g. a Bomber's target, so the rubble appears once
+## the player has seen it get there and come through the battle.
+func reveal_when_leaving(h: Vector2i) -> void:
+	_reveal_on_leave = h
+	if not is_animating():
+		_reveal_target()  # Nothing being shown: no need to wait.
+
+
+func _reveal_target() -> void:
+	if _reveal_on_leave != null:
+		map.show_now(_reveal_on_leave)
+		_reveal_on_leave = null
 
 
 func _set_heading(angle: float) -> void:

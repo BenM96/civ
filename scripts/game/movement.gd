@@ -126,7 +126,7 @@ static func _anim_end(units: Array[Unit], delay: float) -> float:
 
 
 ## Each colony sends its interceptors on standby at the enemy aircraft in
-## its territory (on one of its structures, or next to its hub): the
+## its territory (on one of its structures, or on or next to its hub): the
 ## nearest to its hub first, as many as it takes to have 2 of our aircraft
 ## there for every enemy one (counting ours already there), then the next.
 ## Interceptors go in unit id order. Every colony decides from the same
@@ -166,7 +166,7 @@ static func _plan_intercepts(map: HexMap, interceptors: Array[Unit]) -> void:
 		(launch[0].mission as InterceptMission).launch(launch[1])
 
 
-## The tiles in `colony`'s territory (one of its structures, or next to its
+## The tiles in `colony`'s territory (one of its structures, its hub, or next to its
 ## hub) with enemy aircraft from `aircraft` on them, nearest its hub first.
 static func _intruder_hexes(map: HexMap, colony: Player, aircraft: Array[Unit]) -> Array[Vector2i]:
 	var hexes: Array[Vector2i] = []
@@ -175,7 +175,7 @@ static func _intruder_hexes(map: HexMap, colony: Player, aircraft: Array[Unit]) 
 			continue
 		var tile := map.get_tile(u.hex)
 		var on_ours := tile != null and tile.structure != Structure.Type.NONE and tile.structure_owner == colony.id
-		if on_ours or Hex.distance(u.hex, colony.hex) == 1:
+		if on_ours or Hex.distance(u.hex, colony.hex) <= 1:
 			hexes.append(u.hex)
 	hexes.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		var da := Hex.distance(a, colony.hex)

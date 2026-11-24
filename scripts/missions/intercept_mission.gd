@@ -2,7 +2,7 @@ class_name InterceptMission
 extends QrfMission
 ## The air force's quick reaction force: an aircraft stands by in the Hangar
 ## and, when enemy aircraft come into our territory (onto one of our
-## structures, or next to our hub), flies straight at them in the same turn.
+## structures, or on or next to our hub), flies straight at them in the same turn.
 ##
 ## Interceptors move straight after the sorties, before anyone on the
 ## ground (see Movement): each

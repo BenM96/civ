@@ -413,7 +413,7 @@ fly above their hexes, and ones shot down crash and burn.
 
 **Intercept.** The air force's QRF: the aircraft stands by in the Hangar for
 the turns picked in the second dropdown (INF: until you drag it out). When
-enemy aircraft land in your territory (on one of your structures, or next to
+enemy aircraft land in your territory (on one of your structures, or on or next to
 your hub), interceptors fly at them the same turn: the enemy nearest your
 hub first, sending interceptors until you have 2 aircraft there for each of
 theirs (counting any of yours already there), then the next. Interceptors
