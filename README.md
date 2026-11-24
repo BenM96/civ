@@ -80,7 +80,8 @@ The computer colonies go for control points once they reach their last phase
 
 Biomass is food, and it isn't stored: it's a rate. Your **biomass
 production** is what your Greenhouses (3 a turn each) and Biomass extractors
-(2 a turn each) make, less what your units eat (1 each a turn). The top bar
+(2 a turn each) make, less what your units eat (1 each a turn, counting units in training from
+the moment they're ordered). The top bar
 shows it by the Biomass icon, e.g. "+2/turn".
 
 - You can't train a unit you couldn't feed: Training is blocked while the
@@ -458,6 +459,7 @@ extractors get that). For a steady income:
    within 10, 20 within 20 and 50 beyond - so far-off lines (like the ones
    to Electrum) are a big investment.
 2. Build **conveyor belts** on the foundations, including on the deposit.
+   Each costs Titanium in the same distance bands (1, 5, 20 or 50).
 3. Build an **extractor** on top of the belt on the deposit. A Biomass
    extractor adds 2 to your biomass production while its deposit lasts;
    Titanium, Sediment and Gold extractors deliver 0.2 per turn (1 every 5

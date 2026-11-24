@@ -266,7 +266,7 @@ func set_inventory(inventory: Dictionary, income: Dictionary = {}) -> void:
 			label.text = "%s/turn" % ResourceDeposit.format_change(rate)
 			label.add_theme_color_override("font_color",
 				STARVING_COLOR if rate < 0 else ResourceDeposit.get_type_color(type))
-			label.tooltip_text = "Biomass made each turn (Greenhouses, Biomass extractors) less what your units eat. It isn't stored.\nBelow zero, one unit starves every turn - the most injured first, the Miner and Builders last." if rate >= 0 \
+			label.tooltip_text = "Biomass made each turn (Greenhouses, Biomass extractors) less what your units eat (units in training count from the moment they're ordered). It isn't stored.\nBelow zero, one unit starves every turn - the most injured first, the Miner and Builders last." if rate >= 0 \
 				else "Your units eat more biomass than the colony makes: one unit will starve at the end of every turn until this is back to zero or above.\nBuild a Greenhouse (Buildings, B) or connect a Biomass extractor."
 			label.tooltip_text = "%s: %s a turn\n%s" % [type_name, ResourceDeposit.format_change(rate), label.tooltip_text]
 			_set_icon_tooltip(label)

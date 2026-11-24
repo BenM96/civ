@@ -2,7 +2,8 @@ class_name ConveyorBuildable
 extends Buildable
 ## One tile of conveyor belt. A continuous line of belts from an extractor to
 ## the hub carries the extractor's output home every turn. Must be built on a
-## foundation (or a bridge). Extractors are built on top of a belt.
+## foundation (or a bridge). Extractors are built on top of a belt. Costs
+## Titanium, more the further from the hub (see get_cost_at()).
 
 
 func _init() -> void:
@@ -14,6 +15,19 @@ func _init() -> void:
 	carries_resources = true
 	requires = ["foundation"]
 	line_of = "conveyor"
+
+
+## Titanium for a belt: more the further from the hub, in the same bands as
+## foundations' Sediment (see FoundationBuildable.SEDIMENT_BY_DISTANCE) -
+## so far-off lines are a big investment.
+func get_cost_at(player: Player, h: Vector2i) -> Dictionary:
+	if player == null:
+		return cost
+	return {ResourceDeposit.Type.TITANIUM: FoundationBuildable.sediment_at(Hex.distance(h, player.hex))}
+
+
+func get_cost_text() -> String:
+	return "1-50 Titanium, more the further from the hub"
 
 
 func get_invalid_reason(map: HexMap, h: Vector2i) -> String:

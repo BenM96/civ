@@ -779,10 +779,9 @@ func get_training_refusal(blueprint: UnitBlueprint) -> String:
 	var limit := get_unit_limit(blueprint.unit_name)
 	if limit >= 0 and count_units_named(blueprint.unit_name) >= limit:
 		return "%s limit reached (%d)" % [blueprint.unit_name, limit]
-	# Never train a unit we couldn't feed (counting the ones already training).
+	# Never train a unit we couldn't feed (production already counts the
+	# ones in training - see get_upkeep()).
 	var after := get_biomass_production() - blueprint.upkeep
-	for order in training_queue:
-		after -= order.blueprint.upkeep
 	if after < 0:
 		return "not enough biomass (would be %s a turn)" % ResourceDeposit.format_change(after)
 	return ""
@@ -950,11 +949,14 @@ func get_biomass_production() -> float:
 	return get_net_income()[ResourceDeposit.Type.BIOMASS]
 
 
-## Biomass eaten per turn by all of this hub's units.
+## Biomass eaten per turn by all of this hub's units, counting the ones in
+## training: their food is set aside from the moment they're ordered.
 func get_upkeep() -> int:
 	var total := 0
 	for u in units:
 		total += u.upkeep
+	for order in training_queue:
+		total += order.blueprint.upkeep
 	return total
 
 
@@ -1281,7 +1283,7 @@ func repeat_orders() -> void:
 ## nobody starved.
 func starve(rng: RandomNumberGenerator) -> Dictionary:
 	var production := get_biomass_production()
-	if production >= 0 or units.is_empty():
+	if production >= 0 or units.is_empty():  # (Units in training count, but never starve.)
 		return {}
 	var others: Array[Unit] = []
 	var civilians: Array[Unit] = []
