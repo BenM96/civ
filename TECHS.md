@@ -21,8 +21,8 @@ Techs are researched with Electrum from **Research (R)**. Each game deals every 
 
 | Tech | What it does | Also needs |
 |---|---|---|
+| **Initiative II** | +1 initiative (whoever has the most fires first in battle). | Initiative I (tier 1) |
 | **Regeneration** | Lets you build a Regen Lab. | Med Bay (tier 1) |
-| **Surgery** | Lets you build a Surgical Ward. | Med Bay (tier 1) |
 | **Workforce II** | +1 Builder limit. | - |
 | **Assault Infantry** | Lets you train Assault Infantry. | Barracks (tier 1) |
 | **Command Doctrine** | Lets Builders build Command Points. | - |
@@ -32,7 +32,7 @@ Techs are researched with Electrum from **Research (R)**. Each game deals every 
 
 | Tech | What it does | Also needs |
 |---|---|---|
-| **Vehicle Repair** | Lets you build a Repair Bay. | Garage (tier 2) |
+| **Surgery** | Lets you build a Surgical Ward. | Med Bay (tier 1) |
 | **AT Infantry** | Lets you train AT Infantry. | Barracks (tier 1) |
 | **Forward Bases** | Lets Builders build FOBs. | - |
 | **Hangar** | Lets you build a Hangar. | - |
@@ -43,9 +43,9 @@ Techs are researched with Electrum from **Research (R)**. Each game deals every 
 
 | Tech | What it does | Also needs |
 |---|---|---|
-| **Advanced Drilling** | Titanium extractors deliver 0.1 more a turn. Sediment extractors deliver 0.1 more a turn. Gold extractors deliver 0.1 more a turn. | - |
-| **Initiative II** | +1 initiative (whoever has the most fires first in battle). | Initiative I (tier 1) |
 | **Machine Tools** | Lets you build a Machine Shop. | Garage (tier 2) |
+| **Vehicle Repair** | Lets you build a Repair Bay. | Garage (tier 2) |
+| **Workforce III** | +1 Builder limit. | - |
 | **Anti-Aircraft Gun** | Lets you train Anti-Aircraft Gun. | Garage (tier 2) |
 | **Fighter** | Lets you train Fighter. | Hangar (tier 3) |
 | **Stinger Infantry** | Lets you train Stinger Infantry. | Barracks (tier 1) |
@@ -54,8 +54,8 @@ Techs are researched with Electrum from **Research (R)**. Each game deals every 
 
 | Tech | What it does | Also needs |
 |---|---|---|
+| **Advanced Drilling** | Titanium extractors deliver 0.1 more a turn. Sediment extractors deliver 0.1 more a turn. Gold extractors deliver 0.1 more a turn. | - |
 | **Fighter Bomber** | Lets you train Fighter Bomber. | Hangar (tier 3) |
-| **Workforce III** | +1 Builder limit. | - |
 | **Air Weapons** | Air units do +1 damage to everything. | Hangar (tier 3) |
 | **Armour Weapons** | Armour units do +1 damage to everything. | Garage (tier 2) |
 | **Bomber** | Lets you train Bomber. | Hangar (tier 3) |
@@ -69,5 +69,5 @@ Techs are researched with Electrum from **Research (R)**. Each game deals every 
 | **Electrum Drilling** | Electrum extractors deliver 0.1 more a turn. Biomass extractors deliver 0.1 more a turn. | - |
 | **Flight Crews** | Lets you build a Flight Crew Quarters. | Hangar (tier 3) |
 | **Hydroponics II** | +1 Greenhouse limit. | Hydroponics I (tier 1) |
-| **Initiative III** | +1 initiative (whoever has the most fires first in battle). | Initiative II (tier 4) |
+| **Initiative III** | +1 initiative (whoever has the most fires first in battle). | Initiative II (tier 2) |
 | **Workforce IV** | +1 Builder limit. | - |
