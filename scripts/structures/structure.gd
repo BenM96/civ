@@ -43,6 +43,12 @@ static func carries_resources(type: Type) -> bool:
 	return b != null and b.carries_resources
 
 
+## Whether other colonies' units have to go round a tile with this structure
+## (see HexMap.find_path()).
+static func blocks_movement(type: Type) -> bool:
+	return type == Type.COMMAND_POINT or type == Type.FOB
+
+
 ## The display name of a structure from its buildable id, e.g.
 ## "command_point" -> "Command Point".
 static func get_name_for_id(buildable_id: String) -> String:

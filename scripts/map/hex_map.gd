@@ -24,9 +24,9 @@ signal structure_lost(h: Vector2i, type: Structure.Type, owner_faction: int, by_
 var tiles: Dictionary = {}
 
 var _astar := AStar2D.new()
-## Command point hex -> owner faction (other colonies route round them - see
-## find_path()).
-var _command_points: Dictionary = {}
+## Command point and FOB hex -> owner faction (other colonies route round
+## them, and round each other's hubs - see find_path()).
+var _blocking_structures: Dictionary = {}
 var _point_ids: Dictionary = {}  # Vector2i -> int
 var _id_to_hex: Array[Vector2i] = []
 var _foundation_anchors: Array[Vector2i] = []
@@ -84,7 +84,7 @@ func take_unit_id() -> int:
 func generate(seed_override := 0) -> void:
 	tiles.clear()
 	_foundation_anchors.clear()
-	_command_points.clear()
+	_blocking_structures.clear()
 	control_points.clear()
 	var seed_value := seed_override if seed_override != 0 else (map_seed if map_seed != 0 else randi())
 	if seed_value == 0:
@@ -155,8 +155,8 @@ func load_dict(data: Dictionary) -> void:
 		tile.terrain = Terrain.from_save_name(entry[2])
 		tile.structure = Structure.Type[entry[3]]
 		tile.structure_owner = int(entry[4])
-		if tile.structure == Structure.Type.COMMAND_POINT:
-			_command_points[h] = tile.structure_owner
+		if Structure.blocks_movement(tile.structure):
+			_blocking_structures[h] = tile.structure_owner
 		tile.deposit = null
 		if entry[5] != null:
 			tile.deposit = ResourceDeposit.new(ResourceDeposit.Type[entry[5]], h, int(entry[6]))
@@ -368,7 +368,7 @@ func set_terrain(h: Vector2i, terrain: Terrain.Type) -> void:
 
 
 ## Places (or clears, with Structure.Type.NONE) a structure on a tile,
-## owned by the faction whose hub built it. Only command points affect
+## owned by the faction whose hub built it. Only command points and FOBs affect
 ## movement: other colonies' units can't pass through them (see find_path()).
 ## `by_faction`: who did it, when clearing (demolishing) - defaults to the
 ## new owner (building or capturing). See structure_lost.
@@ -384,10 +384,10 @@ func set_structure(h: Vector2i, type: Structure.Type, owner_faction := Faction.N
 	var by := by_faction if by_faction != Faction.NONE else new_owner
 	tile.structure = type
 	tile.structure_owner = new_owner
-	if type == Structure.Type.COMMAND_POINT:
-		_command_points[h] = new_owner
+	if Structure.blocks_movement(type):
+		_blocking_structures[h] = new_owner
 	else:
-		_command_points.erase(h)
+		_blocking_structures.erase(h)
 	mark_dirty(h)
 	tile_changed.emit(h)
 	if old_owner != Faction.NONE and new_owner != old_owner and by != old_owner:
@@ -479,18 +479,27 @@ func get_world_rect() -> Rect2:
 
 ## Returns the path from `from` to `to`, NOT including `from`.
 ## Empty if unreachable (or if from == to).
-## `faction`: whose unit is moving. Other colonies' command points block it
-## - it has to go round them - though it can still end its move on one
-## (`to`, e.g. to capture or demolish it) or set off from one.
+## `faction`: whose unit is moving. Other colonies' command points, FOBs and
+## hubs block it - it has to go round them - though it can still end its
+## move on one (`to`, e.g. to capture or demolish it) or set off from one.
 func find_path(from: Vector2i, to: Vector2i, faction := Faction.NONE) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
 	if from == to or not _point_ids.has(from) or not _point_ids.has(to):
 		return result
 	var blocked: Array[int] = []
 	if faction != Faction.NONE:
-		for h: Vector2i in _command_points:
+		var closed := {}  # Hex -> true: other colonies' command points, FOBs and hubs.
+		for h: Vector2i in _blocking_structures:
+			if _blocking_structures[h] != faction:
+				closed[h] = true
+		for other: int in players:
+			if other != faction:
+				closed[players[other].hex] = true
+		for h: Vector2i in closed:
+			if h == from or h == to or not _point_ids.has(h):
+				continue
 			var id: int = _point_ids[h]
-			if _command_points[h] != faction and h != from and h != to and not _astar.is_point_disabled(id):
+			if not _astar.is_point_disabled(id):
 				_astar.set_point_disabled(id, true)
 				blocked.append(id)
 	result = _find_path(from, to)
@@ -776,42 +785,58 @@ func _draw_belt_links(h: Vector2i, owner_faction: int) -> void:
 const FOB_SCALE := 1.4
 
 
-## An FOB: a small stone fort - a walled tower with battlements and a flag
-## in its owner's colour. The flag is dull while it's cut off from the hub.
+## An FOB: a pressurised habitat dome on a metal base, with an airlock door
+## and an antenna topped by a beacon in its owner's colour. The beacon glows
+## while it's linked to the hub and goes dark while it's cut off.
 func _draw_fob(h: Vector2i) -> void:
 	var s := hex_size
 	var c := Hex.to_pixel(h, s)
 	var tile := get_tile(h)
 	var owner_color := Faction.get_color(tile.structure_owner)
-	var stone := Color(0.62, 0.6, 0.55)
+	var shell := Color(0.84, 0.82, 0.78)
+	var metal := Color(0.55, 0.57, 0.6)
 	var dark := Color(0.2, 0.2, 0.22)
 	# Drawn 1.4x size about the tile centre (the shapes below are in hex sizes).
 	_canvas.draw_set_transform(c * (1.0 - FOB_SCALE), 0.0, Vector2(FOB_SCALE, FOB_SCALE))
-	# Outer wall, with battlements along the top.
-	var wall := Rect2(c + Vector2(-0.38, -0.02) * s, Vector2(0.76, 0.34) * s)
-	_canvas.draw_rect(wall.grow(1.5), dark)
-	_canvas.draw_rect(wall, stone)
-	for i in 5:
-		var x := -0.38 + i * 0.17
-		_canvas.draw_rect(Rect2(c + Vector2(x, -0.1) * s, Vector2(0.08, 0.09) * s), stone)
-		_canvas.draw_rect(Rect2(c + Vector2(x, -0.1) * s, Vector2(0.08, 0.09) * s), dark, false, 1.0)
-	# Central tower.
-	var tower := Rect2(c + Vector2(-0.13, -0.42) * s, Vector2(0.26, 0.5) * s)
-	_canvas.draw_rect(tower.grow(1.5), dark)
-	_canvas.draw_rect(tower, stone.lightened(0.12))
-	for i in 3:
-		_canvas.draw_rect(Rect2(c + Vector2(-0.13 + i * 0.1, -0.5) * s, Vector2(0.06, 0.08) * s), stone.lightened(0.12))
-	# Gate and arrow slit.
-	_canvas.draw_rect(Rect2(c + Vector2(-0.06, 0.14) * s, Vector2(0.12, 0.18) * s), dark)
-	_canvas.draw_rect(Rect2(c + Vector2(-0.02, -0.3) * s, Vector2(0.04, 0.12) * s), dark)
-	# Owner trim and flag.
-	_canvas.draw_rect(wall, owner_color, false, 2.5)
+	var base_y := 0.14
+	var radius := 0.36
+	# Dome: the top half of a circle, outlined.
+	var dome := PackedVector2Array()
+	for i in 17:
+		var a := PI + PI * i / 16.0
+		dome.append(c + Vector2(cos(a) * radius, base_y + sin(a) * radius) * s)
+	_canvas.draw_colored_polygon(dome, shell)
+	# Ribs: meridians from the top of the dome down to its rim, and a band.
+	for k in [-0.55, 0.55]:
+		var rib := PackedVector2Array()
+		for i in 9:
+			var t := PI / 2.0 * i / 8.0
+			rib.append(c + Vector2(k * radius * sin(t), base_y - radius * cos(t)) * s)
+		_canvas.draw_polyline(rib, shell.darkened(0.3), 1.0)
+	var band := PackedVector2Array()
+	for i in 13:
+		var a := PI + PI * i / 12.0
+		band.append(c + Vector2(cos(a) * radius * 0.94, base_y - 0.12 + sin(a) * radius * 0.25) * s)
+	_canvas.draw_polyline(band, shell.darkened(0.3), 1.0)
+	_canvas.draw_polyline(dome, dark, 1.5)
+	# Metal base with the owner's trim.
+	var base := Rect2(c + Vector2(-0.42, base_y) * s, Vector2(0.84, 0.14) * s)
+	_canvas.draw_rect(base.grow(1.5), dark)
+	_canvas.draw_rect(base, metal)
+	_canvas.draw_rect(Rect2(base.position + Vector2(0, 0.05) * s, Vector2(base.size.x, 0.04 * s)), owner_color)
+	# Airlock door, with a small window.
+	var door := Rect2(c + Vector2(-0.08, base_y - 0.16) * s, Vector2(0.16, 0.16) * s)
+	_canvas.draw_rect(door, metal.darkened(0.2))
+	_canvas.draw_rect(door, dark, false, 1.0)
+	_canvas.draw_rect(Rect2(c + Vector2(-0.04, base_y - 0.13) * s, Vector2(0.08, 0.05) * s), Color(0.55, 0.8, 0.95))
+	# Antenna and beacon.
+	var top := c + Vector2(0, base_y - radius) * s
+	var tip := top + Vector2(0, -0.22) * s
+	_canvas.draw_line(top, tip, dark, 2.0)
 	var lit := _is_supply_connected(h, tile.structure_owner)
-	var flag := owner_color if lit else owner_color.darkened(0.5)
-	var pole := c + Vector2(0, -0.5) * s
-	_canvas.draw_line(pole, pole + Vector2(0, -0.28) * s, dark, 2.0)
-	_canvas.draw_colored_polygon(PackedVector2Array([
-		pole + Vector2(0, -0.28) * s, pole + Vector2(0.22, -0.21) * s, pole + Vector2(0, -0.14) * s]), flag)
+	if lit:
+		_canvas.draw_circle(tip, 0.09 * s, Color(owner_color, 0.35))
+	_canvas.draw_circle(tip, 0.05 * s, owner_color if lit else owner_color.darkened(0.6))
 	_canvas.draw_set_transform(Vector2.ZERO)
 
 

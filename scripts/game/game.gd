@@ -415,30 +415,45 @@ func _setup_turns(start_turn: int) -> void:
 ## can't be ended until they've finished (or been skipped).
 func _show_battles(reports: Array[Dictionary]) -> void:
 	var ours := reports.filter(_involves_us)
+	for report: Dictionary in reports:
+		if not report in ours:
+			hud.log_event(report["message"])
 	if ours.is_empty():
+		_reveal_battle_results()
 		return
+	# Keep the results (health, the dead) off the map until the replays.
+	Unit.hold_battle_results = true
 	turns.showing_battles = true
 	_cancel_targeting()
 	# Let this turn's moves play out on the map first; aircraft then hang
 	# over their targets until the replays are over (see Unit.hold_air_return).
 	Unit.hold_air_return = true
 	await _moves_shown(MAX_MOVE_WAIT)
+	var skipping := false
 	for report: Dictionary in ours:
-		if _game_over:
-			break
-		var center := Vector2.ZERO
-		for h: Vector2i in report["core"]:
-			center += map.hex_to_world(h)
-		camera.focus_on(center / report["core"].size())
-		if await hud.play_battle(report, map):
-			break
+		if not skipping and not _game_over:
+			var center := Vector2.ZERO
+			for h: Vector2i in report["core"]:
+				center += map.hex_to_world(h)
+			camera.focus_on(center / report["core"].size())
+			skipping = await hud.play_battle(report, map)
+		hud.log_event(report["message"])  # After its replay (or once skipped).
 	Unit.hold_air_return = false
 	for colony: Player in map.players.values():
 		for u in colony.units:
 			u.release_return()
+	_reveal_battle_results()
 	turns.showing_battles = false
 	_show_pending_starvation()
 	_show_notices()
+
+
+## The replays are over: units show their real health and the dead fade out.
+func _reveal_battle_results() -> void:
+	Unit.hold_battle_results = false
+	for colony: Player in map.players.values():
+		for u in colony.units:
+			u.reveal_battle_results()
 
 
 ## Waits until no unit is still playing its move (or `limit` seconds).
@@ -698,12 +713,16 @@ func _process(delta: float) -> void:
 ## territory (centring the map there - see TurnManager.get_contacts()).
 func _skip_blockers() -> Array:
 	var entries := []
-	for issue in attention.all_active():
+	for issue: Attention.Issue in Attention.ORDER:
+		var active := attention.is_active(issue)
+		if not active and not attention.is_dismissed(issue):
+			continue
 		var text := attention.describe(issue)
 		if issue == Attention.Issue.ORDERS:
 			text = "%d unit(s) need orders" % local_player.get_units_needing_orders().filter(
 				func(u: Unit) -> bool: return u.repeats_left == 0).size()
-		entries.append({"text": text, "section": Attention.SECTIONS[issue]})
+		# Dismissed ones stay, greyed out: they don't stop auto-skip.
+		entries.append({"text": text, "section": Attention.SECTIONS[issue], "dimmed": not active})
 	var by_hex := {}  # Hex -> [ours?, owner, unit names].
 	for contact: Dictionary in turns.get_contacts():
 		var u: Unit = contact["unit"]

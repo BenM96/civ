@@ -12,4 +12,4 @@ func _init() -> void:
 	cost = {ResourceDeposit.Type.GOLD: 1, ResourceDeposit.Type.TITANIUM: 3, ResourceDeposit.Type.SEDIMENT: 2}
 	upkeep = 1
 	max_movement = 3
-	allowed_missions = ["move", "guard", "escort", "qrf"]
+	allowed_missions = ["move", "escort", "qrf"]

@@ -44,7 +44,7 @@ func _init(p_unit_script: GDScript) -> void:
 ## What the unit is and does, for tooltips, e.g.
 ## "Armour - 10 HP. Fires 2 shots a turn.
 ##  Damage: Infantry 8, Civilian 8, Armour 4, Air 2
-##  Missions: move, guard, escort, qrf"
+##  Missions: move, escort, qrf"
 func get_info_text() -> String:
 	var lines: PackedStringArray = ["%s - %d HP." % [Unit.get_type_name(unit_type), _max_health]]
 	if _shots_per_turn > 1:
