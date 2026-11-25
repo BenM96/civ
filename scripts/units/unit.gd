@@ -154,6 +154,14 @@ const HOVER_TIME := 0.6
 static var hold_air_return := false
 ## Waiting over its target for hold_air_return to end.
 var _return_waiting := false
+## While true (the game is replaying this turn's battles), units show the
+## health they had before the battle and the dead don't fade out yet, so the
+## map doesn't give the results away before the replay (see
+## reveal_battle_results()).
+static var hold_battle_results := false
+## The health shown while hold_battle_results is on: what it had before this
+## turn's battles, or -1 (show `health`).
+var _shown_health := -1
 ## A tile the map keeps showing as it was until this aircraft heads home
 ## (see reveal_when_leaving()), or null.
 var _reveal_on_leave: Variant = null
@@ -191,6 +199,8 @@ func get_max_movement() -> int:
 func take_damage(amount: int) -> void:
 	if amount <= 0:
 		return
+	if _shown_health < 0:
+		_shown_health = health  # Shown until reveal_battle_results().
 	health -= amount
 	queue_redraw()
 	state_changed.emit(self)  # So the HUD shows the new HP.
@@ -491,6 +501,18 @@ func recall() -> void:
 	_set_state(State.RETURNING)
 
 
+## Whether this unit will set out again once home: it has repeats left, or
+## it's coming back to heal or refit before rejoining (QRF, Intercept...).
+func will_go_out_again() -> bool:
+	return repeats_left != 0 or rejoin_kind != ""
+
+
+## Calls off any repeats (and rejoining), leaving it to carry on home.
+func stop_repeats() -> void:
+	repeats_left = 0
+	rejoin_kind = ""
+
+
 ## Withdraws the mission from a unit that hasn't left yet. Use
 ## Player.cancel_mission() (which also refunds the cost) rather than
 ## calling this directly.
@@ -726,6 +748,11 @@ func die() -> void:
 	_reveal_target()  # Won't be heading home to show it.
 	if is_animating():
 		await _move_tween.finished
+	# The game sets hold_battle_results later in the same frame, if it's
+	# going to replay the battle: stay on the map until the replay is over.
+	await get_tree().process_frame
+	while hold_battle_results:
+		await get_tree().process_frame
 	var fade := create_tween()
 	fade.tween_property(self, "modulate:a", 0.0, 0.4)
 	fade.tween_callback(queue_free)
@@ -861,6 +888,14 @@ func _on_move_played() -> void:
 
 
 ## The battle replays are over: an aircraft held over its target flies home.
+## The battle replays are over (or there were none to show): show its real
+## health from now on.
+func reveal_battle_results() -> void:
+	if _shown_health >= 0:
+		_shown_health = -1
+		queue_redraw()
+
+
 func release_return() -> void:
 	if _return_waiting:
 		_return_waiting = false
@@ -1045,9 +1080,10 @@ func _draw() -> void:
 	else:
 		draw_icon(self, unit_type, c, RADIUS * s, faction_color, body_color, get_short_label())
 	# Health bar under the icon once it has taken damage.
-	if health < max_health:
+	var shown_health := _shown_health if hold_battle_results and _shown_health >= 0 else health
+	if shown_health < max_health:
 		var bar := Rect2(c + Vector2(-RADIUS, RADIUS + 5.0) * s, Vector2(RADIUS * 2.0, 4.0) * s)
 		draw_rect(bar, Color(0, 0, 0, 0.8))
-		var fraction := clampf(float(health) / max_health, 0.0, 1.0)
+		var fraction := clampf(float(shown_health) / max_health, 0.0, 1.0)
 		var fill := Color(0.95, 0.3, 0.25) if is_broken() else Color(0.4, 0.9, 0.35)
 		draw_rect(Rect2(bar.position, Vector2(bar.size.x * fraction, bar.size.y)), fill)

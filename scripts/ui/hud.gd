@@ -724,8 +724,10 @@ func _update_section_buttons() -> void:
 ## Fills the "Waiting on you" list down the right: what's stopping idle
 ## turns being skipped. Each entry is {"text": String, and either "section":
 ## Section (opens that panel when clicked) or "at": Vector2i (centres the
-## map there - see location_requested)}. `idle_note` is shown when the list
-## is empty. Only rebuilds when something changed.
+## map there - see location_requested), and optionally "dimmed": true (greyed
+## out - something already seen that doesn't stop auto-skip)}. `idle_note` is
+## shown when nothing in the list stops auto-skip. Only rebuilds when
+## something changed.
 func set_blockers(entries: Array, idle_note: String) -> void:
 	var shown := entries.duplicate()
 	shown.append(idle_note)
@@ -735,14 +737,13 @@ func set_blockers(entries: Array, idle_note: String) -> void:
 	for child in _blockers_list.get_children():
 		_blockers_list.remove_child(child)
 		child.queue_free()
-	if entries.is_empty():
+	if entries.all(func(entry: Dictionary) -> bool: return entry.get("dimmed", false)):
 		var note := Label.new()
 		note.text = idle_note
 		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		note.custom_minimum_size.x = 290
 		note.modulate = Color(1, 1, 1, 0.6)
 		_blockers_list.add_child(note)
-		return
 	for entry: Dictionary in entries:
 		var on_click: Callable
 		if entry.has("at"):
@@ -756,6 +757,9 @@ func set_blockers(entries: Array, idle_note: String) -> void:
 		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		b.custom_minimum_size.x = 290
 		b.tooltip_text = "Show me" if entry.has("at") else "Open %s" % _panels[entry["section"]].title
+		if entry.get("dimmed", false):
+			b.modulate = Color(1, 1, 1, 0.45)
+			b.tooltip_text += " (you've seen this - it won't stop idle turns being skipped until something new turns up)"
 		_blockers_list.add_child(b)
 
 

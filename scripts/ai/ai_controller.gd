@@ -55,12 +55,12 @@ extends RefCounted
 ## A damaged hub is repaired (once a turn) before anything else.
 ##
 ## Military:
-##   1. QRF - a third of its army stands by on QRF (armour and Guards first).
+##   1. QRF - a third of its army stands by on QRF (armour first).
 ##   2. Attack - all ready Infantry set off together, escorted by spare
 ##      armour. A raid demolishes the nearest rival's structures (each its own
 ##      target) or, now and then or with nothing else left, its hub. In phase 5
 ##      each wave is a raid or, at random, a command-point wave: capture
-##      rivals' command points, or with none to take, guard our own.
+##      rivals' command points (a raid if there are none to take).
 ##   3. Air - half the aircraft that can intercept stand by on Intercept;
 ##      Bombers carpet bomb the nearest rival's structures (or its hub); the
 ##      rest fly sorties at enemies on its structures, then those nearest
@@ -750,7 +750,7 @@ func _incoming_resources() -> Dictionary:
 # --- Military 1: QRF ------------------------------------------------------------
 
 ## Keeps a third of the army (at least 1 once there is one) on QRF duty,
-## sending armour and Guards before Infantry so Infantry are free to attack.
+## sending armour before Infantry so Infantry are free to attack.
 func _plan_qrf() -> void:
 	var army := 0
 	var on_qrf := 0
@@ -811,8 +811,7 @@ func _plan_attack_wave() -> void:
 ## Raids the nearest rival that has anything to hit. Some waves (one in
 ## about 1/HUB_RAID_CHANCE) all go to demolish its hub; otherwise each of
 ## `infantry` demolishes one of its structures (nearest to us first), and
-## with none left they demolish the hub (or, if they can't reach it, guard
-## beside it). Returns the units sent.
+## with none left they demolish the hub. Returns the units sent.
 func _raid(infantry: Array[Unit]) -> Array[Unit]:
 	var taken := _targets_in_progress()
 	var wave: Array[Unit] = []
@@ -831,44 +830,30 @@ func _raid(infantry: Array[Unit]) -> Array[Unit]:
 				continue
 			if _order(Orders.mission(u, "demolish", rival.hex)):
 				wave.append(u)
-				continue
-			var post: Variant = _post_by_hub(rival, u, taken)
-			if post != null and _order(Orders.mission(u, "guard", post)):
-				taken[post] = true
-				wave.append(u)
 		if not wave.is_empty():
 			break  # One wave, one rival.
 	return wave
 
 
 ## Goes for the control points with `infantry`: each to capture a rival's
-## command point (nearest to us first, one each); with none to take, each
-## to guard one of ours (or the one our Builders are building) that nobody
-## is guarding yet. Infantry left over escort the others. Returns the units
-## sent (empty if there was nothing to go for).
+## command point (nearest to us first, one each). Infantry left over escort
+## the others. Returns the units sent (empty if there was nothing to take).
 func _take_command_points(infantry: Array[Unit]) -> Array[Unit]:
 	var taken := _targets_in_progress()
 	var captures: Array[Vector2i] = []
-	var posts: Array[Vector2i] = []
 	for h in map.control_points:
 		if taken.has(h):
 			continue
 		var tile := map.get_tile(h)
 		if tile.structure == Structure.Type.COMMAND_POINT and not map.are_allied(tile.structure_owner, player.id):
 			captures.append(h)
-		elif (tile.structure == Structure.Type.COMMAND_POINT and tile.structure_owner == player.id) \
-				or (project_kind == CommandPointBuildable.ID and h == project):
-			posts.append(h)
 	var by_distance := func(a: Vector2i, b: Vector2i) -> bool:
 		return Hex.distance(player.hex, a) < Hex.distance(player.hex, b)
 	captures.sort_custom(by_distance)
-	posts.sort_custom(by_distance)
-	var kind := "capture" if not captures.is_empty() else "guard"
-	var targets := captures if not captures.is_empty() else posts
 	var wave: Array[Unit] = []
 	for u in infantry:
-		for h in targets:
-			if not taken.has(h) and _order(Orders.mission(u, kind, h)):
+		for h in captures:
+			if not taken.has(h) and _order(Orders.mission(u, "capture", h)):
 				taken[h] = true
 				wave.append(u)
 				break
@@ -900,15 +885,6 @@ func _nearest_structure_of(rival: Player, u: Unit, taken: Dictionary, kind := "d
 	return null
 
 
-## A free tile next to `rival`'s hub that `u` can guard, or null.
-func _post_by_hub(rival: Player, u: Unit, taken: Dictionary) -> Variant:
-	for n in Hex.neighbors(rival.hex):
-		if taken.has(n):
-			continue
-		var m := Orders.make_mission(player, "guard", n)
-		if Orders.get_invalid_reason(player, u, m) == "":
-			return n
-	return null
 
 
 # --- Military 3: Air ------------------------------------------------------------

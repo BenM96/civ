@@ -66,9 +66,9 @@ rival's.
   a belt on the way stops it counting until the link is restored.
 - Infantry can **capture** another colony's command point (it then needs
   your belts to count) or **demolish** it, freeing the control point.
-- Nobody can walk through another colony's command point (allies'
-  included): units route round it, though they can still stop on it to
-  capture or demolish it.
+- Nobody can walk through another colony's command point, FOB or hub
+  (allies' included): units route round them, though they can still stop on
+  one to capture or demolish it.
 
 ### Forward Operating Bases (FOBs)
 
@@ -296,11 +296,11 @@ Each ground unit's icon shows its short name, e.g. W, I, AA. Aircraft show no la
 |---|---|---|---|---|---|
 | Miner | Civilian | MI | Free (only 1) | 2 | Harvest |
 | Builder | Civilian | BU | 1 Gold, 1 Titanium | 2 | Build |
-| Infantry | Infantry | I | 1 Gold, 2 Titanium | 3 | Move, guard, escort, capture, demolish, QRF |
+| Infantry | Infantry | I | 1 Gold, 2 Titanium | 3 | Move, escort, capture, demolish, QRF |
 | Assault Infantry | Infantry | AS | 1 Gold, 2 Titanium, 1 Electrum | 3 | As Infantry |
 | AT Infantry | Infantry | AT | 1 Gold, 2 Titanium, 1 Electrum | 3 | As Infantry |
 | Stinger Infantry | Infantry | ST | 1 Gold, 2 Titanium, 1 Electrum | 3 | As Infantry |
-| APC | Armour | APC | 1 Gold, 3 Titanium, 2 Sediment | 4 | Move, guard, escort, QRF |
+| APC | Armour | APC | 1 Gold, 3 Titanium, 2 Sediment | 4 | Move, escort, QRF |
 | Tank Destroyer | Armour | TD | 1 Gold, 3 Titanium, 2 Sediment, 1 Electrum | 5 | As APC |
 | Tank | Armour | T | 1 Gold, 3 Titanium, 2 Sediment, 1 Electrum | 5 | As APC |
 | Anti-Aircraft Gun | Armour | AA | 1 Gold, 3 Titanium, 2 Sediment, 1 Electrum | 5 | As APC |
@@ -333,7 +333,7 @@ rival, demolishing its structures - and sometimes its hub (always once
 nothing else is left). They repair their own hub whenever it's damaged.
 In the last phase each wave picks at
 random between a raid and going for command points - capturing rivals'
-command points, or guarding their own when there are none to take.
+command points (or a raid when there are none to take).
 Half their aircraft (that can intercept) stand by on Intercept; Bombers carpet bomb the nearest rival's structures (or its hub); the rest fly sorties at enemy units.
 
 ### Combat
@@ -420,7 +420,6 @@ them. A bridge order goes to just the Builder you picked.
 | Move | Infantry, armour | Walk to a tile, then come home |
 | Harvest | Miner | Bring back 1 resource from a deposit |
 | Build | Builder | Foundation, bridge, conveyor belt, extractor, command point or FOB |
-| Guard | Infantry, armour | Hold a tile for 20 turns |
 | Escort | Infantry, armour | Follow a unit from the hub wherever it goes, fighting beside it, and come home with it (not aircraft) |
 | Capture | Infantry | Take over an enemy extractor, conveyor belt or command point (3 turns on the spot) |
 | Demolish | Infantry | Tear down foundations, bridges, belts, extractors or command points (3 turns on the spot), or knock 1 health off an enemy hub from next to it (see Hub health) |

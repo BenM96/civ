@@ -147,9 +147,9 @@ func end_turn() -> void:
 		player.start_units_turn()
 
 	# 3. Movement (and the combat it leads to)
+	# Each battle's message (report["message"]) is logged by the game, after
+	# its replay (see battles_fought).
 	var battles := Movement.run(map, turn)
-	for report in battles:
-		event_logged.emit(report["message"])
 
 	# 4. Air return - lay out the aircraft over their targets first, for
 	# their flight there.

@@ -77,6 +77,11 @@ func _make_row(unit: Unit) -> HBoxContainer:
 			recall.tooltip_text = "Call this unit home: it drops its mission (and any repeats) and heads back to the hub, bringing back anything it carries."
 			recall.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			row.add_child(recall)
+		elif unit.state == Unit.State.RETURNING and not unit.flies and unit.will_go_out_again():
+			var stop := UiStyle.make_button("Recall", func() -> void: hud.recall_requested.emit(u))
+			stop.tooltip_text = "Call off its repeats: it carries on home and waits there for new orders."
+			stop.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			row.add_child(stop)
 	return row
 
 

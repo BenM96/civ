@@ -1,6 +1,6 @@
 class_name Infantry
 extends Unit
-## Military unit. Can guard a tile, escort another unit from its hub,
+## Military unit. Can escort another unit from its hub,
 ## capture other colonies' extractors and conveyors, demolish man-made
 ## structures (foundations, bridges, extractors, conveyors), leaving rubble
 ## behind, and stand by as a quick reaction force (QRF). Can't harvest or
@@ -19,4 +19,4 @@ func _init() -> void:
 	#                    civilian, infantry, armour, air
 	damage = damage_vs(6, 3, 3, 2)
 	body_color = Color(0.9, 0.35, 0.3)
-	allowed_missions = ["move", "guard", "escort", "capture", "demolish", "qrf"]
+	allowed_missions = ["move", "escort", "capture", "demolish", "qrf"]

@@ -17,9 +17,11 @@ extends RefCounted
 ## and the dismissal lasts, turn after turn: it only comes back when
 ## something NEW turns up (a unit, building or tech that wasn't on offer
 ## when the panel was closed). Each issue is a set of items (unit ids, unit
-## names, building ids, tech ids); an item stops counting as dismissed once
-## it's no longer on offer, so if it comes back later (say it became
-## affordable again) it's new again.
+## names, building ids, tech ids); an item stops counting as dismissed as
+## soon as it's no longer on offer (checked whenever the issue is looked at,
+## not just at the start of a turn), so if it comes back later (say it became
+## affordable again) it's new again. A dismissed issue still shows in the
+## blockers list, greyed out (see is_dismissed()).
 
 enum Issue { NONE, ORDERS, TRAINING, BUILDINGS, RESEARCH }
 
@@ -80,6 +82,12 @@ func is_active(issue: Issue) -> bool:
 	return not _new_items(issue).is_empty()
 
 
+## Whether `issue` has things on offer but the player has dismissed them all
+## (shown greyed out in the blockers list; it doesn't stop auto-skip).
+func is_dismissed(issue: Issue) -> bool:
+	return issue != Issue.ORDERS and not _items(issue).is_empty() and _new_items(issue).is_empty()
+
+
 ## Units waiting for orders: the turn can't end until they have some.
 func blocks_end_turn() -> bool:
 	return not _items(Issue.ORDERS).is_empty()
@@ -93,30 +101,30 @@ func dismiss_section(section: Hud.Section) -> void:
 				_dismissed[issue][item] = true
 
 
-## A short reason, e.g. "2 unit(s) need orders" - for the Next button's
-## tooltip and the blockers list. Names only what's new.
+## A short, general reason, e.g. "Unit training available" - for the Next
+## button's tooltip and the blockers list.
 func describe(issue: Issue) -> String:
-	if issue == Issue.NONE:
-		return ""
-	var items := _new_items(issue)
 	match issue:
 		Issue.ORDERS:
-			return "%d unit(s) in Mission Briefing need orders - give each one an order (or Wait) before ending the turn" % items.size()
+			return "%d unit(s) in Mission Briefing need orders - give each one an order (or Wait) before ending the turn" % _items(issue).size()
 		Issue.TRAINING:
-			return "You can train: %s" % ", ".join(items)
+			return "Unit training available"
 		Issue.BUILDINGS:
-			return "You can build: %s" % ", ".join(items.map(
-				func(id: String) -> String: return player.get_building_type(id).display_name))
+			return "Building available"
 		Issue.RESEARCH:
-			return "You can research: %s" % ", ".join(items.map(
-				func(id: String) -> String: return TechList.get_tech(id).display_name))
+			return "Research available"
 	return ""
 
 
-## What makes `issue` true right now, less what's been dismissed.
+## What makes `issue` true right now, less what's been dismissed. Forgets
+## dismissals of anything no longer on offer, so it's new if it comes back.
 func _new_items(issue: Issue) -> Array:
+	var items := _items(issue)
 	var dismissed: Dictionary = _dismissed[issue]
-	return _items(issue).filter(func(item: Variant) -> bool: return not dismissed.has(item))
+	for item: Variant in dismissed.keys():
+		if not item in items:
+			dismissed.erase(item)
+	return items.filter(func(item: Variant) -> bool: return not dismissed.has(item))
 
 
 ## What makes `issue` true right now: idle unit ids, trainable unit names,

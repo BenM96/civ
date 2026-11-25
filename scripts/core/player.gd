@@ -1109,11 +1109,18 @@ func _join_builder_group() -> void:
 ## Recall (the Field panel): one unit out on the map drops its mission and
 ## any repeats and heads home, bringing back anything it carries. Returns
 ## "" or why it can't.
+## A unit already heading home just has its repeats called off.
 func recall_unit(u: Unit) -> String:
-	if u.state != Unit.State.ON_MISSION or u.is_in_hub():
-		return "it isn't out on a mission"
 	if u.flies:
 		return "aircraft come home by themselves"
+	if u.state == Unit.State.RETURNING and not u.is_in_hub():
+		if not u.will_go_out_again():
+			return "it's already heading home"
+		u.stop_repeats()
+		unit_event.emit("%s will stand down when it gets home" % u.display_name)
+		return ""
+	if u.state != Unit.State.ON_MISSION or u.is_in_hub():
+		return "it isn't out on a mission"
 	u.recall()
 	unit_event.emit("%s was recalled to the hub" % u.display_name)
 	return ""
@@ -1576,6 +1583,43 @@ func _on_unit_returned(unit: Unit) -> void:
 		unit_event.emit("%s returned and %s" % [unit.display_name, " and ".join(parts)])
 
 
+## One geodesic glass dome of the hub, standing on `base` (its rim's centre):
+## seen from the front, rings of panel joints joined into triangles.
+func _draw_hub_dome(base: Vector2, r: float) -> void:
+	var dome := PackedVector2Array()
+	for i in 17:
+		var a := PI + PI * i / 16.0
+		dome.append(Vector2(cos(a), sin(a)) * r + base)
+	draw_colored_polygon(dome, Color(0.72, 0.88, 0.98, 0.95))
+	# Rings of joints, rim first, each with one fewer joint; the apex last.
+	const RINGS := 3
+	var rings: Array[PackedVector2Array] = []
+	for k in RINGS:
+		var lat := PI / 2.0 * k / RINGS
+		var ring := PackedVector2Array()
+		var n := 6 - k
+		for j in n + 1:
+			var lon := PI * j / n
+			ring.append(base + Vector2(r * cos(lat) * cos(lon), -r * sin(lat)))
+		rings.append(ring)
+	var apex := base + Vector2(0, -r)
+	var frame := Color(0.35, 0.5, 0.62, 0.9)
+	for k in RINGS:
+		var ring := rings[k]
+		if k > 0:
+			draw_polyline(ring, frame, 1.0, true)
+		var above := rings[k + 1] if k + 1 < RINGS else PackedVector2Array([apex])
+		# Triangles: each joint to the nearest one or two in the ring above.
+		for j in ring.size():
+			var t := float(j) / (ring.size() - 1)
+			var m := t * (above.size() - 1)
+			draw_line(ring[j], above[floori(m)], frame, 1.0, true)
+			if ceili(m) != floori(m):
+				draw_line(ring[j], above[ceili(m)], frame, 1.0, true)
+	draw_polyline(dome, Color(0.25, 0.4, 0.55), 2.0, true)
+	draw_arc(base, r * 0.65, PI * 1.12, PI * 1.38, 6, Color(1, 1, 1, 0.75), 2.0)
+
+
 func _draw() -> void:
 	var size := map.hex_size if map else 36.0
 	var outer := Hex.corners(Vector2.ZERO, size * 0.82)
@@ -1584,20 +1628,20 @@ func _draw() -> void:
 	var outline := outer.duplicate()
 	outline.append(outer[0])
 	draw_polyline(outline, get_color(), 3.0, true)
-	# Habitat dome with an antenna.
-	var base_y := size * 0.25
-	var r := size * 0.42
-	draw_line(Vector2(r * 0.3, base_y - r * 0.8), Vector2(r * 0.55, base_y - r * 1.35), Color(0.8, 0.82, 0.85), 2.0)
-	draw_circle(Vector2(r * 0.55, base_y - r * 1.35), size * 0.05, Color(1.0, 0.3, 0.25))
-	var dome := PackedVector2Array()
-	for i in 13:
-		var a := PI + PI * i / 12.0
-		dome.append(Vector2(cos(a), sin(a)) * r + Vector2(0, base_y))
-	draw_colored_polygon(dome, Color(0.75, 0.9, 1.0, 0.85))
-	draw_polyline(dome, Color(0.95, 0.98, 1.0), 2.0, true)
-	draw_arc(Vector2(0, base_y), r * 0.6, PI * 1.15, PI * 1.45, 6, Color(1, 1, 1, 0.8), 2.0)
-	draw_rect(Rect2(-r * 1.1, base_y, r * 2.2, size * 0.1), Color(0.6, 0.62, 0.66))
-	draw_rect(Rect2(-size * 0.07, base_y - size * 0.18, size * 0.14, size * 0.18), Color(0.2, 0.25, 0.32))
+	# Linked geodesic biome domes, like a chain of bubbles: a big one with
+	# the antenna and door, then a medium and a small one drawn in front.
+	var base_y := size * 0.34
+	var big := [Vector2(-size * 0.12, base_y), size * 0.42]
+	var bubbles := [big, [Vector2(size * 0.38, base_y), size * 0.27], [Vector2(-size * 0.52, base_y), size * 0.17]]
+	var top: Vector2 = big[0] + Vector2(0, -big[1])
+	draw_line(top, top + Vector2(0, -size * 0.16), Color(0.8, 0.82, 0.85), 2.0)
+	draw_circle(top + Vector2(0, -size * 0.16), size * 0.05, Color(1.0, 0.3, 0.25))
+	for bubble: Array in bubbles:
+		_draw_hub_dome(bubble[0], bubble[1])
+	var foot := Rect2(-size * 0.66, base_y, size * 1.32, size * 0.08)
+	draw_rect(foot, Color(0.6, 0.62, 0.66))
+	draw_rect(foot, Color(0.25, 0.3, 0.38), false, 1.0)
+	draw_rect(Rect2(big[0].x - size * 0.07, base_y - size * 0.16, size * 0.14, size * 0.16), Color(0.2, 0.25, 0.32))
 	# Badge: units at home.
 	var badge := Vector2(size * 0.55, -size * 0.55)
 	draw_circle(badge, size * 0.24, Color(0.1, 0.1, 0.1))
