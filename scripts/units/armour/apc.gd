@@ -9,6 +9,6 @@ func _init() -> void:
 	unit_name = "APC"
 	short_name = "APC"
 	train_turns = 4
-	#                    infantry, civilian, armour, air
-	damage = damage_vs(4, 6, 4, 2)
+	#                    civilian, infantry, armour, air
+	damage = damage_vs(6, 3, 3, 2)
 	body_color = Color(0.6, 0.68, 0.5)

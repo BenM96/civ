@@ -132,15 +132,15 @@ Every deposit holds 999, so in practice none ever runs out.
 
 ### Research
 
-Open **Research** on the bottom bar (or press R). Every game deals the 42
+Open **Research** on the bottom bar (or press R). Every game deals the 36
 techs out into **3 tech trees**, shuffled fresh each game but the same for
 every colony. Each tree has 2 tier-1 techs, then 2 tier-2, and so on up to
-tier 7.
+tier 6.
 
 - A tree is researched in order: each tech needs the one before it. The 1st
   tech on a tree costs 1 Electrum, the 2nd costs 2, and so on.
 - Some techs also need another tech, on any tree, always from a lower tier
-  (e.g. Surgery needs Field Medicine). The panel says what's missing.
+  (e.g. Surgery needs the Med Bay tech). The panel says what's missing.
 - You pay when you start it and it's done at the end of the turn (cancel
   before then for a refund). You can research on all three trees in the same
   turn, but only one tech per tree.
@@ -158,9 +158,10 @@ Godot_v4.7.2-stable_win64_console.exe --headless --path . -s tools/generate_tech
 ```
 
 Each **Workforce** tech raises your Builder limit by 1 (you start limited to
-1 Builder, counting any in training). Each **Weapons** tech gives one unit
-+1 damage against every type; **Civil Defence** gives every civilian +1
-damage against civilians. Each **Initiative** tech (tiers 1, 4 and 6)
+1 Builder, counting any in training). **Infantry, Armour and Air Weapons** each
+give every unit of that type +1 damage against everything; **Civil Defence**
+gives civilians +2 damage against civilians and +1 against infantry. Each
+**Initiative** tech (tiers 1, 4 and 6)
 adds 1 initiative (see Combat). Techs taken out of the game are kept in
 `disabled/` (which Godot ignores) so they can be put back. The computer colonies follow the same rules
 and research techs too (see Units).
@@ -180,7 +181,7 @@ now.
 | Barracks | Barracks | - | 1 | Opens the Barracks room. Needed to train infantry. |
 | Garage | Garage | - | 1 | Opens the Garage room. Needed to train armour; repairs damaged armour. |
 | Hangar | Hangar | - | 1 | Opens the Hangar room. Needed to train air units. |
-| Med Bay | Field Medicine | - | 1 | Opens the Med Bay room, which heals infantry and civilians. |
+| Med Bay | Med Bay | - | 1 | Opens the Med Bay room, which heals infantry and civilians. |
 | Surgical Ward | Surgery | Med Bay | 2 | One more unit heals in the Med Bay at a time. |
 | Regen Lab | Regeneration | Med Bay | 2 | Units in the Med Bay heal 1 HP a turn faster. |
 | Repair Bay | Vehicle Repair | Garage | 2 | One more vehicle is repaired in the Garage at a time. |

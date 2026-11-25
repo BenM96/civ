@@ -323,22 +323,13 @@ func get_unit_limit(unit_name: String) -> int:
 	return -1
 
 
-## Extra damage a unit called `unit_name` does to every target (Weapons techs).
-func get_damage_bonus(unit_name: String) -> int:
-	var bonus := 0
-	for tech in _researched_techs():
-		if tech.damage_bonus_unit == unit_name:
-			bonus += 1
-	return bonus
-
-
 ## Extra damage every unit of type `attacker` does to units of type `target`
-## (techs like Civil Defence).
+## (Weapons techs, Civil Defence).
 func get_type_damage_bonus(attacker: Unit.UnitType, target: Unit.UnitType) -> int:
 	var bonus := 0
 	for tech in _researched_techs():
-		if tech.type_damage_bonus.size() == 2 and tech.type_damage_bonus[0] == attacker and tech.type_damage_bonus[1] == target:
-			bonus += 1
+		if tech.type_damage_attacker == attacker:
+			bonus += tech.type_damage_bonus.get(target, 0)
 	return bonus
 
 

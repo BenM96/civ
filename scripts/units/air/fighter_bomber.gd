@@ -11,6 +11,6 @@ func _init() -> void:
 	silhouette = "eurofighter"
 	add_specialist_cost()
 	train_turns = 5
-	#                    infantry, civilian, armour, air
+	#                    civilian, infantry, armour, air
 	damage = damage_vs(6, 6, 10, 6)
 	body_color = Color(0.6, 0.75, 0.8)

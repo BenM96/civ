@@ -10,6 +10,6 @@ func _init() -> void:
 	short_name = "CH"
 	silhouette = "helicopter"
 	train_turns = 4
-	#                    infantry, civilian, armour, air
+	#                    civilian, infantry, armour, air
 	damage = damage_vs(6, 6, 6, 6)
 	body_color = Color(0.55, 0.8, 0.95)

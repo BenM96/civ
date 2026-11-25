@@ -16,7 +16,7 @@ func _init() -> void:
 	upkeep = 1
 	max_movement = 3
 	unit_type = UnitType.INFANTRY
-	#                    infantry, civilian, armour, air
-	damage = damage_vs(4, 6, 2, 2)
+	#                    civilian, infantry, armour, air
+	damage = damage_vs(6, 3, 3, 2)
 	body_color = Color(0.9, 0.35, 0.3)
 	allowed_missions = ["move", "guard", "escort", "capture", "demolish", "qrf"]

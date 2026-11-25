@@ -6,13 +6,14 @@ extends RefCounted
 ## A tech only unlocks or raises things - it never builds anything itself.
 ## What it does is set by the effect fields below (most techs use one). The
 ## rest of the game asks the Player what it has researched (Player.has_tech(),
-## get_building_limit(), get_builder_limit(), get_damage_bonus()...) rather
+## get_building_limit(), get_builder_limit(), get_type_damage_bonus()...) rather
 ## than looking at techs directly.
 
 ## Saved in save files - never change one once it's in use.
 var id := ""
 var display_name := ""
-## 1 and up. A tech's prerequisite is always in a lower tier.
+## 1 and up: the tier_N folder its script is in. A tech's prerequisite is
+## always in a lower tier.
 var tier := 1
 ## A tech (its id) that must be researched first, on any tree, or "".
 var requires := ""
@@ -28,11 +29,12 @@ var unlocks_buildable := ""
 var building_limit_bonus: Dictionary = {}
 ## How much this raises the Builder limit.
 var builder_limit_bonus := 0
-## A unit (unit_name) whose damage against every type this raises by 1.
-var damage_bonus_unit := ""
-## [attacker UnitType, target UnitType]: every unit of the first type does
-## +1 damage to units of the second (e.g. civilians against civilians), or [].
-var type_damage_bonus: Array = []
+## The unit type (Unit.UnitType) that type_damage_bonus applies to, or -1.
+var type_damage_attacker := -1
+## Target UnitType -> extra damage every type_damage_attacker unit does to
+## units of that type (e.g. Civil Defence: civilians +2 vs civilians;
+## Infantry Weapons: infantry +1 vs every type).
+var type_damage_bonus: Dictionary = {}
 ## Extra movement points for every land unit.
 var movement_bonus := 0
 ## Extra initiative (see Player.get_initiative()).
@@ -42,10 +44,11 @@ var initiative_bonus := 0
 var extractor_bonus: Dictionary = {}
 
 
-func _init(p_id: String, p_name: String, p_tier: int, p_requires := "") -> void:
+## Each tech is its own script in scripts/techs/tier_N/ that calls this from
+## its _init(). `tier` comes from the folder (set by TechList).
+func _init(p_id := "", p_name := "", p_requires := "") -> void:
 	id = p_id
 	display_name = p_name
-	tier = p_tier
 	requires = p_requires
 
 
@@ -63,11 +66,16 @@ func get_effect_text() -> String:
 		parts.append("+%d %s limit." % [building_limit_bonus[building_id], Building.get_name_for(building_id)])
 	if builder_limit_bonus > 0:
 		parts.append("+%d Builder limit." % builder_limit_bonus)
-	if damage_bonus_unit != "":
-		parts.append("%s does +1 damage to everything." % damage_bonus_unit)
-	if type_damage_bonus.size() == 2:
-		parts.append("%s units do +1 damage to %s units." % [
-			Unit.get_type_name(type_damage_bonus[0]), Unit.get_type_name(type_damage_bonus[1]).to_lower()])
+	var bonuses := type_damage_bonus.values()
+	if type_damage_attacker >= 0 and type_damage_bonus.size() == Unit.UnitType.size() \
+			and bonuses.all(func(b: int) -> bool: return b == bonuses[0]):
+		parts.append("%s units do +%d damage to everything." % [
+			Unit.get_type_name(type_damage_attacker), bonuses[0]])
+	elif type_damage_attacker >= 0:
+		for target in type_damage_bonus:
+			parts.append("%s units do +%d damage to %s units." % [
+				Unit.get_type_name(type_damage_attacker), type_damage_bonus[target],
+				Unit.get_type_name(target).to_lower()])
 	if movement_bonus > 0:
 		parts.append("+%d movement for every land unit." % movement_bonus)
 	if initiative_bonus > 0:

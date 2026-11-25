@@ -14,6 +14,6 @@ func _init() -> void:
 	add_specialist_cost()
 	train_turns = 5
 	allowed_missions = ["carpet_bomb"]
-	#                    infantry, civilian, armour, air
+	#                    civilian, infantry, armour, air
 	damage = damage_vs(0, 0, 0, 2)
 	body_color = Color(0.5, 0.65, 0.85)

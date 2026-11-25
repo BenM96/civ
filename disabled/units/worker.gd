@@ -11,6 +11,6 @@ func _init() -> void:
 	upkeep = 1
 	max_movement = 3
 	unit_type = UnitType.CIVILIAN
-	#                    infantry, civilian, armour, air
-	damage = damage_vs(1, 2, 0, 0)
+	#                    civilian, infantry, armour, air
+	damage = damage_vs(2, 1, 0, 0)
 	body_color = Color(0.85, 0.93, 1.0)

@@ -167,15 +167,15 @@ func _ready() -> void:
 
 
 ## HP taken off `target` by one shot from this unit: its damage against
-## that type, plus 1 for each of its colony's Weapons techs for this unit.
-## Types it can't hurt at all (0 damage) stay at 0.
+## that type, plus its colony's techs for its unit type (Weapons techs, Civil
+## Defence). Types it can't hurt at all (0 damage) stay at 0.
 func get_damage_against(target: Unit) -> int:
 	var base: int = damage.get(target.unit_type, 0)
 	if base <= 0:
 		return 0
 	var bonus := 0
 	if player:
-		bonus = player.get_damage_bonus(unit_name) + player.get_type_damage_bonus(unit_type, target.unit_type)
+		bonus = player.get_type_damage_bonus(unit_type, target.unit_type)
 	return base + bonus
 
 
@@ -314,10 +314,11 @@ func add_specialist_cost() -> void:
 
 
 ## A `damage` table: HP taken off each type of enemy per shot.
-static func damage_vs(infantry: int, civilian: int, armour: int, air: int) -> Dictionary:
+## Order: civilian, infantry, armour, air.
+static func damage_vs(civilian: int, infantry: int, armour: int, air: int) -> Dictionary:
 	return {
-		UnitType.INFANTRY: infantry,
 		UnitType.CIVILIAN: civilian,
+		UnitType.INFANTRY: infantry,
 		UnitType.ARMOUR: armour,
 		UnitType.AIR: air,
 	}

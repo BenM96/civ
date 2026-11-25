@@ -608,7 +608,7 @@ func _aim_research(ask_miner: bool) -> void:
 
 
 ## How much we want `tech` (lower first): more Builders and food, then the
-## basic buildings, then units, then Weapons for units we have, the rest,
+## basic buildings, then units, then Weapons for unit types we have, the rest,
 ## and Command Doctrine last - except in phase 5, where it comes first (we
 ## build command points then).
 func _research_rank(tech: Tech) -> int:
@@ -620,8 +620,9 @@ func _research_rank(tech: Tech) -> int:
 		return 2
 	if tech.unlocks_unit != "":
 		return 3
-	if tech.damage_bonus_unit != "":
-		var have := player.units.any(func(u: Unit) -> bool: return u.unit_name == tech.damage_bonus_unit)
+	# Weapons techs (Civil Defence, for civilians, is just "the rest").
+	if tech.type_damage_attacker >= 0 and tech.type_damage_attacker != Unit.UnitType.CIVILIAN:
+		var have := player.units.any(func(u: Unit) -> bool: return u.unit_type == tech.type_damage_attacker)
 		return 4 if have else 6
 	if tech.unlocks_buildable == CommandPointBuildable.ID:
 		return 0 if extractor_phase == Phase.EXPANSION else 7
