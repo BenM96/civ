@@ -21,45 +21,45 @@ Techs are researched with Electrum from **Research (R)**. Each game deals every 
 
 | Tech | What it does | Also needs |
 |---|---|---|
-| **Assault Infantry** | Lets you train Assault Infantry. | Barracks (tier 1) |
-| **Command Doctrine** | Lets Builders build Command Points. | - |
-| **Garage** | Lets you build a Garage. | - |
 | **Regeneration** | Lets you build a Regen Lab. | Med Bay (tier 1) |
 | **Surgery** | Lets you build a Surgical Ward. | Med Bay (tier 1) |
 | **Workforce II** | +1 Builder limit. | - |
+| **Assault Infantry** | Lets you train Assault Infantry. | Barracks (tier 1) |
+| **Command Doctrine** | Lets Builders build Command Points. | - |
+| **Garage** | Lets you build a Garage. | - |
 
 ## Tier 3 (5-6 Electrum)
 
 | Tech | What it does | Also needs |
 |---|---|---|
+| **Vehicle Repair** | Lets you build a Repair Bay. | Garage (tier 2) |
 | **AT Infantry** | Lets you train AT Infantry. | Barracks (tier 1) |
 | **Forward Bases** | Lets Builders build FOBs. | - |
 | **Hangar** | Lets you build a Hangar. | - |
 | **Tank** | Lets you train Tank. | Garage (tier 2) |
 | **Tank Destroyer** | Lets you train Tank Destroyer. | Garage (tier 2) |
-| **Vehicle Repair** | Lets you build a Repair Bay. | Garage (tier 2) |
 
 ## Tier 4 (7-8 Electrum)
 
 | Tech | What it does | Also needs |
 |---|---|---|
-| **Anti-Aircraft Gun** | Lets you train Anti-Aircraft Gun. | Garage (tier 2) |
 | **Advanced Drilling** | Titanium extractors deliver 0.1 more a turn. Sediment extractors deliver 0.1 more a turn. Gold extractors deliver 0.1 more a turn. | - |
-| **Fighter** | Lets you train Fighter. | Hangar (tier 3) |
 | **Initiative II** | +1 initiative (whoever has the most fires first in battle). | Initiative I (tier 1) |
 | **Machine Tools** | Lets you build a Machine Shop. | Garage (tier 2) |
+| **Anti-Aircraft Gun** | Lets you train Anti-Aircraft Gun. | Garage (tier 2) |
+| **Fighter** | Lets you train Fighter. | Hangar (tier 3) |
 | **Stinger Infantry** | Lets you train Stinger Infantry. | Barracks (tier 1) |
 
 ## Tier 5 (9-10 Electrum)
 
 | Tech | What it does | Also needs |
 |---|---|---|
+| **Fighter Bomber** | Lets you train Fighter Bomber. | Hangar (tier 3) |
+| **Workforce III** | +1 Builder limit. | - |
 | **Air Weapons** | Air units do +1 damage to everything. | Hangar (tier 3) |
 | **Armour Weapons** | Armour units do +1 damage to everything. | Garage (tier 2) |
 | **Bomber** | Lets you train Bomber. | Hangar (tier 3) |
-| **Fighter Bomber** | Lets you train Fighter Bomber. | Hangar (tier 3) |
 | **Infantry Weapons** | Infantry units do +1 damage to everything. | Barracks (tier 1) |
-| **Workforce III** | +1 Builder limit. | - |
 
 ## Tier 6 (11-12 Electrum)
 

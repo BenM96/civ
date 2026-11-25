@@ -1,5 +1,5 @@
 extends Tech
-## FLEXIBLE: can be moved to another tier or used as filler without asking.
+## LOCKED: do not move to another tier or change without asking first.
 ## Every air unit does +1 damage to everything.
 
 

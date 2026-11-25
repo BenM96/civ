@@ -6,7 +6,8 @@ extends RefCounted
 ## folder it's in IS its tier: to move a tech, move its file. Within a tier
 ## they're in file-name order. Each file says at the top whether it's
 ## LOCKED (don't move it without asking) or FLEXIBLE (can be moved or used
-## as filler).
+## as filler). Locked techs' file names start with x_ (e.g. x_barracks.gd)
+## - rename the file if you lock or unlock one.
 ##
 ## RULE: every tier must have exactly TECHS_PER_TIER (6) techs, because each
 ## game deals them out to TechTrees.TREE_COUNT (3) trees, TECHS_PER_TREE_TIER
